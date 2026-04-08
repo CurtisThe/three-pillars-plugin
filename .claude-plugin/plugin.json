@@ -5,7 +5,7 @@
   "author": {
     "name": "Curtis"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/CurtisThe/three-pillars-plugin",
   "repository": "https://github.com/CurtisThe/three-pillars-plugin",
   "keywords": ["tdd", "council", "spike", "design", "session"],
