@@ -43,7 +43,7 @@ off, the people who use it, and the people who maintain it.
 ### Speed
 
 - Two-command plugin install — no cloning, no bootstrap scripts.
-- 23 TDD skills that automate the design-plan-implement-review cycle. Red-green-refactor with Claude as pair.
+- 25 TDD skills that automate the design-plan-implement-review cycle. Red-green-refactor with Claude as pair.
 - Spike pipeline for time-boxed experiments — validate unknowns before committing to a full design.
 - `/tdd-spike-auto` runs an entire spike hands-off: plan, audit, implement, capture results. Review `decisions.md` the next morning.
 - Parallel agent execution during implementation — independent tasks run concurrently.
@@ -87,12 +87,6 @@ This scales because no single person needs to understand every domain. The AI do
 - [x] Session continuity across conversations and machines
 - [x] Design lifecycle management (learn, complete, archive)
 - [x] Three living project docs with init and update skills
-
-### Next: Guide skill
-- [ ] `/tdd-guide [what I'm thinking about]` — reads project docs and proposes what to do next
-- [ ] Optional freeform argument lets the user loosely describe intent (e.g., `/tdd-guide auth feels fragile`)
-- [ ] Surfaces the highest-impact next step based on roadmap, known issues, and in-flight designs
-- [ ] Onboarding path for new users — "where do I start?" answered by the codebase itself
 
 ### Next: Stakeholder agents
 - [ ] Adapt the council agent pattern for company-specific personas

@@ -138,7 +138,7 @@ Most skills take a `<design-name>` as their first argument, corresponding to a d
 | Command | What it does |
 |---|---|
 | `/tdd-session-save <name>` | Save context to `handoff.md` for cross-conversation continuity |
-| `/tdd-session-restore <name>` | Restore context at start of a new conversation |
+| `/tdd-session-restore [name]` | Restore context at start of a new conversation |
 | `/tdd-session-clear <name>` | Clear stale context when switching tasks |
 
 ### Council of High Intelligence
