@@ -81,7 +81,7 @@ This scales because no single person needs to understand every domain. The AI do
 ### Done
 - [x] Plugin marketplace distribution (two-command install)
 - [x] Council of High Intelligence (18 thinkers, 4 modes, 20+ pre-built triads)
-- [x] TDD pipeline (23 skills): design, detail, audit, plan, implement, review, final audit
+- [x] TDD pipeline (25 skills): guide, setup, design, detail, audit, plan, implement, review, final audit
 - [x] Spike pipeline: hypothesis-driven experiments with structured findings
 - [x] Autonomous spike execution (`/tdd-spike-auto`) with decision logging
 - [x] Session continuity across conversations and machines

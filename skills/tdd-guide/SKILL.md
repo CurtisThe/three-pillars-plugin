@@ -20,11 +20,21 @@ Read the project's current state and recommend the highest-impact next step.
    - `"auth feels fragile"` → focus on auth-related known issues, architecture gaps, and whether a design or spike is warranted
    - `"ready to ship"` → focus on blocking issues, incomplete designs, and release readiness
    - `"new to this repo"` → provide onboarding: what the project does, how it's structured, how to use the TDD pipeline
-6. **Synthesize a recommendation**. Present:
+6. **Choose the right weight of approach**. Not everything needs a design or a spike. Match the approach to the complexity:
+
+   | Approach | When to use | Example |
+   |---|---|---|
+   | **Just do it** | Small, well-understood change. One conversation, no ambiguity. | Fix a bug, add a config option, rename a module |
+   | **Spike** (`/tdd-spike`) | Unclear if an approach works. Need to validate before committing. | New integration, unfamiliar API, performance experiment |
+   | **Full design** (`/tdd-design`) | Known approach, multi-phase work, needs quality gates. | New subsystem, major refactor, cross-cutting feature |
+
+   Default to the lightest approach that fits. A spike that proves an approach works can always feed into a full design later. Don't recommend `/tdd-design` for something that can be built in 20 minutes.
+
+7. **Synthesize a recommendation**. Present:
    - **Current state** (1-2 sentences): what's active, what's blocked, what recently completed
-   - **Recommendation**: the single highest-impact next action, with rationale
+   - **Recommendation**: the single highest-impact next action, with approach and rationale
    - **Alternatives**: 1-2 other reasonable next steps if the user wants to go a different direction
-   - **Suggested command**: the specific `/tdd-*` command to run next (e.g., `/tdd-design auth-hardening`, `/tdd-spike caching-strategy`)
+   - **Suggested command**: the specific command to run next — either a `/tdd-*` command or just "describe the change and I'll build it" for simple tasks
 
 ## Rules
 - Keep the output concise — under 20 lines. This is a compass, not an essay.
@@ -32,3 +42,4 @@ Read the project's current state and recommend the highest-impact next step.
 - If no project docs exist, recommend `/tdd-docs-init` as the first step.
 - If no intent is given and there's an active design with a handoff, recommend continuing that work.
 - Don't start doing the recommended work — just propose it and let the user decide.
+- Bias toward the lightest approach. Most work doesn't need a formal design.

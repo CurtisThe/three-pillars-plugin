@@ -9,7 +9,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars-plugin
 ```
 
-Restart Claude Code. Your 23 skills and 18 council agents are live.
+Restart Claude Code. Your 25 skills and 18 council agents are live.
 
 ### Optional extras
 
@@ -57,10 +57,11 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 ## What's included
 
-**23 skills** organized into pipelines:
+**25 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
+| Getting Started | guide, setup | What to do next, test infrastructure configuration |
 | TDD Design | design, design-detail, design-audit | Design documents and review |
 | TDD Planning | plan, plan-audit | Task sequencing and verification |
 | TDD Implementation | phase-implement, task-cycle, phase-review, implementation-audit | Red-green-refactor execution |
@@ -74,7 +75,14 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 ## Skills reference
 
-Every skill takes a `<design-name>` as its first argument, corresponding to a directory under `docs/tdd-designs/`.
+Most skills take a `<design-name>` as their first argument, corresponding to a directory under `docs/tdd-designs/`.
+
+### Getting started
+
+| Command | What it does |
+|---|---|
+| `/tdd-guide [intent]` | Read project docs and recommend the highest-impact next step |
+| `/tdd-setup` | Analyze project stack and configure test infrastructure for the TDD pipeline |
 
 ### Design phase
 

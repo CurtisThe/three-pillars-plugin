@@ -12,6 +12,11 @@ Every project should maintain three living docs in `docs/`:
 
 Use `/tdd-docs-init` to scaffold these from codebase analysis. Use `/tdd-docs-update` to maintain them after milestones.
 
+## Getting Started
+
+- **`/tdd-guide [intent]`** — Read project docs and recommend the highest-impact next step. Accepts optional freeform intent (e.g., `/tdd-guide auth feels fragile`). Helps choose the right approach: just do it, spike, or full design.
+- **`/tdd-setup`** — Analyze project stack and configure test infrastructure so the TDD pipeline can run tests immediately.
+
 ## TDD Pipeline
 
 For structured implementations with full confidence:
