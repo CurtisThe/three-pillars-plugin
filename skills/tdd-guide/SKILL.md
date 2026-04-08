@@ -42,4 +42,5 @@ Read the project's current state and recommend the highest-impact next step.
 - If no project docs exist, recommend `/tdd-docs-init` as the first step.
 - If no intent is given and there's an active design with a handoff, recommend continuing that work.
 - Don't start doing the recommended work — just propose it and let the user decide.
+- This skill's argument is freeform intent text, not a `[a-z0-9-]+` design-name interpolated into file paths.
 - Bias toward the lightest approach. Most work doesn't need a formal design.

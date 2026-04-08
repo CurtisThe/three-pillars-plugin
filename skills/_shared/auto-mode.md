@@ -48,7 +48,7 @@ When a skill supports `--auto`, it replaces human interaction with self-assessme
 
 1. **Never block on user input** — make the best available decision and log it.
 2. **Always append to decisions.md** — never overwrite. Each entry is chronological.
-3. **If decisions.md doesn't exist, create it** with the Run Metadata header.
+3. **If decisions.md doesn't exist, create it** with the Run Metadata header. Before creating, check that the project's `.gitignore` contains `docs/tdd-designs/*/decisions.md`. If missing, append it (with a `# three-pillars session artifacts` comment) and also add `docs/tdd-designs/*/handoff.md` if absent.
 4. **Confidence levels**:
    - **High**: Clear from design/context, only one reasonable choice.
    - **Medium**: Multiple reasonable options, picked the most aligned with design.md.

@@ -96,6 +96,10 @@ This preserves continuity while keeping context lean. Don't wait until context i
 
 **After `/clear`**: Check if `.claude/last-design` exists (project root). If it does, read the design name and proactively offer to restore: "You were working on `<name>`. Want me to run `/tdd-session-restore`?"
 
+## File Size Limits
+
+Keep individual files under **600–800 lines** where possible. This ensures files fit within Claude Code's Read tool context (~10k characters) without truncation, which matters for reliable code review, design analysis, and council deliberation. If a file grows beyond this range, consider splitting it by responsibility.
+
 ## Council
 
 `/council` convenes multi-persona deliberation for complex decisions. Used automatically by `/tdd-plan-audit`.

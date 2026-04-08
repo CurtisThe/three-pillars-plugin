@@ -7,7 +7,7 @@ description: "Conversational project testing setup. Analyzes language, framework
 
 Configure a project's test infrastructure so the TDD pipeline can run tests immediately.
 
-**No arguments** — operates on the current repository.
+**No arguments** — operates on the current repository, not a `[a-z0-9-]+` design directory.
 
 ## Steps
 
@@ -44,7 +44,15 @@ Configure a project's test infrastructure so the TDD pipeline can run tests imme
    - Add the test command permission so the TDD pipeline can run tests without prompting (e.g., `"Bash(npm test:*)"`, `"Bash(pytest:*)"`)
    - Show the user what permission is being added and why
 
-7. **Verify**: Run the test suite once to confirm everything works.
+7. **Ensure session artifacts are gitignored**:
+   - Check the project's `.gitignore` for these patterns:
+     ```
+     docs/tdd-designs/*/handoff.md
+     docs/tdd-designs/*/decisions.md
+     ```
+   - If missing, append them (with a `# three-pillars session artifacts` comment) and tell the user what was added and why (these files may contain sensitive session context and autonomous decision logs that should not enter version control)
+
+8. **Verify**: Run the test suite once to confirm everything works.
 
 ## Rules
 - Always let the user choose between options — don't silently install tools.

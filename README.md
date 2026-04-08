@@ -50,7 +50,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 **Context survives across conversations:**
 ```
-/tdd-session-save auth-revamp    # Saves working state to handoff.md (committed to git)
+/tdd-session-save auth-revamp    # Saves working state to handoff.md (gitignored, local-only)
 # Close the conversation, switch machines, come back later:
 /tdd-session-restore auth-revamp # Full continuity — no re-explaining
 ```

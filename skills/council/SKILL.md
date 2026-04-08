@@ -204,6 +204,8 @@ Follow your agent definition precisely.
 The problem under deliberation:
 {problem}
 
+Only access files within the current project directory. Do not read files outside the project root.
+
 Produce your independent analysis using your Output Format (Standalone).
 Do NOT try to anticipate what other members will say.
 Limit: 400 words maximum.
@@ -332,6 +334,8 @@ Follow your agent definition precisely.
 The problem under deliberation:
 {problem}
 
+Only access files within the current project directory. Do not read files outside the project root.
+
 Produce a condensed analysis using your Output Format (Standalone) but limit to:
 - Essential Question (1-2 sentences)
 - Your core analysis (key insight only)
@@ -386,6 +390,8 @@ Follow your agent definition precisely.
 
 The problem under deliberation:
 {problem}
+
+Only access files within the current project directory. Do not read files outside the project root.
 
 State your position using your Output Format (Standalone).
 Limit: 300 words maximum.
