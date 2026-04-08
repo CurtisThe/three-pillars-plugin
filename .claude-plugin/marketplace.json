@@ -1,0 +1,21 @@
+{
+  "name": "three-pillars",
+  "owner": {
+    "name": "Curtis"
+  },
+  "metadata": {
+    "description": "Structured TDD pipeline, council deliberation, and session continuity for Claude Code",
+    "version": "1.0"
+  },
+  "plugins": [
+    {
+      "name": "three-pillars",
+      "source": "./",
+      "description": "Full three-pillars framework: TDD pipeline, spike pipeline, council, session management, and docs skills",
+      "version": "1.0.0",
+      "author": {
+        "name": "Curtis"
+      }
+    }
+  ]
+}

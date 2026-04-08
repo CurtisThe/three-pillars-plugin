@@ -1,0 +1,31 @@
+{
+  "name": "three-pillars",
+  "version": "1.0.0",
+  "description": "Structured TDD pipeline, council deliberation, and session continuity for Claude Code",
+  "author": {
+    "name": "Curtis"
+  },
+  "license": "MIT",
+  "keywords": ["tdd", "council", "spike", "design", "session"],
+  "skills": "./skills/",
+  "agents": [
+    "./agents/council-ada.md",
+    "./agents/council-aristotle.md",
+    "./agents/council-aurelius.md",
+    "./agents/council-feynman.md",
+    "./agents/council-kahneman.md",
+    "./agents/council-karpathy.md",
+    "./agents/council-lao-tzu.md",
+    "./agents/council-machiavelli.md",
+    "./agents/council-meadows.md",
+    "./agents/council-munger.md",
+    "./agents/council-musashi.md",
+    "./agents/council-rams.md",
+    "./agents/council-socrates.md",
+    "./agents/council-sun-tzu.md",
+    "./agents/council-sutskever.md",
+    "./agents/council-taleb.md",
+    "./agents/council-torvalds.md",
+    "./agents/council-watts.md"
+  ]
+}
