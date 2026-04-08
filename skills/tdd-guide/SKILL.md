@@ -1,0 +1,34 @@
+---
+name: tdd-guide
+description: "Read project docs and propose what to do next. Surfaces highest-impact work from roadmap, known issues, and in-flight designs."
+argument-hint: "[intent]"
+---
+
+# Guide
+
+Read the project's current state and recommend the highest-impact next step.
+
+**Argument**: `[intent]` (optional) — freeform text expressing a loose goal or concern (e.g., `auth feels fragile`, `ready to ship`, `new to this repo`).
+
+## Steps
+
+1. **Read project docs** per `skills/_shared/read-project-docs.md`.
+2. **Scan active designs**: Check `docs/tdd-designs/` for in-flight work. For each, read `design.md` (first 20 lines) and `handoff.md` (if present) to understand phase and status.
+3. **Check completed designs**: Scan `docs/completed-tdd-designs/` to understand what's already been built.
+4. **Read `.claude/last-design`** if it exists, to know what the user was last working on.
+5. **If an intent was provided**, filter your analysis through that lens. For example:
+   - `"auth feels fragile"` → focus on auth-related known issues, architecture gaps, and whether a design or spike is warranted
+   - `"ready to ship"` → focus on blocking issues, incomplete designs, and release readiness
+   - `"new to this repo"` → provide onboarding: what the project does, how it's structured, how to use the TDD pipeline
+6. **Synthesize a recommendation**. Present:
+   - **Current state** (1-2 sentences): what's active, what's blocked, what recently completed
+   - **Recommendation**: the single highest-impact next action, with rationale
+   - **Alternatives**: 1-2 other reasonable next steps if the user wants to go a different direction
+   - **Suggested command**: the specific `/tdd-*` command to run next (e.g., `/tdd-design auth-hardening`, `/tdd-spike caching-strategy`)
+
+## Rules
+- Keep the output concise — under 20 lines. This is a compass, not an essay.
+- Prioritize: critical known issues > blocked designs > roadmap next items > tech debt.
+- If no project docs exist, recommend `/tdd-docs-init` as the first step.
+- If no intent is given and there's an active design with a handoff, recommend continuing that work.
+- Don't start doing the recommended work — just propose it and let the user decide.
