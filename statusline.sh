@@ -113,9 +113,21 @@ if [ -n "$CWD" ] && git -C "$CWD" --no-optional-locks rev-parse --git-dir >/dev/
   fi
 fi
 
+# --- TDD design info ---
+ACTIVE_DESIGN=""
+DESIGN_LIST=""
+if [ -n "$CWD" ] && [ -f "$CWD/.claude/last-design" ]; then
+  ACTIVE_DESIGN=$(cat "$CWD/.claude/last-design" 2>/dev/null)
+fi
+if [ -n "$CWD" ] && [ -d "$CWD/docs/tdd-designs" ]; then
+  DESIGN_LIST=$(ls -1 "$CWD/docs/tdd-designs/" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+fi
+
 # =====================================================================
 # LINE 1: Model | Git | Agent/Worktree | Context bar + percentage
 # =====================================================================
+L1=""
+
 L1=""
 
 # Model badge
@@ -130,6 +142,11 @@ fi
 # Git branch
 if [ -n "$BRANCH" ]; then
   L1+=" ${DIM}|${RST} ${BMAG}${BRANCH}${YEL}${DIRTY}${RST}"
+fi
+
+# Active TDD design
+if [ -n "$ACTIVE_DESIGN" ]; then
+  L1+=" ${DIM}|${RST} ${BGRN}tdd:${ACTIVE_DESIGN}${RST}"
 fi
 
 # Agent name
@@ -170,64 +187,23 @@ fi
 echo -e "$L1"
 
 # =====================================================================
-# LINE 2: Tokens detail | Cache | Cost | Duration
+# LINE 2: Available designs
 # =====================================================================
 L2=""
 
-# Current context tokens
-if [ -n "$CUR_IN" ]; then
-  L2+="${DIM}ctx:${RST}$(fmt_tokens "$CUR_IN")${DIM}in${RST}"
-  [ -n "$CUR_OUT" ] && L2+="${DIM}+${RST}$(fmt_tokens "$CUR_OUT")${DIM}out${RST}"
-fi
-
-# Session totals
-if [ -n "$TOTAL_IN" ]; then
-  [ -n "$L2" ] && L2+=" ${DIM}|${RST} "
-  L2+="${DIM}ses:${RST}$(fmt_tokens "$TOTAL_IN")${DIM}in${RST}"
-  [ -n "$TOTAL_OUT" ] && L2+="${DIM}+${RST}$(fmt_tokens "$TOTAL_OUT")${DIM}out${RST}"
-fi
-
-# Cache stats
-if [ -n "$CACHE_READ" ] || [ -n "$CACHE_WRITE" ]; then
-  [ -n "$L2" ] && L2+=" ${DIM}|${RST} "
-  L2+="${DIM}cache:${RST}"
-  [ -n "$CACHE_READ" ] && L2+="${GRN}$(fmt_tokens "$CACHE_READ")${DIM}hit${RST}"
-  if [ -n "$CACHE_WRITE" ]; then
-    [ -n "$CACHE_READ" ] && L2+="${DIM}/${RST}"
-    L2+="${BLU}$(fmt_tokens "$CACHE_WRITE")${DIM}new${RST}"
-  fi
-fi
-
-# Cost
-if [ -n "$COST" ]; then
-  [ -n "$L2" ] && L2+=" ${DIM}|${RST} "
-  L2+="${BYEL}\$${COST}${RST}"
-fi
-
-# Duration
-if [ -n "$DURATION_MS" ]; then
-  [ -n "$L2" ] && L2+=" ${DIM}|${RST} "
-  L2+="${DIM}elapsed:${RST}$(fmt_ms "$DURATION_MS")"
-  if [ -n "$API_MS" ]; then
-    L2+="${DIM}(api:${RST}$(fmt_ms "$API_MS")${DIM})${RST}"
-  fi
+if [ -n "$DESIGN_LIST" ]; then
+  L2+="${DIM}designs:${RST} ${CYN}${DESIGN_LIST}${RST}"
 fi
 
 echo -e "$L2"
 
 # =====================================================================
-# LINE 3: Code changes | Rate limits | Session/version
+# LINE 3: Code changes | Tokens | Cache | Cost | Rate limits
 # =====================================================================
 L3=""
 
-# Code changes
-if [ -n "$LINES_ADD" ] || [ -n "$LINES_DEL" ]; then
-  L3+="${BGRN}+${LINES_ADD:-0}${RST}${DIM}/${RST}${BRED}-${LINES_DEL:-0}${RST}${DIM}lines${RST}"
-fi
-
 # Rate limits
 if [ -n "$RL5H" ]; then
-  [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
   pct5=$(printf '%.0f' "$RL5H" 2>/dev/null || echo 0)
   if [ "$pct5" -ge 80 ]; then
     L3+="${BRED}5h:${pct5}%${RST}"
@@ -248,19 +224,47 @@ if [ -n "$RL7D" ]; then
   fi
 fi
 
+# Code changes
+if [ -n "$LINES_ADD" ] || [ -n "$LINES_DEL" ]; then
+  [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
+  L3+="${BGRN}+${LINES_ADD:-0}${RST}${DIM}/${RST}${BRED}-${LINES_DEL:-0}${RST}${DIM}lines${RST}"
+fi
+
+# Current context tokens
+if [ -n "$CUR_IN" ]; then
+  [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
+  L3+="${DIM}ctx:${RST}$(fmt_tokens "$CUR_IN")${DIM}in${RST}"
+  [ -n "$CUR_OUT" ] && L3+="${DIM}+${RST}$(fmt_tokens "$CUR_OUT")${DIM}out${RST}"
+fi
+
+# Session totals
+if [ -n "$TOTAL_IN" ]; then
+  [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
+  L3+="${DIM}ses:${RST}$(fmt_tokens "$TOTAL_IN")${DIM}in${RST}"
+  [ -n "$TOTAL_OUT" ] && L3+="${DIM}+${RST}$(fmt_tokens "$TOTAL_OUT")${DIM}out${RST}"
+fi
+
+# Cache stats
+if [ -n "$CACHE_READ" ] || [ -n "$CACHE_WRITE" ]; then
+  [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
+  L3+="${DIM}cache:${RST}"
+  [ -n "$CACHE_READ" ] && L3+="${GRN}$(fmt_tokens "$CACHE_READ")${DIM}hit${RST}"
+  if [ -n "$CACHE_WRITE" ]; then
+    [ -n "$CACHE_READ" ] && L3+="${DIM}/${RST}"
+    L3+="${BLU}$(fmt_tokens "$CACHE_WRITE")${DIM}new${RST}"
+  fi
+fi
+
 # >200k indicator
 if [ "$EXCEEDS_200K" = "true" ]; then
   [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
   L3+="${BYEL}>200k${RST}"
 fi
 
-# Session ID (short) + version
-if [ -n "$SESSION" ]; then
+# Cost (rightmost)
+if [ -n "$COST" ]; then
   [ -n "$L3" ] && L3+=" ${DIM}|${RST} "
-  L3+="${DIM}${SESSION:0:8}${RST}"
-fi
-if [ -n "$VERSION" ]; then
-  L3+=" ${DIM}v${VERSION}${RST}"
+  L3+="${BYEL}\$${COST}${RST}"
 fi
 
 echo -e "$L3"

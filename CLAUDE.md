@@ -82,6 +82,15 @@ Most spike skills support `--auto` for autonomous execution:
 /tdd-session-clear   → clear stale context when switching tasks
 ```
 
+**Context window hygiene**: When context exceeds 200k tokens (visible in the status line as `>200k`), proactively recommend the user save and restart:
+1. Run `/tdd-session-save <active-design>` to capture current state
+2. Suggest the user run `/clear` or start a new conversation
+3. After restore: `/tdd-session-restore <design-name>` to pick up where they left off
+
+This preserves continuity while keeping context lean. Don't wait until context is critical — recommend at 200k so the user has room to finish their current thought.
+
+**After `/clear`**: Check if `.claude/last-design` exists (project root). If it does, read the design name and proactively offer to restore: "You were working on `<name>`. Want me to run `/tdd-session-restore`?"
+
 ## Council
 
 `/council` convenes multi-persona deliberation for complex decisions. Used automatically by `/tdd-plan-audit`.
