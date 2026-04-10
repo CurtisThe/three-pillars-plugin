@@ -21,6 +21,14 @@ Read both `design.md` and `detailed-design.md` from the design directory.
 ### 1b. Read project context
 Read project docs per `skills/_shared/read-project-docs.md`. Check that the design does not contradict decisions recorded in `architecture.md`. Flag contradictions as INCONSISTENT findings.
 
+### 1c. Vision alignment check
+Read `docs/vision.md` if it exists and explicitly evaluate:
+- **Advances the vision?** Which problem, principle, or user from `docs/vision.md` does this design serve? If you can't name one, flag this as a CRITICAL MISALIGNMENT finding — either the design should not be built, or the vision is stale and needs `/tdd-docs-update`.
+- **Conflicts with non-goals?** Does any module, behavior, or interface in the detailed design cross into territory the vision has marked as a non-goal? Flag as CRITICAL MISALIGNMENT with a specific citation (file path in detailed-design + vision bullet).
+- **Violates principles?** Does the design's approach trade away a vision principle for convenience? (e.g., vision says "no network calls" but the design introduces a telemetry endpoint). Flag as MEDIUM MISALIGNMENT unless the design explicitly acknowledges and justifies the trade-off in its own document.
+
+MISALIGNMENT findings are presented alongside CRITICAL/MEDIUM/MINOR categories in Step 7 and must be resolved with the user before the audit completes — do not silently pass an audit over a vision conflict.
+
 ### 2. Interface verification (launch parallel agents)
 For EVERY interface defined in the detailed design (data structures, interfaces, function/method signatures), launch exploration agents to verify against the actual codebase:
 
@@ -63,6 +71,13 @@ For each feedback loop or orchestration flow:
 ### 6. Compile findings
 
 Categorize issues as:
+
+**MISALIGNMENT** — Design conflicts with or ignores `docs/vision.md`:
+- Touches a stated non-goal without justification
+- Trades away a stated principle without acknowledging it
+- Solves a problem the vision doesn't care about (candidate for dropping the design, not fixing it)
+
+Misalignment findings are resolved differently from the others: the user decides whether to drop the design, reshape it, or update the vision. Do not propose code-level fixes.
 
 **CRITICAL** — Would block implementation or cause architectural failure:
 - Interface mismatches between modules

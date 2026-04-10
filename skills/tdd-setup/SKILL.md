@@ -1,63 +1,71 @@
 ---
 name: tdd-setup
-description: "Conversational project testing setup. Analyzes language, framework, and existing infrastructure, then configures test tools so the TDD pipeline can run immediately."
+description: "Conversational project setup. Draws out the project's 'why' into docs/vision.md — the first artifact every other TDD skill reads. Run this first on any new project."
 ---
 
 # Setup
 
-Configure a project's test infrastructure so the TDD pipeline can run tests immediately.
+Draw out the project's **why** into `docs/vision.md`. This is the first artifact created on a new project because every other TDD skill reads it as the filter for what work matters and the tie-breaker when technical options are equivalent.
 
 **No arguments** — operates on the current repository, not a `[a-z0-9-]+` design directory.
 
+## Sequencing
+
+On a fresh project, the three-pillars setup flow is:
+
+1. **`/tdd-setup`** — draw out the **why** into `docs/vision.md` (this skill).
+2. **`/tdd-docs-init`** — scaffold the **how**, **what next**, and **what's broken** into `architecture.md`, `product_roadmap.md`, and `known_issues.md`.
+3. **`/tdd-test-setup`** — configure test infrastructure, informed by `architecture.md`. Deliberately runs *after* architecture so test-runner and layout choices are guided by the system's actual structure, not guessed at before the structure is documented.
+
+Do not decide on a testing framework in this skill. Test infrastructure decisions belong in `/tdd-test-setup`, where `architecture.md` exists to inform them.
+
 ## Steps
 
-1. **Analyze the project**:
-   - Detect language(s) and framework(s) from source files, package manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, etc.)
-   - Check for existing test infrastructure: test directories, test config files, test scripts in package manifests
-   - Check for existing test files and their patterns
-   - Read `docs/architecture.md` if it exists for additional context
+1. **Check for `docs/vision.md`**:
+   - If it exists, read it and summarize back to the user. Ask whether they want to revise it, replace it, or keep it as-is. If keep, stop and remind the user that the next step is `/tdd-docs-init`.
+   - If it doesn't exist, proceed with the conversation below.
 
-2. **Present findings**:
-   - Language/framework detected
-   - Existing test infrastructure (if any)
-   - What's missing or needs configuration
+2. **Gather context before asking**. Read the README, CLAUDE.md, recent git log, and any top-level `MANIFESTO.md` / `VISION.md` / `PRINCIPLES.md` variant files. Use these to form an *initial draft* of what the why might be. Never invent — if the repo is too new or ambiguous, say so and rely entirely on the conversation.
 
-3. **If test infrastructure already exists**, confirm it works:
-   - Try running the existing test command
-   - If tests pass, report success and check that `.claude/settings.json` has the right `Bash(...)` permission for the TDD pipeline
-   - If tests fail, diagnose and offer to fix
+3. **Have a vision conversation**. Present your draft interpretation first ("here's what I think this project is about, based on the README and recent commits") and then ask clarifying questions to sharpen each of the five sections. Draw out:
+   - **Problem** — What specific problem does this project solve? Whose pain disappears when it works? Push back on "it's a tool for X" framings that don't name an actual pain.
+   - **Users** — Who is this for? Be concrete — roles, contexts, skill levels. Who is it explicitly *not* for?
+   - **Principles** — What non-negotiable values shape every decision? (e.g. "simplicity over configurability", "local-first", "no telemetry"). These are the tie-breakers when two approaches are both technically viable.
+   - **Non-goals** — What will this project explicitly *never* become, even under pressure? Non-goals are the shield against scope creep during audits.
+   - **Success signals** — How would you know the vision is being realized? Qualitative signals, not metrics. ("Users stop asking for X" or "New contributors ship their first change within an hour" — not "50k stars".)
 
-4. **If no test infrastructure exists**, propose a setup:
-   - **Test runner**: Recommend the standard choice for the detected stack (e.g., vitest for modern JS/TS, pytest for Python, go test for Go, cargo test for Rust)
-   - **Directory layout**: Recommend the conventional layout (e.g., `__tests__/`, `tests/`, `test/`, colocated `*.test.*`)
-   - **Coverage**: Recommend if available for the stack (e.g., c8/v8 for JS, coverage.py for Python)
-   - Present options and let the user choose — don't assume
+   Ask questions one section at a time. Don't write anything until the user has answered all five.
 
-5. **On confirmation, configure**:
-   - Install dependencies (e.g., `npm install -D vitest`, `pip install pytest`)
-   - Create config files if needed (e.g., `vitest.config.ts`, `pytest.ini`)
-   - Create a starter test file that demonstrates the project's test pattern
-   - Add or update test scripts in package manifest if applicable
+4. **Write `docs/vision.md`** with this structure:
 
-6. **Configure Claude Code permissions**:
-   - Check `.claude/settings.json` for existing `Bash(...)` permissions
-   - Add the test command permission so the TDD pipeline can run tests without prompting (e.g., `"Bash(npm test:*)"`, `"Bash(pytest:*)"`)
-   - Show the user what permission is being added and why
+```markdown
+# Vision
 
-7. **Ensure session artifacts are gitignored**:
-   - Check the project's `.gitignore` for these patterns:
-     ```
-     docs/tdd-designs/*/handoff.md
-     docs/tdd-designs/*/decisions.md
-     ```
-   - If missing, append them (with a `# three-pillars session artifacts` comment) and tell the user what was added and why (these files may contain sensitive session context and autonomous decision logs that should not enter version control)
+## Problem
+What pain this project eliminates, and for whom. 2-4 sentences.
 
-8. **Verify**: Run the test suite once to confirm everything works.
+## Users
+Concrete description of who this is for, and who it's not for.
+
+## Principles
+- **<principle>** — what it means, and when it applies as a tie-breaker.
+- ...
+
+## Non-goals
+- What this project will explicitly never become. Each entry with a sentence on why.
+
+## Success signals
+- Qualitative signs the vision is being realized. Not metrics.
+```
+
+Present the draft to the user for review before writing. Keep the whole file under 100 lines — dense, not verbose. A vision that tries to say everything says nothing.
+
+5. **Offer to update CLAUDE.md**. If the project's CLAUDE.md describes the project docs without listing `vision.md`, offer to add it so future sessions pick up the pillar. Don't edit without confirmation.
+
+6. **Tell the user the next step**. Point to `/tdd-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tdd-test-setup` configures test infrastructure informed by the architecture.
 
 ## Rules
-- Always let the user choose between options — don't silently install tools.
-- Prefer the ecosystem's standard/default tooling over exotic alternatives.
-- Don't modify existing test files — only create new starter files.
-- If the project already has a fully working test setup, say so and skip to verifying the Claude Code permission.
-- The starter test file should be a real, passing test that demonstrates the pattern — not a placeholder that tests `1 + 1`.
-- Keep the starter test relevant to the actual project (e.g., test an existing utility function, test an API route returns 200).
+- **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. Those belong in `/tdd-test-setup` (test infra) or the session skills (gitignore for handoff/decisions). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.
+- The vision conversation is a **conversation**, not a form. Draw out one section at a time and push back on vague answers. Do not write `docs/vision.md` until the user has answered all five sections.
+- Never invent vision content the user didn't say. If the repo gives you no signal and the user is unsure, record uncertainty honestly ("Target users: to be sharpened — project is pre-first-user") rather than guessing.
+- If the project already has a vision.md, read it and confirm. Do not silently overwrite.

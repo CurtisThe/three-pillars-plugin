@@ -37,7 +37,7 @@ DESIGN_DIR=docs/tdd-designs/<design-name>
 
 Verify all three files exist. If any is missing, stop and tell the user.
 
-Read project docs per `skills/_shared/read-project-docs.md`. Council members should check plan consistency against documented architecture decisions. Flag contradictions as INCONSISTENT findings.
+Read project docs per `skills/_shared/read-project-docs.md`. Council members should check plan consistency against documented architecture decisions **and against `docs/vision.md`**. Flag architecture contradictions as INCONSISTENT findings. Flag vision contradictions — tasks that advance a non-goal, trade away a principle, or have no line of sight to the vision's stated problem — as MISALIGNMENT findings, to be resolved with the user before the audit completes.
 
 ### Step 2: Run deterministic checks
 
@@ -83,7 +83,7 @@ After reading all three, evaluate:
 4. Are the Red/Green specs concrete enough to actually write code from?
 5. Cross-cutting: does the plan cover persistence, config, CLI changes, backward compat where the design requires them?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -103,7 +103,7 @@ After reading all three, evaluate:
 4. Are there any tasks that introduce work NOT in either design document? (scope creep)
 5. Do data flow connections from the detailed design have tasks covering both producer and consumer sides?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -123,7 +123,7 @@ After reading all three, evaluate:
 4. Are "Done when" criteria actually verifiable, or are they vague ("it works")?
 5. If you had to implement this plan, what would confuse you? What's ambiguous?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -144,7 +144,7 @@ After reading both, evaluate:
 4. Do the Try specs describe concrete actions, not just vague intentions?
 5. Do the experiments actually test the hypothesis, or are they tangential?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -163,7 +163,7 @@ After reading both, evaluate:
 4. Are there tasks that introduce experiments NOT described in the design? (scope creep)
 5. Does the phase ordering make sense — do later phases build on earlier findings?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -182,7 +182,7 @@ After reading both, evaluate:
 4. Are there edge cases or failure modes the experiments should explore but don't?
 5. If you ran this spike, what would leave you unsure at the end?
 
-For each finding, categorize as MISSING, INCONSISTENT, ORDERING, or INCOMPLETE.
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (tasks that conflict with or ignore `docs/vision.md`).
 Limit: 400 words.
 ```
 
@@ -210,7 +210,7 @@ Cross-examine:
 1. Which finding from another reviewer do you most disagree with? Why?
 2. Which finding from another reviewer strengthens or extends your own analysis?
 3. Did anyone miss something you want to flag?
-4. State your final list of categorized issues (MISSING / INCONSISTENT / ORDERING / INCOMPLETE).
+4. State your final list of categorized issues (MISSING / INCONSISTENT / ORDERING / INCOMPLETE / MISALIGNMENT).
 
 Limit: 300 words.
 ```
@@ -234,6 +234,9 @@ Organize by category:
 
 **INCOMPLETE** — Task exists but spec is too vague or missing fields:
 - What's missing, suggested improvement
+
+**MISALIGNMENT** — Task conflicts with or ignores `docs/vision.md`:
+- Which task, which vision bullet it contradicts (non-goal, principle, problem), whether to drop the task, reshape it, or escalate to update the vision. Do not auto-fix — the user decides.
 
 ### Step 6: Present findings
 

@@ -1,41 +1,46 @@
 ---
 name: tdd-docs-init
-description: Scaffold architecture.md, product_roadmap.md, and known_issues.md in docs/ from codebase analysis. Creates the three project docs that the TDD pipeline reads for context.
+description: Scaffold architecture.md, product_roadmap.md, and known_issues.md in docs/ from codebase analysis. Creates the three project docs that the TDD pipeline reads for context. Assumes docs/vision.md already exists — if missing, recommends /tdd-setup first.
 ---
 
 # Docs Init
 
-Analyze the current codebase and scaffold the three project docs that the TDD pipeline uses for context.
+Analyze the current codebase and scaffold the three project docs that the TDD pipeline uses for context (alongside `docs/vision.md`, which is created by `/tdd-setup`).
 
 **No arguments** — operates on the current repository.
+
+## Prerequisite
+
+`docs/vision.md` should exist — it's the "why" pillar that the roadmap, architecture, and known-issues docs frame themselves against. If it's missing, tell the user and recommend running `/tdd-setup` first. Do not block: the user can opt to proceed without a vision, but the resulting scaffolds will be weaker because there's no "why" to anchor current state and priorities against.
 
 ## Steps
 
 1. **Create `docs/` directory** if it doesn't exist.
-2. **Check which docs already exist**:
+2. **Check for `docs/vision.md`**. If missing, recommend `/tdd-setup` and ask whether to proceed anyway. If present, read it — every scaffolded doc should align with the vision's problem, users, principles, and non-goals.
+3. **Check which docs already exist**:
    - `docs/architecture.md`
    - `docs/product_roadmap.md`
    - `docs/known_issues.md`
    For each that exists, tell the user and skip it unless they opt to regenerate.
-3. **Analyze the codebase** to inform scaffolding:
-   - Read README, CLAUDE.md, and any existing docs
+4. **Analyze the codebase** to inform scaffolding:
+   - Read README, CLAUDE.md, `docs/vision.md`, and any existing docs
    - Scan source tree structure (key directories, languages, frameworks)
    - Read recent git log for project trajectory
    - Check for existing design artifacts in `docs/tdd-designs/` and `docs/completed-tdd-designs/`
-4. **For each missing doc**, scaffold with content derived from the analysis:
+5. **For each missing doc**, scaffold with content derived from the analysis:
 
    **architecture.md** scaffold sections:
-   - Overview (what the system does, high-level architecture)
-   - Goals and Non-Goals
+   - Overview (what the system does, high-level architecture — consistent with vision's Problem section)
+   - Goals and Non-Goals (non-goals should echo `docs/vision.md`'s non-goals, not contradict them)
    - Key Components (modules, services, data stores)
-   - Architecture Decisions (choices made and rationale)
+   - Architecture Decisions (choices made and rationale — note when a decision was driven by a vision principle)
    - Constraints (hardware, dependencies, compatibility)
 
    **product_roadmap.md** scaffold sections:
-   - Vision (what we're building toward)
+   - **(No Vision section.)** Open with a single line: `> **Why this exists:** see [docs/vision.md](vision.md).` The vision lives in one place; the roadmap does not duplicate it.
    - Current State (what works today, what doesn't)
    - Design Inventory (table of TDD designs with status)
-   - Implementation Sequence (what to build next, dependencies)
+   - Implementation Sequence (what to build next, dependencies — ordered by impact against the vision)
    - Methodology (how we build — TDD pipeline, spikes)
 
    **known_issues.md** scaffold sections:
@@ -43,11 +48,13 @@ Analyze the current codebase and scaffold the three project docs that the TDD pi
    - Medium (functional issues, workarounds exist)
    - Low (cosmetic, minor, tech debt)
 
-5. **Present each scaffolded doc** to the user for review before writing.
+6. **Present each scaffolded doc** to the user for review before writing.
+7. **Tell the user the next step**: Once the three docs are in place, the natural next step on a fresh project is `/tdd-test-setup` — it configures test infrastructure informed by the `architecture.md` you just scaffolded. This sequencing is deliberate: testing-framework choices belong *after* the architecture is documented, not before.
 
 ## Rules
 - This skill takes no design-name argument (it operates on the repo, not a `[a-z0-9-]+` design directory).
-- Content must reflect the **actual codebase**, not generic templates. If the analysis finds real architecture decisions, components, or issues, include them.
+- **Do not scaffold a Vision section in product_roadmap.md.** Vision lives in `docs/vision.md` and the roadmap links to it. If an existing roadmap has a Vision section, offer to migrate its content into `docs/vision.md` and replace the roadmap section with a link.
+- Content must reflect the **actual codebase** and the **stated vision**, not generic templates. If the analysis finds real architecture decisions, components, or issues, include them. Flag to the user any place where what the code does seems to contradict `docs/vision.md` — that's a signal the vision is stale or the code has drifted.
 - Never overwrite an existing doc without explicit user confirmation.
 - Each doc should be a useful starting point, not a complete document — the user will refine.
 - If the codebase is too small or new to derive meaningful content, say so and write minimal stubs with section headers only.

@@ -9,7 +9,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars-plugin
 ```
 
-Restart Claude Code. Your 25 skills and 18 council agents are live.
+Restart Claude Code. Your 26 skills and 18 council agents are live.
 
 ### Optional extras
 
@@ -26,7 +26,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 ## How it works
 
-**Design documents are the source of truth, tests are the proof, and audits are the gates.** Nothing ships without being traced back to a design and validated against the codebase.
+**`docs/vision.md` is the "why", design documents are the source of truth, tests are the proof, and audits are the gates.** Nothing ships without being traced back to a design that serves the vision and validated against the codebase. Every skill reads vision first and uses it as the tie-breaker when technical options are equivalent.
 
 **Typical flow for a feature:**
 ```
@@ -57,11 +57,11 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 ## What's included
 
-**25 skills** organized into pipelines:
+**26 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
-| Getting Started | guide, setup | What to do next, test infrastructure configuration |
+| Getting Started | guide, setup, test-setup | Vision draw-out, project doc scaffolding, test infrastructure configuration |
 | TDD Design | design, design-detail, design-audit | Design documents and review |
 | TDD Planning | plan, plan-audit | Task sequencing and verification |
 | TDD Implementation | phase-implement, task-cycle, phase-review, implementation-audit | Red-green-refactor execution |
@@ -79,10 +79,14 @@ Most skills take a `<design-name>` as their first argument, corresponding to a d
 
 ### Getting started
 
+Fresh-project setup follows a deliberate order — **why** before **how**, **how** before **tests**:
+
 | Command | What it does |
 |---|---|
-| `/tdd-guide [intent]` | Read project docs and recommend the highest-impact next step |
-| `/tdd-setup` | Analyze project stack and configure test infrastructure for the TDD pipeline |
+| `/tdd-setup` | Conversational draw-out of the project's "why" into `docs/vision.md`. Vision only — no test-runner decisions. Run this first on any new project. |
+| `/tdd-docs-init` | Scaffold `architecture.md`, `product_roadmap.md`, `known_issues.md` from codebase analysis, using the vision as context. |
+| `/tdd-test-setup` | Configure test infrastructure (runner, layout, permissions, starter test) informed by `architecture.md`. Runs *after* docs-init so the test choices are grounded in the documented system structure. |
+| `/tdd-guide [intent]` | Read project docs (vision first) and recommend the highest-impact next step. Weighs recommendations against the stated vision. |
 
 ### Design phase
 
@@ -130,8 +134,8 @@ Most skills take a `<design-name>` as their first argument, corresponding to a d
 
 | Command | What it does |
 |---|---|
-| `/tdd-docs-init` | Scaffold `architecture.md`, `product_roadmap.md`, `known_issues.md` |
-| `/tdd-docs-update` | Targeted updates after a milestone |
+| `/tdd-docs-init` | Scaffold `architecture.md`, `product_roadmap.md`, `known_issues.md` (assumes `docs/vision.md` already exists via `/tdd-setup`) |
+| `/tdd-docs-update [vision\|architecture\|roadmap\|known-issues]` | Targeted updates after a milestone. Vision updates follow a sticky-vision protocol — do not drift the vision to match implementation. |
 
 ### Session management
 

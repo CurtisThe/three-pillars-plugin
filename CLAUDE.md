@@ -2,20 +2,26 @@
 
 This machine uses the **three-pillars** skill framework for structured software development with Claude Code.
 
-## Project Docs (the "three pillars")
+## Project Docs
 
-Every project should maintain three living docs in `docs/`:
+Every project should maintain four living docs in `docs/`:
 
-- **`architecture.md`** — System architecture, key decisions, constraints. Source of truth for how the system is built.
-- **`product_roadmap.md`** — Vision, current state, design inventory, implementation sequence. Source of truth for what to build next.
-- **`known_issues.md`** — Open bugs and limitations by severity. Source of truth for what's broken.
+- **`vision.md`** — Problem, users, principles, non-goals, success signals. Source of truth for **why** the project exists. Read first by every other TDD skill — it is the filter for what work matters and the tie-breaker when technical options are equivalent. Created by `/tdd-setup` as its first conversational step.
+- **`architecture.md`** — System architecture, key decisions, constraints. Source of truth for **how** the system is built.
+- **`product_roadmap.md`** — Current state, design inventory, implementation sequence. Source of truth for **what to build next**. Links to `vision.md` rather than duplicating the why.
+- **`known_issues.md`** — Open bugs and limitations by severity. Source of truth for **what's broken**.
 
-Use `/tdd-docs-init` to scaffold these from codebase analysis. Use `/tdd-docs-update` to maintain them after milestones.
+Use `/tdd-setup` first to establish the vision. Then `/tdd-docs-init` to scaffold architecture, roadmap, and known-issues from codebase analysis. Use `/tdd-docs-update` to maintain them after milestones.
 
 ## Getting Started
 
-- **`/tdd-guide [intent]`** — Read project docs and recommend the highest-impact next step. Accepts optional freeform intent (e.g., `/tdd-guide auth feels fragile`). Helps choose the right approach: just do it, spike, or full design.
-- **`/tdd-setup`** — Analyze project stack and configure test infrastructure so the TDD pipeline can run tests immediately.
+Fresh project setup follows a deliberate order — **why** before **how**, **how** before **tests**:
+
+1. **`/tdd-setup`** — Draws out the project's "why" into `docs/vision.md` (conversational). Vision only; no test-runner decisions here. Run first on any new project.
+2. **`/tdd-docs-init`** — Scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` from codebase analysis. Uses `vision.md` as context.
+3. **`/tdd-test-setup`** — Configures test infrastructure (test runner, layout, permissions, starter test). Runs *after* architecture so test-runner and layout choices are informed by the documented structure, not guessed at before.
+
+- **`/tdd-guide [intent]`** — Read project docs and recommend the highest-impact next step. Accepts optional freeform intent (e.g., `/tdd-guide auth feels fragile`). Helps choose the right approach: just do it, spike, or full design. Weighs recommendations against `docs/vision.md`.
 
 ## TDD Pipeline
 

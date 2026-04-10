@@ -57,8 +57,8 @@ off, the people who use it, and the people who maintain it.
 
 ### Business Alignment
 
-- Three living project docs (`architecture.md`, `product_roadmap.md`, `known_issues.md`) ground every design in the real state of the codebase.
-- `/tdd-docs-init` scaffolds them from codebase analysis; `/tdd-docs-update` maintains them after milestones.
+- Four living project docs (`vision.md`, `architecture.md`, `product_roadmap.md`, `known_issues.md`) ground every design in the real state of the codebase — and in a stated "why" the audits can cite as a tie-breaker.
+- `/tdd-setup` draws the vision out of the user conversationally; `/tdd-docs-init` scaffolds the other three from codebase analysis; `/tdd-docs-update` maintains all four after milestones, with a sticky-vision protocol that prevents drift.
 - `/tdd-design-learn` and `/tdd-spike-learn` close the feedback loop — learnings from completed work flow back into project docs and surface affected downstream designs.
 - Session continuity (`/tdd-session-save` / `/tdd-session-restore`) preserves context across conversations and machines, so nothing is lost between sessions.
 
@@ -81,12 +81,12 @@ This scales because no single person needs to understand every domain. The AI do
 ### Done
 - [x] Plugin marketplace distribution (two-command install)
 - [x] Council of High Intelligence (18 thinkers, 4 modes, 20+ pre-built triads)
-- [x] TDD pipeline (25 skills): guide, setup, design, detail, audit, plan, implement, review, final audit
+- [x] TDD pipeline (26 skills): guide, setup, test-setup, design, detail, audit, plan, implement, review, final audit
 - [x] Spike pipeline: hypothesis-driven experiments with structured findings
 - [x] Autonomous spike execution (`/tdd-spike-auto`) with decision logging
 - [x] Session continuity across conversations and machines
 - [x] Design lifecycle management (learn, complete, archive)
-- [x] Three living project docs with init and update skills
+- [x] Four living project docs (vision, architecture, roadmap, known-issues) with setup, init, and update skills
 
 ### Next: Stakeholder agents
 - [ ] Adapt the council agent pattern for company-specific personas
