@@ -10,11 +10,11 @@ Pick up where the last session left off by loading the handoff and design artifa
 
 **Argument**: `<design-name>` (optional) — must match an existing directory under `docs/tdd-designs/`.
 
-If no argument is given, read `.claude/last-design` (project root) for the most recently active design name. If that file doesn't exist or is empty, list available designs under `docs/tdd-designs/` and ask the user which one to restore.
+If no argument is given, read the **first line** of `.claude/last-design` (project root) for the most recently active design name. This file is an MRU stack — one design per line, most recent first. If the file doesn't exist or is empty, list available designs under `docs/tdd-designs/` and ask the user which one to restore.
 
 ## Steps
 
-1. **Resolve the design name**: Use the argument if given, otherwise read `~/.claude/last-design`. If neither is available, list designs and ask.
+1. **Resolve the design name**: Use the argument if given, otherwise read the first line of `.claude/last-design`. If neither is available, list designs and ask.
 2. **Resolve the design directory**: `docs/tdd-designs/<design-name>/`.
 3. **Read `handoff.md`** from the design directory. If it doesn't exist, tell the user there's no prior session to restore. Check if any other artifacts exist (design.md, plan.md) and summarize what's available, then stop.
 4. **Read the sibling artifacts** that exist in the design directory (design.md, detailed-design.md, plan.md, review.md) — quick scan for context, not deep-dive.

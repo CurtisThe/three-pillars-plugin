@@ -15,7 +15,7 @@ Read the project's current state and recommend the highest-impact next step.
 1. **Read project docs** per `skills/_shared/read-project-docs.md`. `docs/vision.md` is the primary filter — it tells you what this project *is for*, and therefore what work genuinely matters. If `docs/vision.md` is missing, the single most impactful recommendation you can make is to run `/tdd-setup` to establish one; say so before anything else.
 2. **Scan active designs**: Check `docs/tdd-designs/` for in-flight work. For each, read `design.md` (first 20 lines) and `handoff.md` (if present) to understand phase and status. While scanning, note whether each design's Problem/Vision alignment section is consistent with the current `docs/vision.md` — a design that drifted from the vision is a candidate for either reshaping or dropping.
 3. **Check completed designs**: Scan `docs/completed-tdd-designs/` to understand what's already been built.
-4. **Read `.claude/last-design`** if it exists, to know what the user was last working on.
+4. **Read the first line of `.claude/last-design`** if it exists, to know what the user was last working on. This file is an MRU stack — one design per line, most recent first.
 5. **If an intent was provided**, filter your analysis through that lens. For example:
    - `"auth feels fragile"` → focus on auth-related known issues, architecture gaps, and whether a design or spike is warranted
    - `"ready to ship"` → focus on blocking issues, incomplete designs, and release readiness

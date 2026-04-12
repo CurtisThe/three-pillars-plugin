@@ -13,6 +13,23 @@ Analyze the current codebase and scaffold the three project docs that the TDD pi
 
 `docs/vision.md` should exist — it's the "why" pillar that the roadmap, architecture, and known-issues docs frame themselves against. If it's missing, tell the user and recommend running `/tdd-setup` first. Do not block: the user can opt to proceed without a vision, but the resulting scaffolds will be weaker because there's no "why" to anchor current state and priorities against.
 
+## Environment prereq — optional status line
+
+While you're scaffolding docs, also check whether the plugin's optional status line is installed. The plugin ships a `statusline.sh` script that shows context-window usage, active design, and git status — but it requires a one-time copy to `~/.claude/statusline.sh` to activate (the plugin's `settings.json` already references that path).
+
+Check:
+```bash
+test -x "$HOME/.claude/statusline.sh" && echo "installed" || echo "missing"
+```
+
+If **missing**, do not block the docs scaffolding. After the docs are written, surface a one-line recommendation to the user:
+
+> *Optional: the three-pillars status line is not installed. Run `cp statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh` from the plugin's install directory to enable the context-window progress bar. Skip this if you don't want a custom status line — nothing breaks either way.*
+
+If **installed**, say nothing (it's already working).
+
+This check lives here, in docs-init, because `/tdd-docs-init` is where a user first encounters the architecture of a fresh project — it's the natural moment to surface environment setup the user may have skipped during install. It is NOT a hard prerequisite: proceed with the scaffolding regardless of the statusline's state.
+
 ## Steps
 
 1. **Create `docs/` directory** if it doesn't exist.

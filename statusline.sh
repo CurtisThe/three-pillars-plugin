@@ -115,12 +115,15 @@ fi
 
 # --- TDD design info ---
 ACTIVE_DESIGN=""
-DESIGN_LIST=""
+RECENT_DESIGNS=""
+DESIGN_COUNT=0
 if [ -n "$CWD" ] && [ -f "$CWD/.claude/last-design" ]; then
-  ACTIVE_DESIGN=$(cat "$CWD/.claude/last-design" 2>/dev/null)
+  ACTIVE_DESIGN=$(head -1 "$CWD/.claude/last-design" 2>/dev/null)
+  # MRU stack: grab lines 2-5 (skip active, take next 4)
+  RECENT_DESIGNS=$(tail -n +2 "$CWD/.claude/last-design" 2>/dev/null | head -4)
 fi
 if [ -n "$CWD" ] && [ -d "$CWD/docs/tdd-designs" ]; then
-  DESIGN_LIST=$(ls -1 "$CWD/docs/tdd-designs/" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+  DESIGN_COUNT=$(ls -1 "$CWD/docs/tdd-designs/" 2>/dev/null | wc -l)
 fi
 
 # =====================================================================
@@ -187,18 +190,7 @@ fi
 echo -e "$L1"
 
 # =====================================================================
-# LINE 2: Available designs
-# =====================================================================
-L2=""
-
-if [ -n "$DESIGN_LIST" ]; then
-  L2+="${DIM}designs:${RST} ${CYN}${DESIGN_LIST}${RST}"
-fi
-
-echo -e "$L2"
-
-# =====================================================================
-# LINE 3: Code changes | Tokens | Cache | Cost | Rate limits
+# LINE 2: Code changes | Tokens | Cache | Cost | Rate limits
 # =====================================================================
 L3=""
 
@@ -268,3 +260,28 @@ if [ -n "$COST" ]; then
 fi
 
 echo -e "$L3"
+
+# =====================================================================
+# LINE 3: Design count + recent MRU designs (excluding active, which
+# is already on line 1). Each name truncated to 20 chars.
+# =====================================================================
+L4=""
+
+trunc() { local n="$1"; [ "${#n}" -gt 20 ] && printf "%s…" "${n:0:19}" || printf "%s" "$n"; }
+
+if [ "$DESIGN_COUNT" -gt 0 ]; then
+  L4+="${DIM}designs:${RST}${CYN}${DESIGN_COUNT}${RST}"
+  if [ -n "$RECENT_DESIGNS" ]; then
+    L4+=" ${DIM}recent:${RST}"
+    first=true
+    while IFS= read -r d; do
+      [ -z "$d" ] && continue
+      $first || L4+=" ${DIM}|${RST} "
+      first=false
+      L4+="${CYN}$(trunc "$d")${RST}"
+    done <<< "$RECENT_DESIGNS"
+  fi
+fi
+
+# Only echo if non-empty — avoid a blank trailing line wasting statusline space
+[ -n "$L4" ] && echo -e "$L4"

@@ -13,12 +13,28 @@ Restart Claude Code. Your 26 skills and 18 council agents are live.
 
 ### Optional extras
 
+Both extras are **optional**. The plugin's core features (skills, agents, session management) work without them.
+
 **Framework instructions** — copy `CLAUDE.md` to `~/.claude/CLAUDE.md` for the TDD pipeline methodology guide. Skills work without it, but CLAUDE.md gives Claude persistent context about the framework across all conversations.
 
-**Status line** — copy `statusline.sh` to `~/.claude/statusline.sh` for a context window progress bar. Add to your `settings.json`:
+**Status line** — a bash script that shows your context-window usage, active design, and git status in Claude Code's status line.
+
+The plugin's shipped `settings.json` already references `~/.claude/statusline.sh`:
 ```json
 "statusLine": { "type": "command", "command": "~/.claude/statusline.sh", "padding": 1 }
 ```
+
+To enable it, copy the script into place (one-time, manual):
+```bash
+cp statusline.sh ~/.claude/statusline.sh
+chmod +x ~/.claude/statusline.sh
+```
+
+**If you skip this step:** nothing breaks. Claude Code will try to run the command, silently fail (file not found), and render an empty status line. No functionality is lost.
+
+**Why `~/.claude/` and not inside the project?** The status line is a user-global Claude Code feature, not per-project. It lives next to your user-wide `settings.json` and applies to every Claude Code session. The `statusline.sh` script itself is read-only: it reads git status, file-existence checks for `.claude/last-design` and `docs/tdd-designs/`, and formats the output for your terminal. No network requests. No writes. See `statusline.sh` for the source (it's ~200 lines of bash).
+
+**Reviewer note:** if you're auditing this plugin, the `~/.claude/statusline.sh` path in `settings.json` is a user-scoped external dependency with graceful failure, not a silent install hook. It requires explicit user action to enable.
 
 ## Why this exists
 
