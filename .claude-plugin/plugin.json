@@ -1,6 +1,6 @@
 {
   "name": "three-pillars",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Structured TDD pipeline, council deliberation, and session continuity for Claude Code",
   "author": {
     "name": "Curtis"
