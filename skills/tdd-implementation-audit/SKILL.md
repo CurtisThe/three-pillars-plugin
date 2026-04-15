@@ -106,7 +106,14 @@ Write `docs/tdd-designs/<design-name>/implementation-audit.md`:
 - <concrete next steps if anything needs fixing>
 ```
 
-### 9. Present findings
+### 9. Commit the artifact
+Commit per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+- `docs/tdd-designs/<design-name>/implementation-audit.md`
+- `docs/tdd-designs/<design-name>/lock.json` (if refreshed)
+
+Commit message: `Audit: <design-name> implementation`.
+
+### 10. Present findings
 Walk through the audit with the user. If the verdict is PASS, keep it brief. If NEEDS WORK, prioritize the gaps by severity and suggest whether to fix them, update the design to match reality, or accept the deviation.
 
 After presenting the audit verdict, tell the user:

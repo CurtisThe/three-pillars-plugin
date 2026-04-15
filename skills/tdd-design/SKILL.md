@@ -60,7 +60,12 @@ Unresolved items to address during detailed design.
 
 8. **Register in Design Inventory**: If `docs/product_roadmap.md` exists and contains a Design Inventory table, check whether `<design-name>` already has a row. If not, propose appending a row with status "Designed", the dependencies from the design conversation, and any parent/spike linkage. Show the proposed row and get user confirmation before writing. If the roadmap doesn't exist or has no Design Inventory table, skip this step silently.
 9. **Update Current Focus**: If the roadmap has a `## Current Focus` table and the user indicated this design is a near-term priority during the conversation, propose adding it to the Current Focus table with an appropriate priority, next action (`/tdd-design-detail`), and any blockers. Show the proposed row and get user confirmation. If the user didn't indicate priority, ask whether it belongs in Current Focus.
-10. **Tell the user** the next step is `/tdd-design-detail <design-name>`.
+10. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+    - `docs/tdd-designs/<design-name>/design.md`
+    - `docs/tdd-designs/<design-name>/lock.json` (rolled into the same commit)
+    - `docs/product_roadmap.md` (only if step 8 or 9 modified it)
+    Commit message: `Design: <design-name> high-level`.
+11. **Tell the user** the next step is `/tdd-design-detail <design-name>`.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

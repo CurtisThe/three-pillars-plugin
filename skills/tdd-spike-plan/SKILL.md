@@ -47,7 +47,11 @@ Turn a spike design into a structured experiment plan with hypothesis-driven tas
 6. **Confirm the plan**:
    - **Normal mode**: Walk through it with the user. Adjust if they want to reorder, add, or drop tasks.
    - **`--auto` mode**: Self-review the plan against design.md — verify every experiment in the design maps to at least one task, success criteria are testable, and phases are logically ordered. Log a decision entry to `decisions.md` summarizing plan structure choices (how experiments were grouped into phases, any design experiments that were split or combined, and why). Auto-approve and continue.
-7. **Tell the user** (or log, in auto mode) the next step is to begin executing the experiment phases.
+7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/tdd-designs/<spike-name>/plan.md`
+   - `docs/tdd-designs/<spike-name>/lock.json` (if refreshed)
+   Commit message: `Spike: <spike-name> plan`.
+8. **Tell the user** (or log, in auto mode) the next step is to begin executing the experiment phases.
 
 ## Rules
 - **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.

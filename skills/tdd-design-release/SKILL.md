@@ -41,14 +41,17 @@ Release your ownership of a design so another developer can claim it without `--
      ```
    - Clear top-level fields: set `owner`, `branch`, and `phase` to `null`. Set `acquired_at` to `null`. Set `last_touched` to now.
 5. **Write `lock.json`** back to disk.
-6. **Report** to the user:
+6. **Commit the release** per `skills/_shared/commit-after-work.md`. The lock change IS the substantial work here, so it goes in its own commit. Artifact paths to stage:
+   - `docs/tdd-designs/<design-name>/lock.json`
+   Commit message: `Release: <design-name>` (or `Release: <design-name> (force)` if `--force` was used). Visibility to teammates depends on this commit landing on the shared branch — after the commit, remind the user to push.
+7. **Report** to the user:
    > Released the lock on `<design-name>`. Anyone can now claim it by running the next lock-enforcing skill — no `--force-takeover` required. Prior holder recorded in `previous_owners[]`.
-7. **Suggest next step**: remind the user the design artifacts (`design.md`, `plan.md`, etc.) are still on the branch. They should commit + push the updated `lock.json` so the released state is visible to others.
+8. **Suggest next step**: remind the user the design artifacts (`design.md`, `plan.md`, etc.) remain on the branch, and that pushing the release commit is what makes the released state visible to teammates.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — you can only release your own lock unless `--force` is passed with explicit confirmation.
 - Do NOT delete the design directory or any artifacts. This skill only modifies `lock.json`. To archive a finished design, use `/tdd-design-complete`.
-- Do NOT commit on the user's behalf. Remind them to commit + push the updated lock.
+- Commit scope is **only** `lock.json`. If the working tree has other changes on the design's paths, stop and ask the user to handle them separately — a release commit should say nothing about design content.
 - `--force` is a power user option; never use it autonomously (e.g., inside `--auto` modes).
 - A released lock leaves `previous_owners[]` as the audit trail. Do not truncate that array.

@@ -98,7 +98,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 **Collaboration** — works solo, scales to teams:
 
-- **Branch-per-design**: each design or spike lives on its own branch, `tdd/<design-name>`. Skills prompt to create the branch if you start on `main`.
+- **Branch-per-design**: each design or spike lives on its own branch, `tdd/<design-name>`. Skills prompt to create the branch if you start on `main`, and push it to `origin` immediately on creation so teammates see in-flight work without waiting for the first commit.
 - **Advisory lock**: `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
 - **Takeover**: if the holder abandons the design, the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
 - **Graceful handoff**: the holder can run `/tdd-design-release <name>` to step away cleanly — `owner` goes to `null`, and the next person claims the design without needing `--force-takeover`.
@@ -107,6 +107,10 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 **What the framework handles vs. what you still need**: this framework enforces **ownership** — who currently holds a claimed design and whether a parallel claim is allowed. It does not handle **assignment** — who should be working on what in the first place. That lives in your existing planning tool (Jira, Asana, Linear, GitHub Projects, a whiteboard, Slack). As long as your team coordinates assignments there, the lock here catches accidental overlap and abandoned work without trying to replace the planning system. Aspirational future: hooks or MCP servers could sync lock state with those external tools — out of scope today, but a direction the framework can grow into.
 
 Lock-enforcing skills (design, spike, detail, plan, audits, implement, review) refuse to proceed if another developer holds the lock. Read-only skills (`/tdd-session-restore`, learn/guide) inspect the lock and warn but never block. See `skills/_shared/collaboration.md` for the full protocol.
+
+### Commits at every phase
+
+Every skill that produces substantial work commits before returning — design.md, plan.md, per-task code, review.md, audit results, learn updates. One commit per task during `/tdd-phase-implement`. Commits are scoped (never `git add -A`), conventionally named (`Design: <name> high-level`, `Plan: <name>`, `Implement: <name> 1.2 — title`, `Learn: <name> design`, etc.), and never include Co-Authored-By trailers. The working tree stays clean between phases. Pushing and opening a PR happens only at `/tdd-design-complete`. See `skills/_shared/commit-after-work.md` for the full protocol.
 
 ## What's included
 
@@ -182,7 +186,7 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 |---|---|
 | `/tdd-design-learn <name>` | Synthesize a design's impact into project docs |
 | `/tdd-design-release <name>` | Release your lock without completing — graceful handoff to a teammate |
-| `/tdd-design-complete <name>` | Archive to `docs/completed-tdd-designs/` |
+| `/tdd-design-complete <name>` | Archive to `docs/completed-tdd-designs/`, commit, and offer a PR back to the base branch |
 
 ### Project docs
 

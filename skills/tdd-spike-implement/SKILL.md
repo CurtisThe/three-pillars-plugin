@@ -32,6 +32,7 @@ Execute phases from a spike plan serially, with human review gates between phase
    - **Try**: Implement the task directly. Prioritize speed — no mandatory test-first, no strict red-green-refactor. Write tests when they add value, skip ceremony when they do not.
    - **Evaluate**: Check if the result works. Run any existing tests for affected files. Judge whether the task outcome matches the Hypothesis.
    - **Update status**: Add `**Status**: Done` to the task in plan.md. If the task fails after reasonable effort, mark it `**Status**: Blocked` with a short reason and continue to the next task.
+   - **Commit**: Per `skills/_shared/commit-after-work.md`, commit the experiment. Artifact paths to stage: the tracked code files the experiment touched plus `docs/tdd-designs/<spike-name>/plan.md` (updated status). Do NOT stage anything under `docs/tdd-designs/<spike-name>/demos/` — that directory is gitignored. Commit message: `Spike: <spike-name> <phase>.<experiment>`. If the experiment produced no tracked changes (e.g. only wrote to `demos/` or only gathered observations), skip the commit.
    - **`--auto` mode — retry on failure**: If a task fails, don't immediately mark it Blocked. Instead:
      1. Log a simplification entry to `decisions.md` describing what failed and why.
      2. Simplify the approach (reduce scope, use mocks, skip edge cases, use simpler implementation).

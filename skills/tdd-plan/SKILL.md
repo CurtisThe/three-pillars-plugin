@@ -48,7 +48,11 @@ Turn a detailed design into a concrete, executable task list.
 ```
 
 7. **Confirm the plan with the user**. Walk through it briefly. Adjust if they want to reorder, split, or drop tasks.
-8. **Tell the user** the next step is `/tdd-phase-implement <design-name>`.
+8. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/tdd-designs/<design-name>/plan.md`
+   - `docs/tdd-designs/<design-name>/lock.json` (rolled into the same commit)
+   Commit message: `Plan: <design-name>`.
+9. **Tell the user** the next step is `/tdd-phase-implement <design-name>`.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

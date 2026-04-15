@@ -28,7 +28,13 @@ Read a completed spike's artifacts and synthesize learnings into proposed update
 7. **Scan for affected downstream designs**: Read all `design.md` files under `docs/tdd-designs/` (excluding the current spike). Match architecture decision keywords from `spike-results.md` against each design's Scope and Entities sections. For each affected design, also check whether its declared dependencies or parent references include the current spike — if so, note whether the spike verdict changes the dependency status.
 8. **Propagate NO-GO to dependent rows**: If the verdict is **NO-GO** and step 6 found designs that declare this spike as a dependency (via Dependencies section or Parent field), propose updating those designs' rows in the Design Inventory table. Set their status to include a blocked annotation (e.g., "Designed" → "Blocked — `<spike-name>` NO-GO"). Show each proposed row change and get user confirmation. This ensures that `/tdd-plan` will see the blocked status when it checks upstream dependencies, closing the feedback loop.
 9. **Vision drift check (do not auto-propose vision edits)**: Compare `spike-results.md` against `docs/vision.md`. A spike can legitimately surface that a vision assumption was wrong — for example, a "GO" that reveals the problem is bigger than the vision framed it, or a "NO-GO" that invalidates a principle the vision depends on. If you find a genuine tension, **flag it** to the user with a specific citation (which finding, which vision bullet) and recommend `/tdd-docs-update vision` as an explicit follow-up. **Do not propose vision edits directly from this skill.** Spike verdicts feed the vision via a deliberate human gate, not automatically.
-10. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete <spike-name>` as the next step.
+10. **Commit the doc updates** per `skills/_shared/commit-after-work.md`. Artifact paths to stage (include only those actually modified in steps 4–8):
+    - `docs/product_roadmap.md`
+    - `docs/architecture.md`
+    - `docs/known_issues.md`
+    - Any downstream `docs/tdd-designs/<other>/design.md` files whose Design Inventory row was updated with a blocked annotation per step 8
+    Do NOT stage `docs/vision.md` — this skill never auto-edits vision. Commit message: `Learn: <spike-name> spike`.
+11. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete <spike-name>` as the next step.
 
 ## Rules
 - Follow `skills/_shared/propose-doc-edits.md` for all doc updates.

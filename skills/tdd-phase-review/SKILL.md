@@ -57,7 +57,11 @@ Review the implementation against the design and plan artifacts.
 - <what to do about gaps/deviations — add tasks, update design, or accept>
 ```
 
-7. **Present findings** to the user concisely. If there are gaps, suggest whether to add tasks to the plan or update the design.
+7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/tdd-designs/<design-name>/review.md`
+   - `docs/tdd-designs/<design-name>/lock.json` (if refreshed)
+   Commit message: `Review: <design-name> phase-<n>` (use the phase number if one was given; otherwise omit `phase-<n>`).
+8. **Present findings** to the user concisely. If there are gaps, suggest whether to add tasks to the plan or update the design.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

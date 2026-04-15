@@ -35,13 +35,14 @@ Execute one or more phases from the implementation plan.
    1. RED: Write the failing test as specified. Run it. Confirm it fails with an expected error (missing import, assertion failure, missing method/function — whatever is idiomatic for the project's language). If it passes, stop and report — the behavior already exists.
    2. GREEN: Write the minimal implementation to make the test pass. Run the test. If it fails, fix the implementation (not the test). Run the broader test file to check regressions.
    3. REFACTOR: Clean up duplication or unclear names if needed. Re-run tests after each change.
-   4. REPORT: Summarize what was written, test result, and any issues.
+   4. COMMIT: Stage only the test and implementation files this cycle touched (never `git add -A`). Commit on your agent branch with message exactly: `Implement: <design-name> <phase>.<task> — <task-title>` (no Co-Authored-By trailer, no `--no-verify`). If a pre-commit hook blocks you, stop and report the hook output — do not bypass.
+   5. REPORT: Summarize what was written, test result, the commit SHA (short form), and any issues.
 
    RULES:
    - Never write implementation before the test.
    - Follow the project's conventions for imports, module structure, and dependency management.
-   - One cycle = one task. Don't combine tasks.
-   - IMPORTANT: When you are done, commit your changes with `git add` and `git commit`. Your work will be lost if you don't commit — the parent agent merges from your branch, not your working directory.
+   - One cycle = one task = one commit. Don't combine tasks and don't split red/green/refactor into separate commits.
+   - IMPORTANT: Your work will be lost if you don't commit — the parent agent merges from your branch, not your working directory.
    ```
 
    **If tasks are sequential**, execute them one at a time in the main agent using the same red-green-refactor cycle.
@@ -64,7 +65,17 @@ Execute one or more phases from the implementation plan.
    - If the phase adds tolerance/parsing for external inputs (LLM responses, API payloads), verify against real-world samples — not just the test fixtures. Check the actual data on disk if available.
    - Flag anything suspicious to the user rather than silently marking the phase complete. A 30-second check here catches issues that would otherwise require a full re-run to diagnose.
 8. **Update `plan.md`** — add a `**Status**: Done ✓` line to each completed task.
-9. **Report** to the user: which tasks passed, any failures, integration review findings, and what phase is next.
+9. **Commit the phase wrap-up** per `skills/_shared/commit-after-work.md`. The per-task commits already landed (either from the sequential task-cycles or from merged worktree branches), so this commit only captures stragglers — typically the plan.md status updates from step 8 and any `lock.json` refresh from the preflight.
+
+    Artifact paths to stage:
+    - `docs/tdd-designs/<design-name>/plan.md`
+    - `docs/tdd-designs/<design-name>/lock.json` (if changed)
+
+    Commit message: `Implement: <design-name> phase-<n> done`.
+
+    If `git status --short` is empty after step 8 (no stragglers), skip this commit.
+
+10. **Report** to the user: which tasks passed, any failures, integration review findings, and what phase is next.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

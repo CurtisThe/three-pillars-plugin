@@ -57,7 +57,12 @@ Resource limits, time budget, dependencies.
 
 10. **Register in Design Inventory**: If `docs/product_roadmap.md` exists and contains a Design Inventory table, check whether `<spike-name>` already has a row. If not, propose appending a row with type "spike", status "Spiking", the parent design as a dependency (if any), and any other dependencies from the conversation. Show the proposed row and get user confirmation before writing. If the roadmap doesn't exist or has no Design Inventory table, skip this step silently.
 11. **Update Current Focus**: If the roadmap has a `## Current Focus` table and the user indicated this spike is a near-term priority during the conversation, propose adding it to the Current Focus table with an appropriate priority, next action (`/tdd-spike-plan`), and any blockers. Show the proposed row and get user confirmation. If the user didn't indicate priority, ask whether it belongs in Current Focus.
-12. **Tell the user** the next step is `/tdd-spike-plan <spike-name>` to create an experiment plan.
+12. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+    - `docs/tdd-designs/<spike-name>/design.md`
+    - `docs/tdd-designs/<spike-name>/lock.json` (rolled into the same commit)
+    - `docs/product_roadmap.md` (only if step 10 or 11 modified it)
+    Commit message: `Spike: <spike-name> design`.
+13. **Tell the user** the next step is `/tdd-spike-plan <spike-name>` to create an experiment plan.
 
 ## Rules
 - **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.

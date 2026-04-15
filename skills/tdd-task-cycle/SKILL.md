@@ -45,9 +45,21 @@ Execute one TDD cycle for a single task.
 10. **Refactor if needed**, re-running tests after each change.
 11. If the plan said "None expected", skip this step.
 
+### Commit
+
+12. **Commit the task's artifacts** per `skills/_shared/commit-after-work.md`. One commit per full red-green-refactor cycle — do NOT commit separately for red, green, and refactor.
+
+    Artifact paths to stage: the test file and implementation file(s) this cycle touched. Run `git status --short` to confirm the working tree contains only those paths — if anything else has changed, stop and ask the user to resolve it before committing.
+
+    Commit message:
+    - If invoked with `<design-name> <phase.task>`: `Implement: <design-name> <phase>.<task> — <task-title>` (task-title comes from the plan.md task heading)
+    - If invoked standalone with a description only: `Implement: <short description>` (use the description supplied by the user)
+
+    If this skill is running inside a parallel worktree agent spawned by `/tdd-phase-implement`, commit on the agent's branch using the same message pattern. The parent will merge.
+
 ### Report
 
-12. **Summarize** in 2-3 lines: what test was written, what was implemented, whether refactoring happened. Include test command and result.
+13. **Summarize** in 2-3 lines: what test was written, what was implemented, whether refactoring happened, and the commit SHA (short form). Include test command and result.
 
 ## Rules
 - **If a `<design-name>` is provided**, validate it per `skills/_shared/validate-name.md`.

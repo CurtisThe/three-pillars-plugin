@@ -56,7 +56,10 @@ Lock-aware skills run this before executing their main work:
 
 4. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, warn:
    > You are on `<branch>`. The collaboration convention is to work on `tdd/<design-name>`. Would you like to create/switch to that branch now? (yes / no / continue-anyway)
-   - **yes**: `git checkout -b tdd/<design-name>` if it doesn't exist, else `git checkout tdd/<design-name>`.
+   - **yes**:
+     - If the branch doesn't exist locally: `git checkout -b tdd/<design-name>`.
+     - If it exists locally: `git checkout tdd/<design-name>`.
+     - **Then, immediately publish the branch** if it has no upstream (`git rev-parse --abbrev-ref --symbolic-full-name @{u}` returns non-zero): run `git push -u origin tdd/<design-name>`. This signals to teammates that someone is actively working on this design — the remote ref is the visibility mechanism, showing up in their `git branch -a` / GitHub UI / `/tdd-guide` well before any artifact commits land. **Fail-open**: if the push fails (no remote configured, offline, auth issue, push rejected by a pre-receive hook), don't block — report the failure, proceed in local-only mode, and note that the branch will be published on the next successful push. Do not retry with `--force`.
    - **continue-anyway**: proceed; the lock records the current branch as-is.
    - **no**: stop the skill.
 
@@ -79,7 +82,7 @@ Lock-aware skills run this before executing their main work:
 
    **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: <now>`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
 
-6. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. Skills don't create commits on the user's behalf — the next commit produced by the skill's normal flow (or the user) will include it.
+6. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. The lock update is rolled into the skill's artifact commit per `skills/_shared/commit-after-work.md` — never commit just a lock change on its own (the sole exception is `/tdd-design-release`, where the lock change is the work).
 
 ## Release
 

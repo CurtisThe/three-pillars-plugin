@@ -63,7 +63,11 @@ Decisions that should propagate to architecture.md or downstream designs.
 Designs in docs/tdd-designs/ that need updating based on these findings.
 ```
 
-6. **Direct user to run `/tdd-spike-learn`**: This is a **required** next step, not optional. Tell the user:
+6. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/tdd-designs/<spike-name>/spike-results.md`
+   - `docs/tdd-designs/<spike-name>/lock.json` (if refreshed)
+   Commit message: `Spike: <spike-name> results`.
+7. **Direct user to run `/tdd-spike-learn`**: This is a **required** next step, not optional. Tell the user:
    > **Required next step**: Run `/tdd-spike-learn <spike-name>` to propagate findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, and to scan for affected downstream designs. Skipping this step causes the roadmap Design Inventory to go stale and downstream designs to miss critical dependency updates. Do this BEFORE `/tdd-design-complete`.
    In `--auto` mode, log this same message to `decisions.md`.
 

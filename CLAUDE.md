@@ -44,7 +44,7 @@ For structured implementations with full confidence:
 /tdd-phase-implement → execute a phase (red-green-refactor)
 /tdd-phase-review   → review completed phase
 /tdd-implementation-audit → final audit
-/tdd-design-complete → archive to completed-tdd-designs/
+/tdd-design-complete → archive to completed-tdd-designs/ (offers PR to base)
 ```
 
 ## Spike Pipeline
@@ -114,11 +114,15 @@ This preserves continuity while keeping context lean. Don't wait until context i
 
 Keep individual files under **600–800 lines** where possible. This ensures files fit within Claude Code's Read tool context (~10k characters) without truncation, which matters for reliable code review, design analysis, and council deliberation. If a file grows beyond this range, consider splitting it by responsibility.
 
+## Commits
+
+Every skill that produces substantial work commits at the end — scoped `git add`, conventional message, no Co-Authored-By trailer, no `--no-verify`, no auto-push. One commit per task during `/tdd-phase-implement`. One commit per artifact for design/plan/review/audit/learn steps. See `skills/_shared/commit-after-work.md` for the protocol and the full message-template table. Pushing and opening a PR happens only at `/tdd-design-complete`.
+
 ## Collaboration
 
 When multiple developers share a project, two conventions prevent stepping on each other's work:
 
-1. **Branch-per-design** — one design or spike = one branch named `tdd/<design-name>`, cut from the base branch and merged back at `/tdd-design-complete` time.
+1. **Branch-per-design** — one design or spike = one branch named `tdd/<design-name>`, cut from the base branch and merged back at `/tdd-design-complete` time. The branch is pushed to `origin` on creation so teammates see in-flight work immediately, not only after the first commit lands.
 2. **Advisory lock** — `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git so a parallel attempt produces a merge conflict at PR time.
 
 Lock-enforcing skills (`/tdd-design`, `/tdd-spike`, `/tdd-design-detail`, `/tdd-plan`, `/tdd-spike-plan`, `/tdd-phase-implement`, `/tdd-spike-implement`) run a preflight that:

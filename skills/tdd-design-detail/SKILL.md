@@ -63,7 +63,11 @@ Each phase should be independently testable.
 Key implementation choices made during this design and their rationale.
 ```
 
-7. **Tell the user** the next step is `/tdd-plan <design-name>`.
+7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/tdd-designs/<design-name>/detailed-design.md`
+   - `docs/tdd-designs/<design-name>/lock.json` (rolled into the same commit)
+   Commit message: `Design: <design-name> detailed`.
+8. **Tell the user** the next step is `/tdd-plan <design-name>`.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

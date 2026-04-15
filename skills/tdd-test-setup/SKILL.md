@@ -74,6 +74,16 @@ The ordering matters: picking a test runner, layout, and coverage tool before th
 
 9. **Verify**: Run the test suite once to confirm everything works.
 
+10. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage — include only those actually created or modified in steps 6–8 (run `git status --short` first and cross-check):
+    - Test config files (e.g., `vitest.config.ts`, `pytest.ini`, `jest.config.js`, whatever was created)
+    - Starter test file (path reported by step 6)
+    - Package manifest and lockfile if test deps were added (e.g., `package.json`, `package-lock.json`, `pyproject.toml`, `poetry.lock`)
+    - `.claude/settings.json` (if step 7 modified it)
+    - `.gitignore` (if step 8 modified it)
+    Do NOT stage `node_modules/`, `__pycache__/`, `.venv/`, or other build artifacts — those should already be gitignored.
+
+    Commit message: `Setup: test infrastructure`.
+
 ## Rules
 - **Never decide testing framework before architecture is documented.** If `docs/architecture.md` is missing, warn the user, recommend `/tdd-docs-init`, and ask whether to proceed anyway — do not silently guess.
 - Always let the user choose between options — don't silently install tools.

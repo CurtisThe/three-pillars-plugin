@@ -62,7 +62,12 @@ Present the draft to the user for review before writing. Keep the whole file und
 
 5. **Offer to update CLAUDE.md**. If the project's CLAUDE.md describes the project docs without listing `vision.md`, offer to add it so future sessions pick up the pillar. Don't edit without confirmation.
 
-6. **Tell the user the next step**. Point to `/tdd-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tdd-test-setup` configures test infrastructure informed by the architecture.
+6. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+   - `docs/vision.md`
+   - `CLAUDE.md` (only if step 5 modified it)
+   Commit message: `Setup: vision`.
+
+7. **Tell the user the next step**. Point to `/tdd-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tdd-test-setup` configures test infrastructure informed by the architecture.
 
 ## Rules
 - **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. Those belong in `/tdd-test-setup` (test infra) or the session skills (gitignore for handoff/decisions). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.

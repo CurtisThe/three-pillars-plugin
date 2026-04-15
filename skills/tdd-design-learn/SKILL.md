@@ -29,7 +29,12 @@ Read a completed design's artifacts and synthesize what was built into proposed 
 7. **Propose updates** for each doc that needs changes, following the pattern in `skills/_shared/propose-doc-edits.md`. Explain why the completed design motivates each change.
 8. **Scan for affected sibling designs**: Read all `design.md` files under `docs/tdd-designs/` (excluding the current design). Match key concepts — new modules, changed interfaces, architecture decisions from `implementation-audit.md` or `detailed-design.md` — against each design's Scope and Entities sections. For each affected design, also check whether its declared dependencies include the current design — if so, note whether those dependency requirements are now satisfied. List affected designs with an explanation of what needs updating.
 9. **Vision drift check (do not auto-propose vision edits)**: Compare what was actually built against `docs/vision.md`. Does the implementation contradict a stated principle or non-goal? Does it serve the stated problem in a way the vision didn't anticipate? If you find a genuine tension — not a stylistic mismatch — **flag it** to the user with a specific citation (which implementation detail, which vision bullet) and recommend `/tdd-docs-update vision` as an explicit follow-up. **Do not propose vision edits directly from this skill.** The sticky-vision principle exists to prevent post-hoc rationalization: shipped features are not evidence the vision changed.
-10. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete <design-name>` as the next step.
+10. **Commit the doc updates** per `skills/_shared/commit-after-work.md`. Artifact paths to stage (include only those actually modified in steps 5–8):
+    - `docs/product_roadmap.md`
+    - `docs/architecture.md`
+    - `docs/known_issues.md`
+    Do NOT stage `docs/vision.md` — this skill never auto-edits vision. Commit message: `Learn: <design-name> design`.
+11. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete <design-name>` as the next step.
 
 ## Rules
 - Follow `skills/_shared/propose-doc-edits.md` for all doc updates.

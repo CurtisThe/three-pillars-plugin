@@ -12,7 +12,7 @@
       "name": "three-pillars",
       "source": "./",
       "description": "Full three-pillars framework: TDD pipeline, spike pipeline, council, session management, and docs skills",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "author": {
         "name": "Curtis"
       }
