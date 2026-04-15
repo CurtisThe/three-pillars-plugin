@@ -48,7 +48,7 @@ Mark a finished design as complete, archive it out of the active designs directo
 
 ## Rules
 - Use `git mv` for the move so history follows the files.
-- Only delete `handoff.md` — never delete design.md, detailed-design.md, plan.md, review.md, implementation-audit.md, or any other artifact.
+- Only delete `handoff.md` — never delete design.md, detailed-design.md, plan.md, review.md, implementation-audit.md, `lock.json`, or any other artifact. The `lock.json` moves with the directory as a historical record of who held the design; see `skills/_shared/collaboration.md` for the lock convention.
 - If `design.md` doesn't exist in the directory, warn but continue with the move (some designs may have non-standard structures).
 - If `docs/completed-tdd-designs/<design-name>/` already exists, tell the user and stop — don't overwrite a previously completed design.
 - The frontmatter block uses YAML between `---` delimiters. "Frontmatter" is metadata at the top of a markdown file — a convention from static site generators like Jekyll and Hugo. Many tools parse it automatically.

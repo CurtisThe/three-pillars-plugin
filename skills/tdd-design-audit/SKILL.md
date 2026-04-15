@@ -1,7 +1,7 @@
 ---
 name: tdd-design-audit
 description: "Design Audit — multi-angle review of a detailed design against the actual codebase before implementation."
-argument-hint: "<design-name>"
+argument-hint: "<design-name> [--force-takeover]"
 ---
 
 # Design Audit
@@ -14,6 +14,9 @@ Thorough multi-angle review of a detailed design against the actual codebase. Ca
 - `docs/tdd-designs/<design-name>/detailed-design.md` must exist.
 
 ## Steps
+
+### 0. Preflight
+Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. The audit may update `detailed-design.md` and `plan.md` in Step 8 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed.
 
 ### 1. Load design artifacts
 Read both `design.md` and `detailed-design.md` from the design directory.
@@ -109,6 +112,7 @@ After discussing findings with the user:
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — audit fixes land in detailed-design.md and plan.md, which must not be edited by a non-owner.
 - ALWAYS verify against actual code, never trust design descriptions of current behavior
 - Launch parallel exploration agents for independent verification tasks
 - Read files fully — don't skim. Interface mismatches hide in parameter lists

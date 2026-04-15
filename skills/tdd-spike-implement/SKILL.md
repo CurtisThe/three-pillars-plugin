@@ -1,7 +1,7 @@
 ---
 name: tdd-spike-implement
 description: Execute a spike from plan.md — serial exploration with human review gates at phase boundaries. Speed over ceremony.
-argument-hint: "<spike-name> [phase-number] [--auto]"
+argument-hint: "<spike-name> [phase-number] [--auto] [--force-takeover]"
 ---
 
 # Spike Implement
@@ -17,14 +17,15 @@ Execute phases from a spike plan serially, with human review gates between phase
 
 ## Steps
 
-1. **Read `plan.md`** from the design directory.
-2. **Determine which phase to execute**:
+1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "spike-implement"`. This verifies the branch and lock before writing code. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
+2. **Read `plan.md`** from the design directory.
+3. **Determine which phase to execute**:
    - If a phase number was given, use that.
    - Otherwise, find the first phase with unfinished tasks (no `**Status**:` line or status is not Done/Skipped).
-3. **Phase confirmation**:
+4. **Phase confirmation**:
    - **Normal mode**: Show the user which phase you are about to execute and how many tasks it contains. Ask for confirmation.
    - **`--auto` mode**: Log the phase start to `decisions.md` and proceed without confirmation.
-4. **For each task in the phase, execute serially** (no worktrees, no parallel agents):
+5. **For each task in the phase, execute serially** (no worktrees, no parallel agents):
 
    For each task:
    - **Hypothesis**: Read what the task expects to learn or build.
@@ -37,7 +38,7 @@ Execute phases from a spike plan serially, with human review gates between phase
      3. Retry the task with the simplified approach.
      4. Repeat up to 3 attempts total. If all 3 fail, mark as `**Status**: Abandoned (3 attempts exhausted)` and log the full history to `decisions.md`.
 
-5. **Phase complete**:
+6. **Phase complete**:
    - **Normal mode — stop and present the Deliverable**:
      - Summarize what was built or learned in this phase.
      - List any blocked tasks with reasons.
@@ -52,10 +53,11 @@ Execute phases from a spike plan serially, with human review gates between phase
      - If there are remaining phases, auto-advance to the next phase.
      - If all tasks in the phase were blocked/abandoned, still continue to the next phase (later phases may not depend on earlier ones). Only stop the entire spike if ALL remaining phases have been attempted.
 
-6. **Update `plan.md`** — statuses should already be updated per-task in step 4. Verify all tasks in the completed phase have a status line.
+7. **Update `plan.md`** — statuses should already be updated per-task in step 5. Verify all tasks in the completed phase have a status line.
 
 ## Rules
 - **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this spike.
 - **Serial execution only** — no worktrees, no parallel subagents. One task at a time in the main agent.
 - **Speed over ceremony** — no strict red-green-refactor. Write the code, check if it works, move on. Tests are encouraged but not required for every task.
 - **Demo convention** — rendered output (MP4s, screenshots, logs) goes in `docs/tdd-designs/<spike-name>/demos/`. This directory should be gitignored — demos are reproducible from source. Create it on first use.

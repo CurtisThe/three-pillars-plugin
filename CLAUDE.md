@@ -106,6 +106,21 @@ This preserves continuity while keeping context lean. Don't wait until context i
 
 Keep individual files under **600–800 lines** where possible. This ensures files fit within Claude Code's Read tool context (~10k characters) without truncation, which matters for reliable code review, design analysis, and council deliberation. If a file grows beyond this range, consider splitting it by responsibility.
 
+## Collaboration
+
+When multiple developers share a project, two conventions prevent stepping on each other's work:
+
+1. **Branch-per-design** — one design or spike = one branch named `tdd/<design-name>`, cut from the base branch and merged back at `/tdd-design-complete` time.
+2. **Advisory lock** — `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git so a parallel attempt produces a merge conflict at PR time.
+
+Lock-enforcing skills (`/tdd-design`, `/tdd-spike`, `/tdd-design-detail`, `/tdd-plan`, `/tdd-spike-plan`, `/tdd-phase-implement`, `/tdd-spike-implement`) run a preflight that:
+- Warns if you're on `main`/`master` and offers to create `tdd/<design-name>`.
+- Refuses to proceed if another developer holds the lock. Pass `--force-takeover` to claim it (the prior holder is recorded in `previous_owners[]`).
+
+Read-only skills (`/tdd-session-restore`, review/audit/learn) inspect the lock and warn, but never block.
+
+See `skills/_shared/collaboration.md` for the full protocol, lock.json schema, and stale-lock handling.
+
 ## Council
 
 `/council` convenes multi-persona deliberation for complex decisions. Used automatically by `/tdd-plan-audit`.

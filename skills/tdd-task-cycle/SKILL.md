@@ -1,7 +1,7 @@
 ---
 name: tdd-task-cycle
 description: Execute a single red-green-refactor TDD cycle. Human-invokable standalone, and also the kernel embedded by /tdd-phase-implement for automated execution.
-argument-hint: "<design-name> <phase.task> | <description>"
+argument-hint: "<design-name> <phase.task> | <description> [--force-takeover]"
 ---
 
 # Red-Green-Refactor
@@ -11,6 +11,10 @@ Execute one TDD cycle for a single task.
 **Argument**: Either a task description in plain text, OR a `<design-name>` followed by a task ID (e.g., `my-feature 2.3` for Phase 2, Task 3).
 
 ## Steps
+
+### Preflight
+
+0. **If a `<design-name>` was provided**, run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implement"`. This verifies the branch and lock before writing code. Honor `--force-takeover` if passed. If invoked standalone with only a description (no design name), skip this step.
 
 ### Red — Write a Failing Test
 
@@ -47,6 +51,7 @@ Execute one TDD cycle for a single task.
 
 ## Rules
 - **If a `<design-name>` is provided**, validate it per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` when a design name is provided. Standalone description-only invocations are not lock-scoped.
 - Never write implementation before the test.
 - Never modify the test to make it pass (unless the test itself is buggy).
 - Follow the project's conventions for imports, module structure, and dependency management.

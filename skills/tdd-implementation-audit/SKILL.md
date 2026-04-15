@@ -1,7 +1,7 @@
 ---
 name: tdd-implementation-audit
 description: "Final audit of a completed plan — verify the full implementation against both design.md and detailed-design.md."
-argument-hint: "<design-name>"
+argument-hint: "<design-name> [--force-takeover]"
 ---
 
 # Implementation Audit
@@ -16,6 +16,9 @@ Comprehensive review of a completed implementation against both design documents
 - `docs/tdd-designs/<design-name>/plan.md` must exist with all phases marked as Done (or Skipped/Blocked).
 
 ## Steps
+
+### 0. Preflight
+Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. This verifies the branch and refreshes the lock so the final audit artifact is written by the rightful owner. Honor `--force-takeover` if passed.
 
 ### 1. Load all design artifacts
 Read `design.md`, `detailed-design.md`, `plan.md`, and any `review.md` files from the design directory. Do not skim — read fully. Also read project docs per `skills/_shared/read-project-docs.md` for project context.
@@ -111,6 +114,7 @@ After presenting the audit verdict, tell the user:
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — the final audit should be written by the design's current owner. Pass `--force-takeover` to claim the design before auditing it.
 - This is a final gate, not a phase-level review. Read EVERYTHING — both designs, the full plan, and all implemented code.
 - The two design documents (design.md + detailed-design.md) are the source of truth. The implementation serves them.
 - Deviations aren't automatically bad — implementations often discover things the design missed. But they must be acknowledged and documented.

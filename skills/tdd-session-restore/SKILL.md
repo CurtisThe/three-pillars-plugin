@@ -20,16 +20,19 @@ If no argument is given, read the **first line** of `.claude/last-design` (proje
 4. **Read the sibling artifacts** that exist in the design directory (design.md, detailed-design.md, plan.md, review.md) — quick scan for context, not deep-dive.
 5. **Read the files mentioned** in the handoff's State and Next sections (just a quick scan — don't deep-dive unless something looks wrong).
 6. **Read Current Focus**: If `docs/product_roadmap.md` exists and has a `## Current Focus` table, read it. Use this to contextualize the design's status within the broader project — is it the top priority? Is it blocking other work?
-7. **Present a brief status** to the user:
+7. **Inspect the lock** per `skills/_shared/collaboration.md`. If `lock.json` exists and its `owner` or `branch` does not match the current user / current git branch, surface this in the status update ("Heads up: `<name>` is locked by `<owner>` on `<branch>` — you'll need `--force-takeover` on the next lock-enforcing skill to claim it"). Do **not** block — session-restore is read-only.
+8. **Present a brief status** to the user:
    - What design they're working on and which phase
    - What artifacts exist (design ✓, detailed ✓, plan ✓, etc.)
    - What's done vs. what's next
    - Where this design sits in the Current Focus table (if present)
+   - Lock status (only surface if the user is not the current owner)
    - Any open questions from last time
-8. **Ask** if they want to continue where they left off or pivot to something else.
+9. **Ask** if they want to continue where they left off or pivot to something else.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Inspect but do not enforce the lock** per `skills/_shared/collaboration.md`. Restore is read-only and must not block.
 - Keep the status update under 15 lines. The user already wrote the handoff — don't parrot it back verbatim, synthesize it.
 - If the handoff references files that no longer exist or state that looks stale, flag it.
 - Don't start doing work until the user confirms direction.

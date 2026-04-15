@@ -1,7 +1,7 @@
 ---
 name: tdd-spike-auto
 description: "Autonomous spike pipeline — interactive design, then hands-off plan/audit/implement/results with a decision log for morning review."
-argument-hint: "<spike-name> [--parent <design-name>]"
+argument-hint: "<spike-name> [--parent <design-name>] [--force-takeover]"
 ---
 
 # Autonomous Spike Pipeline
@@ -16,17 +16,18 @@ Two-phase spike: interactive design conversation, then autonomous execution of t
 
 1. **Validate `<spike-name>`**: must match `[a-z0-9-]+`.
 2. **Resolve the design directory**: `docs/tdd-designs/<spike-name>/`. Create if needed.
-3. **Check for existing `design.md`**. If exists, ask the user whether to revise or start fresh.
-4. **If `--parent` is given**, verify parent design exists and read it.
-5. **Have a spike conversation**. Draw out through questions:
+3. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "design"`. This is interactive (Phase 1), so prompt the user for branch creation or takeover as described in the shared doc. Honor `--force-takeover` if passed. Phase 2 will refresh the same lock through each delegated skill.
+4. **Check for existing `design.md`**. If exists, ask the user whether to revise or start fresh.
+5. **If `--parent` is given**, verify parent design exists and read it.
+6. **Have a spike conversation**. Draw out through questions:
    - **Hypothesis** — what do we believe and want to validate?
    - **Success criteria** — what does GO / PARTIAL / NO-GO look like?
    - **Experiments** — what will we try, what do we expect to observe?
    - **Expected demos** — what artifacts prove findings?
    - **Constraints** — time budget, resource limits, dependencies.
    - **Parent linkage** — if parent exists, what questions does this spike answer?
-6. **Write `design.md`** using the standard spike design format (see `/tdd-spike` for template).
-7. **Ask the user**: "Design complete. Ready to go autonomous? Once you confirm, I'll run plan → audit → implement → results without stopping. You can review decisions.md in the morning."
+7. **Write `design.md`** using the standard spike design format (see `/tdd-spike` for template).
+8. **Ask the user**: "Design complete. Ready to go autonomous? Once you confirm, I'll run plan → audit → implement → results without stopping. You can review decisions.md in the morning."
    - If the user says no or wants changes, iterate on the design.
    - If the user confirms, proceed to Phase 2.
 
@@ -103,6 +104,7 @@ Tell the user:
 
 ## Rules
 - **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — Phase 1's preflight can refuse to proceed if another developer holds this spike. Phase 2 delegates through skills that each re-verify the lock.
 - **Phase 1 is interactive** — ask questions, push back on vague hypotheses, insist on measurable success criteria. This is the alignment step.
 - **Phase 2 is fully autonomous** — never prompt the user after they confirm "go autonomous." Every decision goes to decisions.md.
 - **Follow each skill's full instructions** — this orchestrator doesn't replace the skills, it chains them. Read each SKILL.md and follow its steps, adding `--auto` (and `--spike` for plan-audit) behavior.

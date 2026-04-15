@@ -71,6 +71,14 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 /tdd-session-restore auth-revamp # Full continuity — no re-explaining
 ```
 
+**Collaboration** — works solo, scales to teams:
+
+- **Branch-per-design**: each design or spike lives on its own branch, `tdd/<design-name>`. Skills prompt to create the branch if you start on `main`.
+- **Advisory lock**: `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
+- **Takeover**: if the holder abandons the design (or hands it off), the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
+
+Lock-enforcing skills (design, spike, detail, plan, audits, implement, review) refuse to proceed if another developer holds the lock. Read-only skills (`/tdd-session-restore`, learn/guide) inspect the lock and warn but never block. See `skills/_shared/collaboration.md` for the full protocol.
+
 ## What's included
 
 **26 skills** organized into pipelines:

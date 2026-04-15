@@ -10,3 +10,7 @@ name="<validated-name>"
 mv .claude/last-design.tmp .claude/last-design
 ```
 This prepends the name, removes any prior occurrence (dedup), and caps at 10 entries. The first line is always the currently active design.
+
+Before writing `.claude/last-design`, ensure the project's `.gitignore` contains `.claude/last-design` (per-developer MRU state — should never be shared). If `.gitignore` does not contain that line, append it under a `# three-pillars session artifacts` comment, creating the comment only if it is not already present (other `_shared/` docs may have added it first).
+
+**Never `git add .claude/last-design`** — it is gitignored, and staging it would require `-f` and produce a noisy "paths are ignored" hint. Write the file and stop.

@@ -1,7 +1,7 @@
 ---
 name: tdd-phase-implement
 description: Execute a phase from plan.md by running red-green-refactor cycles for each task. Spawns subagents for independent tasks within a phase.
-argument-hint: "<design-name> [phase-number]"
+argument-hint: "<design-name> [phase-number] [--force-takeover]"
 ---
 
 # Phase Implement
@@ -15,12 +15,13 @@ Execute one or more phases from the implementation plan.
 
 ## Steps
 
-1. **Read `plan.md`** from the design directory.
-2. **Determine which phase to execute**:
+1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "implement"`. This is the highest-risk skill — verifying the branch and lock before writing code is essential. Honor `--force-takeover` if passed.
+2. **Read `plan.md`** from the design directory.
+3. **Determine which phase to execute**:
    - If a phase number was given, use that.
    - Otherwise, find the first phase with unfinished tasks (check if the test files/functions exist and pass).
-3. **Show the user** which phase you're about to execute and how many tasks it contains. Ask for confirmation.
-4. **For each task in the phase**, execute a red-green-refactor cycle:
+4. **Show the user** which phase you're about to execute and how many tasks it contains. Ask for confirmation.
+5. **For each task in the phase**, execute a red-green-refactor cycle:
 
    **If tasks within the phase are independent** (no interdependencies), **commit all uncommitted changes first** (worktree agents branch from the last committed state — uncommitted work won't be visible to them, causing regressions). Then spawn parallel Agent workers. Each agent gets this prompt embedded directly (do NOT rely on the agent calling /tdd-task-cycle):
 
@@ -53,20 +54,21 @@ Execute one or more phases from the implementation plan.
 
    Do not leave worktrees or branches behind — they clutter the repo and confuse IDE git integrations.
 
-5. **After all tasks in the phase complete**, run the project's test suite for affected files. Discover the test command from the project config (CLAUDE.md, Makefile, package.json scripts, pyproject.toml, etc.). Redirect output to a temp file for review:
+6. **After all tasks in the phase complete**, run the project's test suite for affected files. Discover the test command from the project config (CLAUDE.md, Makefile, package.json scripts, pyproject.toml, etc.). Redirect output to a temp file for review:
    ```
    <project-test-command> 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
    ```
-6. **Integration review** — tests passing is necessary but not sufficient. Before marking the phase done, do a quick sanity check of the actual system behavior:
+7. **Integration review** — tests passing is necessary but not sufficient. Before marking the phase done, do a quick sanity check of the actual system behavior:
    - If the phase involves external dependencies (LLM calls, APIs, file I/O, GPU inference), check that the real artifacts are correct — not just that mocked tests pass. Look at actual output files, logs, or run a quick smoke test.
    - If the phase produces user-visible output (HTML, CLI output, reports), eyeball it for obvious issues: duplicated content, missing data, wrong labels, broken formatting.
    - If the phase adds tolerance/parsing for external inputs (LLM responses, API payloads), verify against real-world samples — not just the test fixtures. Check the actual data on disk if available.
    - Flag anything suspicious to the user rather than silently marking the phase complete. A 30-second check here catches issues that would otherwise require a full re-run to diagnose.
-7. **Update `plan.md`** — add a `**Status**: Done ✓` line to each completed task.
-8. **Report** to the user: which tasks passed, any failures, integration review findings, and what phase is next.
+8. **Update `plan.md`** — add a `**Status**: Done ✓` line to each completed task.
+9. **Report** to the user: which tasks passed, any failures, integration review findings, and what phase is next.
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this design. This is especially important for implementation because a parallel branch writing code will conflict catastrophically.
 - Always ask before starting a phase. Never auto-advance to the next phase.
 - If a task's test already passes (behavior pre-exists), mark it as `**Status**: Skipped (pre-exists)` and move on.
 - If a task fails after 3 attempts in the red-green cycle, mark it as `**Status**: Blocked` with the error, and continue to the next task. Report blocked tasks at the end.

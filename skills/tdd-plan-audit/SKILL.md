@@ -1,7 +1,7 @@
 ---
 name: tdd-plan-audit
 description: "Plan Audit — verify plan.md is consistent with design.md and detailed-design.md. Runs deterministic scripts then convenes an engineering council for judgment calls."
-argument-hint: "<design-name> [--spike] [--auto]"
+argument-hint: "<design-name> [--spike] [--auto] [--force-takeover]"
 ---
 
 # Plan Audit
@@ -29,6 +29,8 @@ Three-layer verification that plan.md is consistent with its upstream design doc
 ### Step 1: Validate and locate artifacts
 
 Validate `<design-name>` matches `[a-z0-9-]+`. Reject values containing `/`, `..`, spaces, or non-matching characters.
+
+Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. The plan audit edits `plan.md` in Step 7 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
 
 Set the design directory:
 ```
@@ -256,6 +258,7 @@ In both modes:
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Respect the lock** per `skills/_shared/collaboration.md` — plan-audit edits `plan.md` and must not proceed if another developer holds the design.
 - The design documents (design.md, and detailed-design.md when present) are authoritative. The plan serves them, not the other way around.
 - In `--spike` mode, design.md is the sole authority — there is no detailed-design.md.
 - If the design is ambiguous and the plan makes a reasonable interpretation, that's fine — only flag clear contradictions.
