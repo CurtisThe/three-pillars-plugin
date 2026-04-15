@@ -1,3 +1,11 @@
+# ⚠️ This file is generated — do not edit directly
+
+This `CLAUDE.md` is shipped from a private dev repo via `release.sh`. Direct edits to this file (or any other file in this repo's allowlist: `skills/`, `agents/`, `.claude-plugin/`, `settings.json`, `statusline.sh`, `LICENSE`, `CONTRIBUTING.md`, etc.) will be **overwritten on the next release**.
+
+**To contribute**: open an issue or PR describing the change. The maintainer will apply it upstream and re-release. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 # Three Pillars Framework
 
 This machine uses the **three-pillars** skill framework for structured software development with Claude Code.
