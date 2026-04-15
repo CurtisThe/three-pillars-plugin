@@ -4,12 +4,31 @@ A [Claude Code](https://claude.ai/code) plugin that wraps AI-assisted developmen
 
 ## Install
 
-```
+**Prerequisites**: [Claude Code](https://claude.ai/code) installed on your machine.
+
+Two commands in your terminal:
+
+```bash
 claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars-plugin
 ```
 
-Restart Claude Code. Your 26 skills and 18 council agents are live.
+Restart Claude Code. That's it — 26 skills and 18 council agents are live.
+
+**Verify** by typing `/tdd-guide` in any project. If the skill runs, you're set.
+
+**Later, to update** to a newer release:
+
+```bash
+claude plugin update three-pillars@three-pillars-plugin
+```
+
+**To uninstall**:
+
+```bash
+claude plugin uninstall three-pillars@three-pillars-plugin
+claude plugin marketplace remove CurtisThe/three-pillars-plugin
+```
 
 ### Optional extras
 

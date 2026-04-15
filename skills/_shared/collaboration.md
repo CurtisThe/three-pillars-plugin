@@ -36,18 +36,23 @@ Schema:
 
 Lock-aware skills run this before executing their main work:
 
-1. **Determine current state**:
+1. **Ensure a git repo exists**: run `git rev-parse --is-inside-work-tree` silently. If it fails (cwd is not a git repo), tell the user:
+   > This project is not a git repository. The three-pillars collaboration protocol depends on git (branch, lock file, merge conflicts). I'll run `git init` now so design state is version-controlled from the start.
+
+   Then run `git init -b main` (or `git init` if the user's git is too old to support `-b`). Proceed with the rest of the preflight — the user will be on the newly-created default branch, so step 3's branch check will then offer to switch to `tdd/<design-name>`.
+
+2. **Determine current state**:
    - Current branch: `git branch --show-current`
-   - Current user: `git config user.email` (fall back to `git config user.name` if email is empty)
+   - Current user: `git config user.email` (fall back to `git config user.name` if email is empty; if both are empty, tell the user to set `git config --global user.email <you@example.com>` and stop)
    - Current UTC time as ISO 8601
 
-2. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, warn:
+3. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, warn:
    > You are on `<branch>`. The collaboration convention is to work on `tdd/<design-name>`. Would you like to create/switch to that branch now? (yes / no / continue-anyway)
    - **yes**: `git checkout -b tdd/<design-name>` if it doesn't exist, else `git checkout tdd/<design-name>`.
    - **continue-anyway**: proceed; the lock records the current branch as-is.
    - **no**: stop the skill.
 
-3. **Lock check** — read `docs/tdd-designs/<design-name>/lock.json` if present.
+4. **Lock check** — read `docs/tdd-designs/<design-name>/lock.json` if present.
 
    | State | Action |
    |---|---|
@@ -58,7 +63,7 @@ Lock-aware skills run this before executing their main work:
 
    **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: <now>`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
 
-4. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. Skills don't create commits on the user's behalf — the next commit produced by the skill's normal flow (or the user) will include it.
+5. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. Skills don't create commits on the user's behalf — the next commit produced by the skill's normal flow (or the user) will include it.
 
 ## Release
 
