@@ -13,7 +13,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars-plugin
 ```
 
-Restart Claude Code. That's it — 26 skills and 18 council agents are live.
+Restart Claude Code. That's it — 27 skills and 18 council agents are live.
 
 **Verify** by typing `/tdd-guide` in any project. If the skill runs, you're set.
 
@@ -100,7 +100,8 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 - **Branch-per-design**: each design or spike lives on its own branch, `tdd/<design-name>`. Skills prompt to create the branch if you start on `main`.
 - **Advisory lock**: `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
-- **Takeover**: if the holder abandons the design (or hands it off), the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
+- **Takeover**: if the holder abandons the design, the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
+- **Graceful handoff**: the holder can run `/tdd-design-release <name>` to step away cleanly — `owner` goes to `null`, and the next person claims the design without needing `--force-takeover`.
 - **Remote-aware**: lock-enforcing skills `git fetch` at the start of each preflight, so they catch teammates' claims that were pushed but not yet pulled locally. Offline-tolerant — the check fails open.
 
 **What the framework handles vs. what you still need**: this framework enforces **ownership** — who currently holds a claimed design and whether a parallel claim is allowed. It does not handle **assignment** — who should be working on what in the first place. That lives in your existing planning tool (Jira, Asana, Linear, GitHub Projects, a whiteboard, Slack). As long as your team coordinates assignments there, the lock here catches accidental overlap and abandoned work without trying to replace the planning system. Aspirational future: hooks or MCP servers could sync lock state with those external tools — out of scope today, but a direction the framework can grow into.
@@ -109,7 +110,7 @@ Lock-enforcing skills (design, spike, detail, plan, audits, implement, review) r
 
 ## What's included
 
-**26 skills** organized into pipelines:
+**27 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
@@ -180,6 +181,7 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | Command | What it does |
 |---|---|
 | `/tdd-design-learn <name>` | Synthesize a design's impact into project docs |
+| `/tdd-design-release <name>` | Release your lock without completing — graceful handoff to a teammate |
 | `/tdd-design-complete <name>` | Archive to `docs/completed-tdd-designs/` |
 
 ### Project docs

@@ -72,6 +72,7 @@ Lock-aware skills run this before executing their main work:
    | State | Action |
    |---|---|
    | No lock file | **Acquire**: write a fresh lock with current values and phase. |
+   | Lock exists, `owner` is `null` (previously released) | **Acquire cleanly**: update top-level owner/branch/phase/acquired_at/last_touched to the new holder. The existing `previous_owners[]` is preserved. No `--force-takeover` required — the prior holder explicitly stepped away. |
    | Lock exists, `owner` + `branch` both match current | **Refresh**: update `phase` and `last_touched`. Proceed. |
    | Lock exists, `owner` or `branch` differs, `last_touched` ≤ 14 days old | Show owner/branch/phase/last_touched. Refuse unless `--force-takeover` was passed. |
    | Lock exists, `last_touched` > 14 days old | Warn that the lock looks stale, show its contents, ask whether to take over. |
@@ -82,9 +83,13 @@ Lock-aware skills run this before executing their main work:
 
 ## Release
 
-The lock is released implicitly when `/tdd-design-complete` moves the design directory to `docs/completed-tdd-designs/`. There is no separate release step during normal use. A completed design in the archive still carries its lock file as a historical record.
+There are three release paths, in order of commonness:
 
-If a developer wants to hand off a design mid-flight, they should commit + push with the lock as-is. The receiving developer runs the next skill with `--force-takeover` to claim it.
+1. **Completion** (`/tdd-design-complete`): the lock is released implicitly when the design directory moves to `docs/completed-tdd-designs/`. The lock file carries with it as a historical record.
+2. **Graceful step-away** (`/tdd-design-release`): the current owner explicitly gives up the lock without finishing the design. `owner`/`branch`/`phase` go to `null`; the prior holder is preserved in `previous_owners[]` with a `released_by` and optional `reason`. Anyone else can then claim it by just running the next lock-enforcing skill — no `--force-takeover` needed.
+3. **Taken over** (via `--force-takeover` on any lock-enforcing skill): the receiving developer claims a still-held lock. Appropriate when the current owner is unreachable or unresponsive but hasn't explicitly released.
+
+Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next lock check and can be taken over without `--force-takeover` via the "ask whether to take over" prompt.
 
 ## When to apply
 
@@ -98,6 +103,7 @@ If a developer wants to hand off a design mid-flight, they should commit + push 
 
 **Lock-releasing skills**:
 - `/tdd-design-complete` — the directory move carries the lock with it; no separate release needed.
+- `/tdd-design-release` — graceful step-away. Clears the owner without completing the design, so a teammate can pick it up without `--force-takeover`.
 
 ## Gitignore
 

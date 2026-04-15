@@ -125,6 +125,8 @@ Lock-enforcing skills (`/tdd-design`, `/tdd-spike`, `/tdd-design-detail`, `/tdd-
 - Warns if you're on `main`/`master` and offers to create `tdd/<design-name>`.
 - Refuses to proceed if another developer holds the lock. Pass `--force-takeover` to claim it (the prior holder is recorded in `previous_owners[]`).
 
+Graceful handoff: run `/tdd-design-release <name>` to step away cleanly — `owner` goes to `null` and the next person claims the design without needing `--force-takeover`.
+
 Read-only skills (`/tdd-session-restore`, review/audit/learn) inspect the lock and warn, but never block.
 
 See `skills/_shared/collaboration.md` for the full protocol, lock.json schema, and stale-lock handling.
