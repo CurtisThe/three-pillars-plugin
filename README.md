@@ -17,18 +17,24 @@ Restart Claude Code. That's it — 26 skills and 18 council agents are live.
 
 **Verify** by typing `/tdd-guide` in any project. If the skill runs, you're set.
 
-**Later, to update** to a newer release:
+## Update
+
+Releases ship new skills, bug fixes, and refinements. Check the [releases page](https://github.com/CurtisThe/three-pillars-plugin/releases) or the top of the commit log to see what's new.
 
 ```bash
 claude plugin update three-pillars@three-pillars-plugin
 ```
 
-**To uninstall**:
+Restart Claude Code after updating so the new skills are loaded. Your existing designs, plans, and session state are untouched — updates only replace the plugin's own files (`skills/`, `agents/`, `CLAUDE.md`, etc.).
+
+## Uninstall
 
 ```bash
 claude plugin uninstall three-pillars@three-pillars-plugin
 claude plugin marketplace remove CurtisThe/three-pillars-plugin
 ```
+
+Your project's `docs/tdd-designs/` directories are **not** removed — those belong to your project, not the plugin.
 
 ### Optional extras
 
