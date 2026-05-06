@@ -1,25 +1,25 @@
 ---
 name: tdd-design-learn
 description: Synthesize a completed design's impact into project docs updates and identify affected sibling designs. The "close the loop" step after implementation-audit.
-argument-hint: "<design-name>"
+argument-hint: "{design-name}"
 ---
 
 # Design Learn
 
 Read a completed design's artifacts and synthesize what was built into proposed updates for project docs and downstream designs.
 
-**Argument**: `<design-name>` (required) — must match an existing directory under `docs/tdd-designs/` or `docs/completed-tdd-designs/`.
+**Argument**: `{design-name}` (required) — must match an existing directory under `docs/tdd-designs/` or `docs/completed-tdd-designs/`.
 
 ## Prerequisites
 - `design.md` and `implementation-audit.md` (or at minimum `plan.md` with all tasks Done) must exist. If not, tell the user what's missing and stop.
 
 ## Steps
 
-1. **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
-2. **Locate the design directory**: check `docs/tdd-designs/<design-name>/` first, then `docs/completed-tdd-designs/<design-name>/`.
+1. **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
+2. **Locate the design directory**: check `docs/tdd-designs/{design-name}/` first, then `docs/completed-tdd-designs/{design-name}/`.
 3. **Read the full design directory**: `design.md`, `detailed-design.md`, `plan.md`, `implementation-audit.md`, and any `review.md` files.
 4. **Read project docs** per `skills/_shared/read-project-docs.md`.
-5. **Update Design Inventory in `product_roadmap.md`**: If the roadmap has a Design Inventory table, find the row for `<design-name>` and propose updating its status (e.g., "Designed" → "**Done**" or "Implementing" → "**Done**"). If the design is NOT in the table (was created before roadmap registration existed), propose adding a row. Include the design's dependencies and any downstream designs that reference it. Show the proposed change and get user confirmation.
+5. **Update Design Inventory in `product_roadmap.md`**: If the roadmap has a Design Inventory table, find the row for `{design-name}` and propose updating its status (e.g., "Designed" → "**Done**" or "Implementing" → "**Done**"). If the design is NOT in the table (was created before roadmap registration existed), propose adding a row. Include the design's dependencies and any downstream designs that reference it. Show the proposed change and get user confirmation.
 6. **Update Current Focus in `product_roadmap.md`**: If the roadmap has a `## Current Focus` table, propose changes:
    - **Remove** the completed design's row from Current Focus (it's done).
    - **Update "Blocked By"** on any row that listed this design as a blocker — clear the blocker if this was the only one.
@@ -33,8 +33,8 @@ Read a completed design's artifacts and synthesize what was built into proposed 
     - `docs/product_roadmap.md`
     - `docs/architecture.md`
     - `docs/known_issues.md`
-    Do NOT stage `docs/vision.md` — this skill never auto-edits vision. Commit message: `Learn: <design-name> design`.
-11. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete <design-name>` as the next step.
+    Do NOT stage `docs/vision.md` — this skill never auto-edits vision. Commit message: `Learn: {design-name} design`.
+11. **Report**: Summarize what was updated, what designs are affected, any vision tensions flagged, and suggest `/tdd-design-complete {design-name}` as the next step.
 
 ## Rules
 - Follow `skills/_shared/propose-doc-edits.md` for all doc updates.

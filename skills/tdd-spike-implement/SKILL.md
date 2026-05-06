@@ -1,7 +1,7 @@
 ---
 name: tdd-spike-implement
 description: Execute a spike from plan.md — serial exploration with human review gates at phase boundaries. Speed over ceremony.
-argument-hint: "<spike-name> [phase-number] [--auto] [--force-takeover]"
+argument-hint: "{spike-name} [phase-number] [--auto] [--force-takeover]"
 ---
 
 # Spike Implement
@@ -9,11 +9,11 @@ argument-hint: "<spike-name> [phase-number] [--auto] [--force-takeover]"
 Execute phases from a spike plan serially, with human review gates between phases.
 
 **Arguments**:
-- `<spike-name>` (required), optionally a phase number (e.g., `my-spike 2`). Without a phase number, executes the next incomplete phase.
+- `{spike-name}` (required), optionally a phase number (e.g., `my-spike 2`). Without a phase number, executes the next incomplete phase.
 - `--auto` (optional) — autonomous mode. Skips phase confirmation, auto-continues at phase boundaries, retries blocked tasks with simplification (max 3 attempts), logs all decisions to `decisions.md`. See `skills/_shared/auto-mode.md` for convention.
 
 ## Prerequisites
-- `docs/tdd-designs/<spike-name>/plan.md` must exist. If not, tell the user to run `/tdd-spike-plan <spike-name>` first and stop.
+- `docs/tdd-designs/{spike-name}/plan.md` must exist. If not, tell the user to run `/tdd-spike-plan {spike-name}` first and stop.
 
 ## Steps
 
@@ -32,7 +32,7 @@ Execute phases from a spike plan serially, with human review gates between phase
    - **Try**: Implement the task directly. Prioritize speed — no mandatory test-first, no strict red-green-refactor. Write tests when they add value, skip ceremony when they do not.
    - **Evaluate**: Check if the result works. Run any existing tests for affected files. Judge whether the task outcome matches the Hypothesis.
    - **Update status**: Add `**Status**: Done` to the task in plan.md. If the task fails after reasonable effort, mark it `**Status**: Blocked` with a short reason and continue to the next task.
-   - **Commit**: Per `skills/_shared/commit-after-work.md`, commit the experiment. Artifact paths to stage: the tracked code files the experiment touched plus `docs/tdd-designs/<spike-name>/plan.md` (updated status). Do NOT stage anything under `docs/tdd-designs/<spike-name>/demos/` — that directory is gitignored. Commit message: `Spike: <spike-name> <phase>.<experiment>`. If the experiment produced no tracked changes (e.g. only wrote to `demos/` or only gathered observations), skip the commit.
+   - **Commit**: Per `skills/_shared/commit-after-work.md`, commit the experiment. Artifact paths to stage: the tracked code files the experiment touched plus `docs/tdd-designs/{spike-name}/plan.md` (updated status). Do NOT stage anything under `docs/tdd-designs/{spike-name}/demos/` — that directory is gitignored. Commit message: `Spike: {spike-name} {phase}.{experiment}`. If the experiment produced no tracked changes (e.g. only wrote to `demos/` or only gathered observations), skip the commit.
    - **`--auto` mode — retry on failure**: If a task fails, don't immediately mark it Blocked. Instead:
      1. Log a simplification entry to `decisions.md` describing what failed and why.
      2. Simplify the approach (reduce scope, use mocks, skip edge cases, use simpler implementation).
@@ -57,11 +57,11 @@ Execute phases from a spike plan serially, with human review gates between phase
 7. **Update `plan.md`** — statuses should already be updated per-task in step 5. Verify all tasks in the completed phase have a status line.
 
 ## Rules
-- **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this spike.
 - **Serial execution only** — no worktrees, no parallel subagents. One task at a time in the main agent.
 - **Speed over ceremony** — no strict red-green-refactor. Write the code, check if it works, move on. Tests are encouraged but not required for every task.
-- **Demo convention** — rendered output (MP4s, screenshots, logs) goes in `docs/tdd-designs/<spike-name>/demos/`. This directory should be gitignored — demos are reproducible from source. Create it on first use.
+- **Demo convention** — rendered output (MP4s, screenshots, logs) goes in `docs/tdd-designs/{spike-name}/demos/`. This directory should be gitignored — demos are reproducible from source. Create it on first use.
 - **Human review gates** — in normal mode, always stop at phase boundaries. Never auto-advance. In `--auto` mode, auto-advance after logging a phase boundary entry to `decisions.md`.
 - **Pivot support** — in normal mode, if the user wants to change direction, help them edit plan.md before continuing. In `--auto` mode, no pivots — continue with the plan as-is.
 - If a task is already done (artifact exists, test passes), mark it `**Status**: Skipped (pre-exists)` and move on.

@@ -1,7 +1,7 @@
 ---
 name: tdd-spike-plan
 description: Generate an experiment plan.md from a spike-flavored design.md — phases of hypothesis-driven tasks for exploratory work.
-argument-hint: "<spike-name> [--auto] [--force-takeover]"
+argument-hint: "{spike-name} [--auto] [--force-takeover]"
 ---
 
 # Spike Experiment Plan
@@ -9,11 +9,11 @@ argument-hint: "<spike-name> [--auto] [--force-takeover]"
 Turn a spike design into a structured experiment plan with hypothesis-driven tasks.
 
 **Arguments**:
-- `<spike-name>` (required) — must match an existing directory under `docs/tdd-designs/`.
+- `{spike-name}` (required) — must match an existing directory under `docs/tdd-designs/`.
 - `--auto` (optional) — autonomous mode. Skips user confirmation, self-reviews plan, logs decisions to `decisions.md`. See `skills/_shared/auto-mode.md` for convention.
 
 ## Prerequisites
-- `docs/tdd-designs/<spike-name>/design.md` must exist and be spike-flavored (exploratory, not implementation). If not, tell the user to create one first and stop.
+- `docs/tdd-designs/{spike-name}/design.md` must exist and be spike-flavored (exploratory, not implementation). If not, tell the user to create one first and stop.
 
 ## Steps
 
@@ -24,15 +24,15 @@ Turn a spike design into a structured experiment plan with hypothesis-driven tas
    - **Hypothesis-driven** — states what you expect before trying
    - **Has a clear evaluation method** — how to judge the result
    - **Produces a Deliverable** at the phase level for user review
-5. **Write `docs/tdd-designs/<spike-name>/plan.md`** using this exact format:
+5. **Write `docs/tdd-designs/{spike-name}/plan.md`** using this exact format:
 
 ```markdown
 # <Spike Name> — Experiment Plan
 
-## Phase 1: <description>
+## Phase 1: {description}
 **Deliverable**: What the user reviews at phase end
 
-### Task 1.1: <description>
+### Task 1.1: {description}
 **Hypothesis**: What we expect to happen
 **Try**: What to implement/run
 **Evaluate**: How to judge the result (visual check, metric, test)
@@ -40,7 +40,7 @@ Turn a spike design into a structured experiment plan with hypothesis-driven tas
 
 ### Task 1.2: ...
 
-## Phase 2: <description>
+## Phase 2: {description}
 **Deliverable**: ...
 ```
 
@@ -48,13 +48,13 @@ Turn a spike design into a structured experiment plan with hypothesis-driven tas
    - **Normal mode**: Walk through it with the user. Adjust if they want to reorder, add, or drop tasks.
    - **`--auto` mode**: Self-review the plan against design.md — verify every experiment in the design maps to at least one task, success criteria are testable, and phases are logically ordered. Log a decision entry to `decisions.md` summarizing plan structure choices (how experiments were grouped into phases, any design experiments that were split or combined, and why). Auto-approve and continue.
 7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
-   - `docs/tdd-designs/<spike-name>/plan.md`
-   - `docs/tdd-designs/<spike-name>/lock.json` (if refreshed)
-   Commit message: `Spike: <spike-name> plan`.
+   - `docs/tdd-designs/{spike-name}/plan.md`
+   - `docs/tdd-designs/{spike-name}/lock.json` (if refreshed)
+   Commit message: `Spike: {spike-name} plan`.
 8. **Tell the user** (or log, in auto mode) the next step is to begin executing the experiment phases.
 
 ## Rules
-- **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this spike.
 - Phases are experiments, not implementation increments. Each explores a question.
 - Each phase must have a **Deliverable** line describing what the user manually reviews.

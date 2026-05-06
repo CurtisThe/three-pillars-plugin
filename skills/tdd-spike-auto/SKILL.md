@@ -1,7 +1,7 @@
 ---
 name: tdd-spike-auto
 description: "Autonomous spike pipeline — interactive design, then hands-off plan/audit/implement/results with a decision log for morning review."
-argument-hint: "<spike-name> [--parent <design-name>] [--force-takeover]"
+argument-hint: "{spike-name} [--parent {design-name}] [--force-takeover]"
 ---
 
 # Autonomous Spike Pipeline
@@ -9,13 +9,13 @@ argument-hint: "<spike-name> [--parent <design-name>] [--force-takeover]"
 Two-phase spike: interactive design conversation, then autonomous execution of the full pipeline. Produces a decision log for human review.
 
 **Arguments**:
-- `<spike-name>` (required) — kebab-case name, becomes the directory under `docs/tdd-designs/`.
-- `--parent <design-name>` (optional) — links this spike to a parent design.
+- `{spike-name}` (required) — kebab-case name, becomes the directory under `docs/tdd-designs/`.
+- `--parent {design-name}` (optional) — links this spike to a parent design.
 
 ## Phase 1: Interactive Design (same as /tdd-spike)
 
-1. **Validate `<spike-name>`**: must match `[a-z0-9-]+`.
-2. **Resolve the design directory**: `docs/tdd-designs/<spike-name>/`. Create if needed.
+1. **Validate `{spike-name}`**: must match `[a-z0-9-]+`.
+2. **Resolve the design directory**: `docs/tdd-designs/{spike-name}/`. Create if needed.
 3. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "design"`. This is interactive (Phase 1), so prompt the user for branch creation or takeover as described in the shared doc. Honor `--force-takeover` if passed. Phase 2 will refresh the same lock through each delegated skill.
 4. **Check for existing `design.md`**. If exists, ask the user whether to revise or start fresh.
 5. **If `--parent` is given**, verify parent design exists and read it.
@@ -35,15 +35,15 @@ Two-phase spike: interactive design conversation, then autonomous execution of t
 
 ### Step 1: Initialize decision log
 
-Write `docs/tdd-designs/<spike-name>/decisions.md`:
+Write `docs/tdd-designs/{spike-name}/decisions.md`:
 
 ```markdown
 # Autonomous Spike — Decision Log
 
 ## Run Metadata
 **Started**: <ISO timestamp>
-**Spike**: <spike-name>
-**Design**: docs/tdd-designs/<spike-name>/design.md
+**Spike**: {spike-name}
+**Design**: docs/tdd-designs/{spike-name}/design.md
 ```
 
 ### Step 2: Generate experiment plan
@@ -100,15 +100,15 @@ Append to decisions.md:
 Tell the user:
 > **Autonomous spike complete.** Review `decisions.md` for the full decision trail and `spike-results.md` for findings.
 >
-> **Required next step (after human review):** Run `/tdd-spike-learn <spike-name>` to propagate findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status with the verdict, and scan for affected downstream designs. The roadmap has NOT been updated by this autonomous run — only `-learn` writes to it. If the verdict is NO-GO, `-learn` will also mark dependent designs as blocked. Do this BEFORE `/tdd-design-complete`.
+> **Required next step (after human review):** Run `/tdd-spike-learn {spike-name}` to propagate findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status with the verdict, and scan for affected downstream designs. The roadmap has NOT been updated by this autonomous run — only `-learn` writes to it. If the verdict is NO-GO, `-learn` will also mark dependent designs as blocked. Do this BEFORE `/tdd-design-complete`.
 
 ## Rules
-- **Validate `<spike-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — Phase 1's preflight can refuse to proceed if another developer holds this spike. Phase 2 delegates through skills that each re-verify the lock.
 - **Phase 1 is interactive** — ask questions, push back on vague hypotheses, insist on measurable success criteria. This is the alignment step.
 - **Phase 2 is fully autonomous** — never prompt the user after they confirm "go autonomous." Every decision goes to decisions.md.
 - **Follow each skill's full instructions** — this orchestrator doesn't replace the skills, it chains them. Read each SKILL.md and follow its steps, adding `--auto` (and `--spike` for plan-audit) behavior.
 - **Decision log is the trust mechanism** — if something is ambiguous, log it with Low confidence. The user will review.
 - **On unrecoverable error** (skill can't proceed at all), append the error to decisions.md with full context and stop. Don't silently fail.
-- **Demo convention**: rendered demos go in `docs/tdd-designs/<spike-name>/demos/` (gitignored).
+- **Demo convention**: rendered demos go in `docs/tdd-designs/{spike-name}/demos/` (gitignored).
 - Keep design.md under 60 lines, spike-results.md under 80 lines.

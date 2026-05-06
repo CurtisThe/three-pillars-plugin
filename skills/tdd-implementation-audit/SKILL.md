@@ -1,19 +1,19 @@
 ---
 name: tdd-implementation-audit
 description: "Final audit of a completed plan — verify the full implementation against both design.md and detailed-design.md."
-argument-hint: "<design-name> [--force-takeover]"
+argument-hint: "{design-name} [--force-takeover]"
 ---
 
 # Implementation Audit
 
 Comprehensive review of a completed implementation against both design documents. This runs after all phases are done (unlike `/tdd-phase-review` which reviews a single phase). It answers: "Did we build what we designed?"
 
-**Argument**: `<design-name>` (required) — must match an existing directory under `docs/tdd-designs/`.
+**Argument**: `{design-name}` (required) — must match an existing directory under `docs/tdd-designs/`.
 
 ## Prerequisites
-- `docs/tdd-designs/<design-name>/design.md` must exist.
-- `docs/tdd-designs/<design-name>/detailed-design.md` must exist.
-- `docs/tdd-designs/<design-name>/plan.md` must exist with all phases marked as Done (or Skipped/Blocked).
+- `docs/tdd-designs/{design-name}/design.md` must exist.
+- `docs/tdd-designs/{design-name}/detailed-design.md` must exist.
+- `docs/tdd-designs/{design-name}/plan.md` must exist with all phases marked as Done (or Skipped/Blocked).
 
 ## Steps
 
@@ -43,7 +43,7 @@ For EVERY interface defined in detailed-design.md:
 ### 4. Run the full test suite
 Run the project's complete test suite. Discover the test command from the project config (CLAUDE.md, Makefile, package.json, pyproject.toml, etc.):
 ```
-<project-test-command> 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
+{project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
 ```
 All tests must pass. Flag any failures.
 
@@ -69,7 +69,7 @@ Things the implementation added that weren't in the design:
 
 ### 8. Compile findings
 
-Write `docs/tdd-designs/<design-name>/implementation-audit.md`:
+Write `docs/tdd-designs/{design-name}/implementation-audit.md`:
 
 ```markdown
 # <Design Name> — Implementation Audit
@@ -80,7 +80,7 @@ Write `docs/tdd-designs/<design-name>/implementation-audit.md`:
 ## Scope Coverage
 | Design Item | Status | Notes |
 |-------------|--------|-------|
-| <item from design.md> | Done / Partial / Missing | <details> |
+| <item from design.md> | Done / Partial / Missing | {details} |
 
 ## Interface Fidelity
 | Interface | Matches Design | Deviations |
@@ -108,19 +108,19 @@ Write `docs/tdd-designs/<design-name>/implementation-audit.md`:
 
 ### 9. Commit the artifact
 Commit per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
-- `docs/tdd-designs/<design-name>/implementation-audit.md`
-- `docs/tdd-designs/<design-name>/lock.json` (if refreshed)
+- `docs/tdd-designs/{design-name}/implementation-audit.md`
+- `docs/tdd-designs/{design-name}/lock.json` (if refreshed)
 
-Commit message: `Audit: <design-name> implementation`.
+Commit message: `Audit: {design-name} implementation`.
 
 ### 10. Present findings
 Walk through the audit with the user. If the verdict is PASS, keep it brief. If NEEDS WORK, prioritize the gaps by severity and suggest whether to fix them, update the design to match reality, or accept the deviation.
 
 After presenting the audit verdict, tell the user:
-> **Required next step**: Run `/tdd-design-learn <design-name>` to propagate implementation results into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status, and scan for affected sibling designs. Do this BEFORE `/tdd-design-complete`. Skipping this step causes the roadmap to go stale and downstream designs to miss critical updates.
+> **Required next step**: Run `/tdd-design-learn {design-name}` to propagate implementation results into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status, and scan for affected sibling designs. Do this BEFORE `/tdd-design-complete`. Skipping this step causes the roadmap to go stale and downstream designs to miss critical updates.
 
 ## Rules
-- **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the final audit should be written by the design's current owner. Pass `--force-takeover` to claim the design before auditing it.
 - This is a final gate, not a phase-level review. Read EVERYTHING — both designs, the full plan, and all implemented code.
 - The two design documents (design.md + detailed-design.md) are the source of truth. The implementation serves them.

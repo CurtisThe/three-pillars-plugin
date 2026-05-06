@@ -11,14 +11,14 @@ When a skill supports `--auto`, it replaces human interaction with self-assessme
 
 ## Run Metadata
 **Started**: <ISO timestamp>
-**Spike**: <spike-name>
-**Design**: docs/tdd-designs/<spike-name>/design.md
+**Spike**: {spike-name}
+**Design**: docs/tdd-designs/{spike-name}/design.md
 ```
 
 ### Decision Entry (appended by each skill)
 
 ```markdown
-### [<skill-name>] <short title>
+### [{skill-name}] <short title>
 **Question**: What would have been asked of the user
 **Decided**: What was chosen
 **Reasoning**: Why this choice was made
@@ -28,7 +28,7 @@ When a skill supports `--auto`, it replaces human interaction with self-assessme
 ### Simplification Entry (appended by spike-implement on retry)
 
 ```markdown
-### [spike-implement] <task-id> — simplification (attempt N/3)
+### [spike-implement] {task-id} — simplification (attempt N/3)
 **Problem**: What failed and why
 **Simplification**: How the approach was reduced
 **Outcome**: Success | Failed — will retry | Abandoned (max retries)

@@ -36,7 +36,7 @@ Propose targeted updates to one or more of the four project docs based on recent
 7. **On user confirmation**, write the changes and update the `Last updated` date at the top of the doc.
 8. **Commit the doc updates** per `skills/_shared/commit-after-work.md`. Artifact paths to stage: only the doc files actually modified in step 7 — any of `docs/vision.md`, `docs/architecture.md`, `docs/product_roadmap.md`, `docs/known_issues.md`.
 
-   Commit message: `Docs: update <files>` where `<files>` is a comma-separated list of the modified basenames without the `.md` suffix and without the `docs/` prefix (e.g., `Docs: update vision,roadmap`). If only one doc was modified, the message is simply `Docs: update <file>` (e.g., `Docs: update architecture`).
+   Commit message: `Docs: update {files}` where `{files}` is a comma-separated list of the modified basenames without the `.md` suffix and without the `docs/` prefix (e.g., `Docs: update vision,roadmap`). If only one doc was modified, the message is simply `Docs: update {file}` (e.g., `Docs: update architecture`).
 
    If the user rejected all proposed edits and nothing was written, skip the commit.
 9. **Report** what was updated and what was skipped. For vision updates, explicitly call out any in-flight designs that may need to be re-aligned with the new vision — recommend running `/tdd-design-audit` or `/tdd-plan-audit` on them.

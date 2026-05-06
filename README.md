@@ -98,10 +98,10 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 **Collaboration** — works solo, scales to teams:
 
-- **Branch-per-design**: each design or spike lives on its own branch, `tdd/<design-name>`. Skills prompt to create the branch if you start on `main`, and push it to `origin` immediately on creation so teammates see in-flight work without waiting for the first commit.
-- **Advisory lock**: `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
+- **Branch-per-design**: each design or spike lives on its own branch, `tdd/{design-name}`. Skills prompt to create the branch if you start on `main`, and push it to `origin` immediately on creation so teammates see in-flight work without waiting for the first commit.
+- **Advisory lock**: `docs/tdd-designs/{name}/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
 - **Takeover**: if the holder abandons the design, the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
-- **Graceful handoff**: the holder can run `/tdd-design-release <name>` to step away cleanly — `owner` goes to `null`, and the next person claims the design without needing `--force-takeover`.
+- **Graceful handoff**: the holder can run `/tdd-design-release {name}` to step away cleanly — `owner` goes to `null`, and the next person claims the design without needing `--force-takeover`.
 - **Remote-aware**: lock-enforcing skills `git fetch` at the start of each preflight, so they catch teammates' claims that were pushed but not yet pulled locally. Offline-tolerant — the check fails open.
 
 **What the framework handles vs. what you still need**: this framework enforces **ownership** — who currently holds a claimed design and whether a parallel claim is allowed. It does not handle **assignment** — who should be working on what in the first place. That lives in your existing planning tool (Jira, Asana, Linear, GitHub Projects, a whiteboard, Slack). As long as your team coordinates assignments there, the lock here catches accidental overlap and abandoned work without trying to replace the planning system. Aspirational future: hooks or MCP servers could sync lock state with those external tools — out of scope today, but a direction the framework can grow into.
@@ -110,7 +110,7 @@ Lock-enforcing skills (design, spike, detail, plan, audits, implement, review) r
 
 ### Commits at every phase
 
-Every skill that produces substantial work commits before returning — design.md, plan.md, per-task code, review.md, audit results, learn updates. One commit per task during `/tdd-phase-implement`. Commits are scoped (never `git add -A`), conventionally named (`Design: <name> high-level`, `Plan: <name>`, `Implement: <name> 1.2 — title`, `Learn: <name> design`, etc.), and never include Co-Authored-By trailers. The working tree stays clean between phases. Pushing and opening a PR happens only at `/tdd-design-complete`. See `skills/_shared/commit-after-work.md` for the full protocol.
+Every skill that produces substantial work commits before returning — design.md, plan.md, per-task code, review.md, audit results, learn updates. One commit per task during `/tdd-phase-implement`. Commits are scoped (never `git add -A`), conventionally named (`Design: {name} high-level`, `Plan: {name}`, `Implement: {name} 1.2 — title`, `Learn: {name} design`, etc.), and never include Co-Authored-By trailers. The working tree stays clean between phases. Pushing and opening a PR happens only at `/tdd-design-complete`. See `skills/_shared/commit-after-work.md` for the full protocol.
 
 ## What's included
 
@@ -132,7 +132,7 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## Skills reference
 
-Most skills take a `<design-name>` as their first argument, corresponding to a directory under `docs/tdd-designs/`.
+Most skills take a `{design-name}` as their first argument, corresponding to a directory under `docs/tdd-designs/`.
 
 ### Getting started
 
@@ -149,44 +149,44 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 
 | Command | What it does |
 |---|---|
-| `/tdd-design <name>` | Interactive conversation that produces `design.md` |
-| `/tdd-design-detail <name>` | Translates `design.md` into `detailed-design.md` — modules, interfaces, test boundaries |
-| `/tdd-design-audit <name>` | Multi-angle review of the detailed design against the codebase |
+| `/tdd-design {name}` | Interactive conversation that produces `design.md` |
+| `/tdd-design-detail {name}` | Translates `design.md` into `detailed-design.md` — modules, interfaces, test boundaries |
+| `/tdd-design-audit {name}` | Multi-angle review of the detailed design against the codebase |
 
 ### Planning phase
 
 | Command | What it does |
 |---|---|
-| `/tdd-plan <name>` | Generates `plan.md` — sequenced tasks with test criteria, grouped by phase |
-| `/tdd-plan-audit <name>` | Verifies plan traces fully to both design documents |
+| `/tdd-plan {name}` | Generates `plan.md` — sequenced tasks with test criteria, grouped by phase |
+| `/tdd-plan-audit {name}` | Verifies plan traces fully to both design documents |
 
 ### Implementation phase
 
 | Command | What it does |
 |---|---|
-| `/tdd-phase-implement <name> [phase]` | Executes a phase via red-green-refactor cycles |
-| `/tdd-task-cycle <name> <phase.task>` | Single red-green-refactor cycle for one task |
-| `/tdd-phase-review <name> [phase]` | Reviews completed phase against design and plan |
-| `/tdd-implementation-audit <name>` | Final audit — does the code match what was designed? |
+| `/tdd-phase-implement {name} [phase]` | Executes a phase via red-green-refactor cycles |
+| `/tdd-task-cycle {name} <phase.task>` | Single red-green-refactor cycle for one task |
+| `/tdd-phase-review {name} [phase]` | Reviews completed phase against design and plan |
+| `/tdd-implementation-audit {name}` | Final audit — does the code match what was designed? |
 
 ### Spike pipeline
 
 | Command | What it does |
 |---|---|
-| `/tdd-spike <name>` | Frame a hypothesis and success criteria |
-| `/tdd-spike-plan <name>` | Lightweight experiment plan from the spike design |
-| `/tdd-spike-implement <name>` | Execute experiments with human review gates |
-| `/tdd-spike-results <name>` | Capture findings and verdict |
-| `/tdd-spike-learn <name>` | Synthesize learnings into project docs |
-| `/tdd-spike-auto <name>` | Autonomous end-to-end spike execution |
+| `/tdd-spike {name}` | Frame a hypothesis and success criteria |
+| `/tdd-spike-plan {name}` | Lightweight experiment plan from the spike design |
+| `/tdd-spike-implement {name}` | Execute experiments with human review gates |
+| `/tdd-spike-results {name}` | Capture findings and verdict |
+| `/tdd-spike-learn {name}` | Synthesize learnings into project docs |
+| `/tdd-spike-auto {name}` | Autonomous end-to-end spike execution |
 
 ### Design lifecycle
 
 | Command | What it does |
 |---|---|
-| `/tdd-design-learn <name>` | Synthesize a design's impact into project docs |
-| `/tdd-design-release <name>` | Release your lock without completing — graceful handoff to a teammate |
-| `/tdd-design-complete <name>` | Archive to `docs/completed-tdd-designs/`, commit, and offer a PR back to the base branch |
+| `/tdd-design-learn {name}` | Synthesize a design's impact into project docs |
+| `/tdd-design-release {name}` | Release your lock without completing — graceful handoff to a teammate |
+| `/tdd-design-complete {name}` | Archive to `docs/completed-tdd-designs/`, commit, and offer a PR back to the base branch |
 
 ### Project docs
 
@@ -199,9 +199,9 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 
 | Command | What it does |
 |---|---|
-| `/tdd-session-save <name>` | Save context to `handoff.md` for cross-conversation continuity |
+| `/tdd-session-save {name}` | Save context to `handoff.md` for cross-conversation continuity |
 | `/tdd-session-restore [name]` | Restore context at start of a new conversation |
-| `/tdd-session-clear <name>` | Clear stale context when switching tasks |
+| `/tdd-session-clear {name}` | Clear stale context when switching tasks |
 
 ### Council of High Intelligence
 

@@ -1,24 +1,24 @@
 ---
 name: tdd-task-cycle
 description: Execute a single red-green-refactor TDD cycle. Human-invokable standalone, and also the kernel embedded by /tdd-phase-implement for automated execution.
-argument-hint: "<design-name> <phase.task> | <description> [--force-takeover]"
+argument-hint: "{design-name} <phase.task> | {description} [--force-takeover]"
 ---
 
 # Red-Green-Refactor
 
 Execute one TDD cycle for a single task.
 
-**Argument**: Either a task description in plain text, OR a `<design-name>` followed by a task ID (e.g., `my-feature 2.3` for Phase 2, Task 3).
+**Argument**: Either a task description in plain text, OR a `{design-name}` followed by a task ID (e.g., `my-feature 2.3` for Phase 2, Task 3).
 
 ## Steps
 
 ### Preflight
 
-0. **If a `<design-name>` was provided**, run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implement"`. This verifies the branch and lock before writing code. Honor `--force-takeover` if passed. If invoked standalone with only a description (no design name), skip this step.
+0. **If a `{design-name}` was provided**, run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implement"`. This verifies the branch and lock before writing code. Honor `--force-takeover` if passed. If invoked standalone with only a description (no design name), skip this step.
 
 ### Red — Write a Failing Test
 
-1. If a task ID was given, **read the task from `docs/tdd-designs/<design-name>/plan.md`** to get the file, test, and assertion details.
+1. If a task ID was given, **read the task from `docs/tdd-designs/{design-name}/plan.md`** to get the file, test, and assertion details.
 2. **Write the test** exactly as specified. Import the module/function being tested even though it may not exist yet.
 3. **Run the test** and confirm it fails. Acceptable failures are language-dependent but generally:
    - Missing import / module not found (function doesn't exist yet)
@@ -34,7 +34,7 @@ Execute one TDD cycle for a single task.
    - Hard-coded return values are OK if that's all the test needs (the next test will force generalization).
 6. **Run the test** and confirm it passes.
 7. If it fails, **fix the implementation** (not the test, unless the test has a bug). Iterate until green.
-8. **Run the broader test suite** for the file/module to check for regressions. Use the project's test runner (discover from CLAUDE.md, Makefile, package.json, pyproject.toml, etc.). Redirect output: `<project-test-command> 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"`
+8. **Run the broader test suite** for the file/module to check for regressions. Use the project's test runner (discover from CLAUDE.md, Makefile, package.json, pyproject.toml, etc.). Redirect output: `{project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"`
 
 ### Refactor — Clean Up
 
@@ -52,7 +52,7 @@ Execute one TDD cycle for a single task.
     Artifact paths to stage: the test file and implementation file(s) this cycle touched. Run `git status --short` to confirm the working tree contains only those paths — if anything else has changed, stop and ask the user to resolve it before committing.
 
     Commit message:
-    - If invoked with `<design-name> <phase.task>`: `Implement: <design-name> <phase>.<task> — <task-title>` (task-title comes from the plan.md task heading)
+    - If invoked with `{design-name} <phase.task>`: `Implement: {design-name} {phase}.{task} — {task-title}` (task-title comes from the plan.md task heading)
     - If invoked standalone with a description only: `Implement: <short description>` (use the description supplied by the user)
 
     If this skill is running inside a parallel worktree agent spawned by `/tdd-phase-implement`, commit on the agent's branch using the same message pattern. The parent will merge.
@@ -62,7 +62,7 @@ Execute one TDD cycle for a single task.
 13. **Summarize** in 2-3 lines: what test was written, what was implemented, whether refactoring happened, and the commit SHA (short form). Include test command and result.
 
 ## Rules
-- **If a `<design-name>` is provided**, validate it per `skills/_shared/validate-name.md`.
+- **If a `{design-name}` is provided**, validate it per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` when a design name is provided. Standalone description-only invocations are not lock-scoped.
 - Never write implementation before the test.
 - Never modify the test to make it pass (unless the test itself is buggy).

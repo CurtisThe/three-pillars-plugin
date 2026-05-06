@@ -1,17 +1,17 @@
 ---
 name: tdd-design-detail
 description: Produce a detailed-design.md from an existing design.md. Maps high-level entities and behaviors to concrete modules, interfaces, and test boundaries.
-argument-hint: "<design-name> [--force-takeover]"
+argument-hint: "{design-name} [--force-takeover]"
 ---
 
 # Low-Level Detailed Design
 
 Turn a high-level design into a concrete implementation blueprint.
 
-**Argument**: `<design-name>` (required) — must match an existing directory under `docs/tdd-designs/`.
+**Argument**: `{design-name}` (required) — must match an existing directory under `docs/tdd-designs/`.
 
 ## Prerequisites
-- `docs/tdd-designs/<design-name>/design.md` must exist. If not, tell the user to run `/tdd-design <design-name>` first and stop.
+- `docs/tdd-designs/{design-name}/design.md` must exist. If not, tell the user to run `/tdd-design {design-name}` first and stop.
 
 ## Steps
 
@@ -25,7 +25,7 @@ Turn a high-level design into a concrete implementation blueprint.
    - What are the test boundaries? (what gets unit-tested, what's integration, what's mocked)
    - What are the dependencies? (existing modules to import, new packages needed)
    - What's the processing model? (sync/async, batched, streaming, event-driven)
-6. **Write `docs/tdd-designs/<design-name>/detailed-design.md`** with this structure:
+6. **Write `docs/tdd-designs/{design-name}/detailed-design.md`** with this structure:
 
 ```markdown
 # <Design Name> — Detailed Design
@@ -64,13 +64,13 @@ Key implementation choices made during this design and their rationale.
 ```
 
 7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
-   - `docs/tdd-designs/<design-name>/detailed-design.md`
-   - `docs/tdd-designs/<design-name>/lock.json` (rolled into the same commit)
-   Commit message: `Design: <design-name> detailed`.
-8. **Tell the user** the next step is `/tdd-plan <design-name>`.
+   - `docs/tdd-designs/{design-name}/detailed-design.md`
+   - `docs/tdd-designs/{design-name}/lock.json` (rolled into the same commit)
+   Commit message: `Design: {design-name} detailed`.
+8. **Tell the user** the next step is `/tdd-plan {design-name}`.
 
 ## Rules
-- **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this design.
 - Reference concrete file paths, function names, and types — this is the *how*.
 - The implementation order must be test-first: each phase starts with "write tests for X" then "implement X".

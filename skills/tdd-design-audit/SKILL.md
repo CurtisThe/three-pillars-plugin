@@ -1,17 +1,17 @@
 ---
 name: tdd-design-audit
 description: "Design Audit — multi-angle review of a detailed design against the actual codebase before implementation."
-argument-hint: "<design-name> [--force-takeover]"
+argument-hint: "{design-name} [--force-takeover]"
 ---
 
 # Design Audit
 
 Thorough multi-angle review of a detailed design against the actual codebase. Catches interface mismatches, schema conflicts, resource constraints, and implementation feasibility issues before code is written.
 
-**Argument**: `<design-name>` (required) — must match an existing directory under `docs/tdd-designs/`.
+**Argument**: `{design-name}` (required) — must match an existing directory under `docs/tdd-designs/`.
 
 ## Prerequisites
-- `docs/tdd-designs/<design-name>/detailed-design.md` must exist.
+- `docs/tdd-designs/{design-name}/detailed-design.md` must exist.
 
 ## Steps
 
@@ -111,7 +111,7 @@ After discussing findings with the user:
 - Note what was changed and why
 
 ## Rules
-- **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — audit fixes land in detailed-design.md and plan.md, which must not be edited by a non-owner.
 - ALWAYS verify against actual code, never trust design descriptions of current behavior
 - Launch parallel exploration agents for independent verification tasks

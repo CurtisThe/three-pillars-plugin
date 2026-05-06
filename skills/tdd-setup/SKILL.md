@@ -48,7 +48,7 @@ What pain this project eliminates, and for whom. 2-4 sentences.
 Concrete description of who this is for, and who it's not for.
 
 ## Principles
-- **<principle>** — what it means, and when it applies as a tie-breaker.
+- **{principle}** — what it means, and when it applies as a tie-breaker.
 - ...
 
 ## Non-goals

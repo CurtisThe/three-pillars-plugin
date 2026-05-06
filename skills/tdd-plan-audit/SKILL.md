@@ -1,7 +1,7 @@
 ---
 name: tdd-plan-audit
 description: "Plan Audit — verify plan.md is consistent with design.md and detailed-design.md. Runs deterministic scripts then convenes an engineering council for judgment calls."
-argument-hint: "<design-name> [--spike] [--auto] [--force-takeover]"
+argument-hint: "{design-name} [--spike] [--auto] [--force-takeover]"
 ---
 
 # Plan Audit
@@ -15,26 +15,26 @@ Three-layer verification that plan.md is consistent with its upstream design doc
 | **Collation** | Merged findings presented to user | Everything, deduplicated and categorized |
 
 **Arguments**:
-- `<design-name>` (required) — must match an existing directory under `docs/tdd-designs/`.
+- `{design-name}` (required) — must match an existing directory under `docs/tdd-designs/`.
 - `--spike` (optional) — spike mode. Expects Hypothesis/Try/Evaluate task format instead of File/Test/Red/Green. Skips detailed-design.md requirement. Adjusts council prompts for experiment quality review.
 - `--auto` (optional) — autonomous mode. Auto-resolves findings by accepting council recommendations, applies plan.md fixes without user confirmation, logs each resolution to `decisions.md`. See `skills/_shared/auto-mode.md` for convention. Composable with `--spike`.
 
 ## Prerequisites
-- `docs/tdd-designs/<design-name>/plan.md` must exist.
-- `docs/tdd-designs/<design-name>/design.md` must exist.
-- `docs/tdd-designs/<design-name>/detailed-design.md` must exist — **unless `--spike` is set**, in which case it is not required.
+- `docs/tdd-designs/{design-name}/plan.md` must exist.
+- `docs/tdd-designs/{design-name}/design.md` must exist.
+- `docs/tdd-designs/{design-name}/detailed-design.md` must exist — **unless `--spike` is set**, in which case it is not required.
 
 ## Steps
 
 ### Step 1: Validate and locate artifacts
 
-Validate `<design-name>` matches `[a-z0-9-]+`. Reject values containing `/`, `..`, spaces, or non-matching characters.
+Validate `{design-name}` matches `[a-z0-9-]+`. Reject values containing `/`, `..`, spaces, or non-matching characters.
 
 Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. The plan audit edits `plan.md` in Step 7 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
 
 Set the design directory:
 ```
-DESIGN_DIR=docs/tdd-designs/<design-name>
+DESIGN_DIR=docs/tdd-designs/{design-name}
 ```
 
 Verify all three files exist. If any is missing, stop and tell the user.
@@ -257,7 +257,7 @@ In both modes:
 - Update task counts in phase headers
 
 ## Rules
-- **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — plan-audit edits `plan.md` and must not proceed if another developer holds the design.
 - The design documents (design.md, and detailed-design.md when present) are authoritative. The plan serves them, not the other way around.
 - In `--spike` mode, design.md is the sole authority — there is no detailed-design.md.

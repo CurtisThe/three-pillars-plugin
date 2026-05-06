@@ -3,25 +3,25 @@
 When multiple developers share a project, two conventions prevent stepping on each other's work:
 
 1. **Branch-per-design** — all work on a design or spike happens on its own branch.
-2. **Advisory lock** — `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch.
+2. **Advisory lock** — `docs/tdd-designs/{name}/lock.json` records who holds the design and on which branch.
 
 These conventions apply on solo projects too: the lock catches the "I forgot which spike I was on" class of mistake when switching between designs mid-flight.
 
 ## Branch convention
 
-- One design/spike = one long-lived branch, named `tdd/<design-name>`.
+- One design/spike = one long-lived branch, named `tdd/{design-name}`.
 - Created from the project's base branch (`main` or `master`) when the design is first scaffolded.
 - PR merges back to the base branch at `/tdd-design-complete` time.
 
 ## Lock file
 
-Path: `docs/tdd-designs/<design-name>/lock.json` — **committed to git**. The lock is advisory, not a mutex. Its job is to produce a merge conflict at PR time if two people start parallel work off the same base, which forces a conversation instead of silently merging two divergent implementations.
+Path: `docs/tdd-designs/{design-name}/lock.json` — **committed to git**. The lock is advisory, not a mutex. Its job is to produce a merge conflict at PR time if two people start parallel work off the same base, which forces a conversation instead of silently merging two divergent implementations.
 
 Schema:
 ```json
 {
-  "design": "<design-name>",
-  "branch": "tdd/<design-name>",
+  "design": "{design-name}",
+  "branch": "tdd/{design-name}",
   "owner": "<git config user.email>",
   "phase": "design|detail|plan|implement|review|audit|spike-plan|spike-implement",
   "acquired_at": "<ISO 8601 UTC>",
@@ -45,7 +45,7 @@ Lock-aware skills run this before executing their main work:
 1. **Ensure a git repo exists**: run `git rev-parse --is-inside-work-tree` silently. If it fails (cwd is not a git repo), tell the user:
    > This project is not a git repository. The three-pillars collaboration protocol depends on git (branch, lock file, merge conflicts). I'll run `git init` now so design state is version-controlled from the start.
 
-   Then run `git init -b main` (or `git init` if the user's git is too old to support `-b`). Proceed with the rest of the preflight — the user will be on the newly-created default branch, so step 4's branch check will then offer to switch to `tdd/<design-name>`.
+   Then run `git init -b main` (or `git init` if the user's git is too old to support `-b`). Proceed with the rest of the preflight — the user will be on the newly-created default branch, so step 4's branch check will then offer to switch to `tdd/{design-name}`.
 
 2. **Refresh remote state** (fail-open): run `git fetch --quiet origin 2>/dev/null || true`. This pulls the latest remote refs so the lock check in step 5 sees peer activity even if the user hasn't pulled recently. If the fetch fails (no remote configured, offline, auth issue), **continue** — local-only mode is acceptable and the merge-conflict-on-`lock.json` property still catches divergent work at PR time. If the fetch succeeded but the user's tracking branch is behind, note it for step 5.
 
@@ -55,20 +55,20 @@ Lock-aware skills run this before executing their main work:
    - Current UTC time as ISO 8601
 
 4. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, warn:
-   > You are on `<branch>`. The collaboration convention is to work on `tdd/<design-name>`. Would you like to create/switch to that branch now? (yes / no / continue-anyway)
+   > You are on `{branch}`. The collaboration convention is to work on `tdd/{design-name}`. Would you like to create/switch to that branch now? (yes / no / continue-anyway)
    - **yes**:
-     - If the branch doesn't exist locally: `git checkout -b tdd/<design-name>`.
-     - If it exists locally: `git checkout tdd/<design-name>`.
-     - **Then, immediately publish the branch** if it has no upstream (`git rev-parse --abbrev-ref --symbolic-full-name @{u}` returns non-zero): run `git push -u origin tdd/<design-name>`. This signals to teammates that someone is actively working on this design — the remote ref is the visibility mechanism, showing up in their `git branch -a` / GitHub UI / `/tdd-guide` well before any artifact commits land. **Fail-open**: if the push fails (no remote configured, offline, auth issue, push rejected by a pre-receive hook), don't block — report the failure, proceed in local-only mode, and note that the branch will be published on the next successful push. Do not retry with `--force`.
+     - If the branch doesn't exist locally: `git checkout -b tdd/{design-name}`.
+     - If it exists locally: `git checkout tdd/{design-name}`.
+     - **Then, immediately publish the branch** if it has no upstream (`git rev-parse --abbrev-ref --symbolic-full-name @{u}` returns non-zero): run `git push -u origin tdd/{design-name}`. This signals to teammates that someone is actively working on this design — the remote ref is the visibility mechanism, showing up in their `git branch -a` / GitHub UI / `/tdd-guide` well before any artifact commits land. **Fail-open**: if the push fails (no remote configured, offline, auth issue, push rejected by a pre-receive hook), don't block — report the failure, proceed in local-only mode, and note that the branch will be published on the next successful push. Do not retry with `--force`.
    - **continue-anyway**: proceed; the lock records the current branch as-is.
    - **no**: stop the skill.
 
 5. **Lock check** — determine which lock is authoritative:
-   - If the fetch in step 2 succeeded, check whether `origin/<default-branch>` contains a `docs/tdd-designs/<design-name>/lock.json` that differs from the local file. Use `git show origin/<default-branch>:docs/tdd-designs/<design-name>/lock.json 2>/dev/null` to read the remote version without checking it out.
+   - If the fetch in step 2 succeeded, check whether `origin/{default-branch}` contains a `docs/tdd-designs/{design-name}/lock.json` that differs from the local file. Use `git show origin/{default-branch}:docs/tdd-designs/{design-name}/lock.json 2>/dev/null` to read the remote version without checking it out.
    - If origin has a newer or different lock than local (remote has a commit touching it that local doesn't), tell the user:
-     > `origin/<default-branch>` has a newer `lock.json` for this design than your local copy. Someone else may have claimed it. Pull before proceeding? (yes / no / show-diff)
-     - **yes**: run `git pull --ff-only origin <default-branch>`. If fast-forward fails, report the conflict and stop — don't attempt a merge from within the skill.
-     - **show-diff**: `git diff HEAD origin/<default-branch> -- docs/tdd-designs/<design-name>/lock.json`, then ask again.
+     > `origin/{default-branch}` has a newer `lock.json` for this design than your local copy. Someone else may have claimed it. Pull before proceeding? (yes / no / show-diff)
+     - **yes**: run `git pull --ff-only origin {default-branch}`. If fast-forward fails, report the conflict and stop — don't attempt a merge from within the skill.
+     - **show-diff**: `git diff HEAD origin/{default-branch} -- docs/tdd-designs/{design-name}/lock.json`, then ask again.
      - **no**: proceed with local state. Warn that the final merge may conflict.
    - After resolving remote/local alignment, read the effective `lock.json`:
 
@@ -80,7 +80,7 @@ Lock-aware skills run this before executing their main work:
    | Lock exists, `owner` or `branch` differs, `last_touched` ≤ 14 days old | Show owner/branch/phase/last_touched. Refuse unless `--force-takeover` was passed. |
    | Lock exists, `last_touched` > 14 days old | Warn that the lock looks stale, show its contents, ask whether to take over. |
 
-   **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: <now>`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
+   **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: {now}`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
 
 6. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. The lock update is rolled into the skill's artifact commit per `skills/_shared/commit-after-work.md` — never commit just a lock change on its own (the sole exception is `/tdd-design-release`, where the lock change is the work).
 

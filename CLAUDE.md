@@ -69,7 +69,7 @@ Spikes can link to a parent design: `/tdd-spike my-spike --parent my-design`
 Run an entire spike hands-off after an interactive design conversation:
 
 ```
-/tdd-spike-auto <spike-name>  → interactive design, then autonomous execution
+/tdd-spike-auto {spike-name}  → interactive design, then autonomous execution
 ```
 
 Phase 1 is interactive (design Q&A). After you confirm "go autonomous," it chains:
@@ -88,7 +88,7 @@ Most spike skills support `--auto` for autonomous execution:
 
 ### `--spike` flag (plan-audit only)
 
-`/tdd-plan-audit <name> --spike` audits spike-flavored plans:
+`/tdd-plan-audit {name} --spike` audits spike-flavored plans:
 - Expects Hypothesis/Try/Evaluate fields (not File/Test/Red/Green)
 - Skips detailed-design.md requirement
 - Council prompts evaluate experiment quality instead of implementation specs
@@ -102,13 +102,13 @@ Most spike skills support `--auto` for autonomous execution:
 ```
 
 **Context window hygiene**: When context exceeds 200k tokens (visible in the status line as `>200k`), proactively recommend the user save and restart:
-1. Run `/tdd-session-save <active-design>` to capture current state
+1. Run `/tdd-session-save {active-design}` to capture current state
 2. Suggest the user run `/clear` or start a new conversation
-3. After restore: `/tdd-session-restore <design-name>` to pick up where they left off
+3. After restore: `/tdd-session-restore {design-name}` to pick up where they left off
 
 This preserves continuity while keeping context lean. Don't wait until context is critical — recommend at 200k so the user has room to finish their current thought.
 
-**After `/clear`**: Check if `.claude/last-design` exists (project root). If it does, read the design name and proactively offer to restore: "You were working on `<name>`. Want me to run `/tdd-session-restore`?"
+**After `/clear`**: Check if `.claude/last-design` exists (project root). If it does, read the design name and proactively offer to restore: "You were working on `{name}`. Want me to run `/tdd-session-restore`?"
 
 ## File Size Limits
 
@@ -122,14 +122,14 @@ Every skill that produces substantial work commits at the end — scoped `git ad
 
 When multiple developers share a project, two conventions prevent stepping on each other's work:
 
-1. **Branch-per-design** — one design or spike = one branch named `tdd/<design-name>`, cut from the base branch and merged back at `/tdd-design-complete` time. The branch is pushed to `origin` on creation so teammates see in-flight work immediately, not only after the first commit lands.
-2. **Advisory lock** — `docs/tdd-designs/<name>/lock.json` records who holds the design and on which branch. Committed to git so a parallel attempt produces a merge conflict at PR time.
+1. **Branch-per-design** — one design or spike = one branch named `tdd/{design-name}`, cut from the base branch and merged back at `/tdd-design-complete` time. The branch is pushed to `origin` on creation so teammates see in-flight work immediately, not only after the first commit lands.
+2. **Advisory lock** — `docs/tdd-designs/{name}/lock.json` records who holds the design and on which branch. Committed to git so a parallel attempt produces a merge conflict at PR time.
 
 Lock-enforcing skills (`/tdd-design`, `/tdd-spike`, `/tdd-design-detail`, `/tdd-plan`, `/tdd-spike-plan`, `/tdd-phase-implement`, `/tdd-spike-implement`) run a preflight that:
-- Warns if you're on `main`/`master` and offers to create `tdd/<design-name>`.
+- Warns if you're on `main`/`master` and offers to create `tdd/{design-name}`.
 - Refuses to proceed if another developer holds the lock. Pass `--force-takeover` to claim it (the prior holder is recorded in `previous_owners[]`).
 
-Graceful handoff: run `/tdd-design-release <name>` to step away cleanly — `owner` goes to `null` and the next person claims the design without needing `--force-takeover`.
+Graceful handoff: run `/tdd-design-release {name}` to step away cleanly — `owner` goes to `null` and the next person claims the design without needing `--force-takeover`.
 
 Read-only skills (`/tdd-session-restore`, review/audit/learn) inspect the lock and warn, but never block.
 

@@ -26,30 +26,30 @@ Run this at the end of the skill, after all artifact files are written.
 
 ### 1. Identify the artifact paths
 
-Each calling skill must pass a concrete, enumerable list of paths it just produced — e.g., `docs/tdd-designs/<name>/design.md` and `docs/tdd-designs/<name>/lock.json`. Never stage a broad directory.
+Each calling skill must pass a concrete, enumerable list of paths it just produced — e.g., `docs/tdd-designs/{name}/design.md` and `docs/tdd-designs/{name}/lock.json`. Never stage a broad directory.
 
 ### 2. Check for unrelated WIP
 
 Run `git status --short`. If any changed path is **outside** the artifact list above, stop and tell the user:
 
-> I'm about to commit `<skill-name>`'s artifacts but the working tree has unrelated changes: `<paths>`. Commit or stash them first so the completion commit stays focused.
+> I'm about to commit `{skill-name}`'s artifacts but the working tree has unrelated changes: `{paths}`. Commit or stash them first so the completion commit stays focused.
 
 Do not proceed until the user resolves it. The skill never sweeps unrelated WIP into its commit.
 
 ### 3. Stage only the artifact paths
 
-Stage the specific paths the skill produced. **Never** use `git add -A`, `git add .`, or `git add <wide-dir>`.
+Stage the specific paths the skill produced. **Never** use `git add -A`, `git add .`, or `git add {wide-dir}`.
 
 ```bash
-git add <path1> <path2> ...
+git add {path1} {path2} ...
 ```
 
 ### 4. Commit with a scoped, conventional message
 
-See the message table below. The message follows `<Verb>: <design-name> <detail>` so `git log --oneline` reads like a changelog of the design's lifecycle.
+See the message table below. The message follows `{Verb}: {design-name} {detail}` so `git log --oneline` reads like a changelog of the design's lifecycle.
 
 ```bash
-git commit -m "<message>"
+git commit -m "{message}"
 ```
 
 **Do not add any Co-Authored-By trailer.**
@@ -69,26 +69,26 @@ Skills never push from inside the run. Pushing + opening a PR is reserved for `/
 | `/tdd-setup` | `Setup: vision` |
 | `/tdd-docs-init` | `Docs: init project docs` |
 | `/tdd-test-setup` | `Setup: test infrastructure` |
-| `/tdd-design <name>` | `Design: <name> high-level` |
-| `/tdd-design-detail <name>` | `Design: <name> detailed` |
-| `/tdd-plan <name>` | `Plan: <name>` |
-| `/tdd-task-cycle` | `Implement: <design-name> <phase>.<task> — <task-title>` |
-| `/tdd-phase-implement <name>` | `Implement: <name> phase-<n> cleanup` (only if stragglers remain after per-task commits) |
-| `/tdd-phase-review <name>` | `Review: <name> phase-<n>` |
-| `/tdd-implementation-audit <name>` | `Audit: <name> implementation` |
-| `/tdd-spike <name>` | `Spike: <name> design` |
-| `/tdd-spike-plan <name>` | `Spike: <name> plan` |
-| `/tdd-spike-implement <name>` | `Spike: <name> <phase>.<experiment>` (one per experiment) |
-| `/tdd-spike-results <name>` | `Spike: <name> results` |
-| `/tdd-design-learn <name>` | `Learn: <name> design` |
-| `/tdd-spike-learn <name>` | `Learn: <name> spike` |
-| `/tdd-docs-update` | `Docs: update <file1>,<file2>` (comma-separate; omit repeated "docs/" prefix) |
-| `/tdd-design-release <name>` | `Release: <name>` (or `Release: <name> (force)` if `--force` was used) |
-| `/tdd-design-complete <name>` | `Complete design: <name>` (owned by that skill — not this protocol) |
+| `/tdd-design {name}` | `Design: {name} high-level` |
+| `/tdd-design-detail {name}` | `Design: {name} detailed` |
+| `/tdd-plan {name}` | `Plan: {name}` |
+| `/tdd-task-cycle` | `Implement: {design-name} {phase}.{task} — {task-title}` |
+| `/tdd-phase-implement {name}` | `Implement: {name} phase-{n} cleanup` (only if stragglers remain after per-task commits) |
+| `/tdd-phase-review {name}` | `Review: {name} phase-{n}` |
+| `/tdd-implementation-audit {name}` | `Audit: {name} implementation` |
+| `/tdd-spike {name}` | `Spike: {name} design` |
+| `/tdd-spike-plan {name}` | `Spike: {name} plan` |
+| `/tdd-spike-implement {name}` | `Spike: {name} {phase}.{experiment}` (one per experiment) |
+| `/tdd-spike-results {name}` | `Spike: {name} results` |
+| `/tdd-design-learn {name}` | `Learn: {name} design` |
+| `/tdd-spike-learn {name}` | `Learn: {name} spike` |
+| `/tdd-docs-update` | `Docs: update {file1},{file2}` (comma-separate; omit repeated "docs/" prefix) |
+| `/tdd-design-release {name}` | `Release: {name}` (or `Release: {name} (force)` if `--force` was used) |
+| `/tdd-design-complete {name}` | `Complete design: {name}` (owned by that skill — not this protocol) |
 
 ## Lock file handling
 
-If the skill acquires or refreshes `docs/tdd-designs/<name>/lock.json` during its preflight (per `skills/_shared/collaboration.md`), include the lock file in the **same** commit as the content artifact. Don't produce a separate "update lock" commit.
+If the skill acquires or refreshes `docs/tdd-designs/{name}/lock.json` during its preflight (per `skills/_shared/collaboration.md`), include the lock file in the **same** commit as the content artifact. Don't produce a separate "update lock" commit.
 
 The exception: `/tdd-design-release` commits only `lock.json` — the lock change *is* the substantial work.
 

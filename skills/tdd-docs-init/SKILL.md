@@ -70,7 +70,7 @@ This check lives here, in docs-init, because `/tdd-docs-init` is where a user fi
    - `docs/architecture.md`
    - `docs/product_roadmap.md`
    - `docs/known_issues.md`
-   Commit message: `Docs: init project docs` (or `Docs: init <file1>,<file2>` if only a subset was scaffolded).
+   Commit message: `Docs: init project docs` (or `Docs: init {file1},{file2}` if only a subset was scaffolded).
 8. **Tell the user the next step**: Once the three docs are in place, the natural next step on a fresh project is `/tdd-test-setup` — it configures test infrastructure informed by the `architecture.md` you just scaffolded. This sequencing is deliberate: testing-framework choices belong *after* the architecture is documented, not before.
 
 ## Rules
