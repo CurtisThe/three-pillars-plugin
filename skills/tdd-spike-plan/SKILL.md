@@ -58,6 +58,7 @@ Turn a spike design into a structured experiment plan with hypothesis-driven tas
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this spike.
 - Phases are experiments, not implementation increments. Each explores a question.
 - Each phase must have a **Deliverable** line describing what the user manually reviews.
+- **Artifact paths**: when a Try step produces something a reader of the final results would want to see (tool output, generated config, wrapper script, log, measurement), the path written into the plan must point inside `docs/tdd-designs/<spike-name>/demos/`, not `/tmp/`. Pure scratch state (test-project clones, container images) can stay in `/tmp/<spike-name>/`. See the "Demo / artifact convention" rule in `tdd-spike-implement` for the boundary.
 - Tasks use **Hypothesis/Try/Evaluate/Status** — not File/Test/Red/Green/Refactor.
 - Tasks can be added, removed, or modified mid-spike as findings emerge. The plan is a living document.
 - Keep phases to 2-5 tasks. More than 5 suggests the phase should split.

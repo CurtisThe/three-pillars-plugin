@@ -70,7 +70,7 @@ Present the draft to the user for review before writing. Keep the whole file und
 7. **Tell the user the next step**. Point to `/tdd-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tdd-test-setup` configures test infrastructure informed by the architecture.
 
 ## Rules
-- **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. Those belong in `/tdd-test-setup` (test infra) or the session skills (gitignore for handoff/decisions). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.
+- **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. Those belong in `/tdd-test-setup` (test infra) or `/tdd-session-save` (gitignore for handoff). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.
 - The vision conversation is a **conversation**, not a form. Draw out one section at a time and push back on vague answers. Do not write `docs/vision.md` until the user has answered all five sections.
 - Never invent vision content the user didn't say. If the repo gives you no signal and the user is unsure, record uncertainty honestly ("Target users: to be sharpened — project is pre-first-user") rather than guessing.
 - If the project already has a vision.md, read it and confirm. Do not silently overwrite.

@@ -65,12 +65,12 @@ The ordering matters: picking a test runner, layout, and coverage tool before th
    - Show the user what permission is being added and why.
 
 8. **Ensure session artifacts are gitignored**:
-   - Check the project's `.gitignore` for these patterns:
+   - Check the project's `.gitignore` for this pattern:
      ```
      docs/tdd-designs/*/handoff.md
-     docs/tdd-designs/*/decisions.md
      ```
-   - If missing, append them (with a `# three-pillars session artifacts` comment) and tell the user what was added and why (these files may contain sensitive session context and autonomous decision logs that should not enter version control).
+   - If missing, append it (with a `# three-pillars session artifacts` comment) and tell the user what was added and why (handoff.md contains per-developer session context that should stay local).
+   - **Note**: `decisions.md` and `demos/` are NOT gitignored — they are part of the design's permanent evidence record and must survive cross-machine sync, archival, and review. Only `handoff.md` is purely ephemeral.
 
 9. **Verify**: Run the test suite once to confirm everything works.
 

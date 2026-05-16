@@ -41,9 +41,9 @@ Drop anything superseded by this session's work.
 ```
 
 ## Rules
-- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
-- **Before writing**, check that the project's `.gitignore` contains `docs/tdd-designs/*/handoff.md`. If missing, append it (with a `# three-pillars session artifacts` comment) and also add `docs/tdd-designs/*/decisions.md` if absent. Tell the user what was added.
-- `handoff.md` is gitignored — it stays local and is not committed to version control. This prevents session context (which may reference sensitive configuration) from entering VCS.
+- **Validate `<design-name>`** per `skills/_shared/validate-name.md`.
+- **Before writing**, check that the project's `.gitignore` contains `docs/tdd-designs/*/handoff.md`. If missing, append it (with a `# three-pillars session artifacts` comment). Tell the user what was added.
+- `handoff.md` is gitignored — it stays local and is not committed to version control. This prevents session context (which may reference sensitive configuration) from entering VCS. Other design artifacts (`design.md`, `plan.md`, `decisions.md`, `demos/`) are tracked — only `handoff.md` is purely per-developer ephemeral state.
 - Keep it under 60 lines total. Dense and specific, not verbose.
 - Use file paths and function names, not vague descriptions.
 - Don't repeat what's in CLAUDE.md, git log, or memory files.

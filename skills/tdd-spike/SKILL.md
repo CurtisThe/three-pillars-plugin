@@ -68,6 +68,7 @@ Resource limits, time budget, dependencies.
 - **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this spike.
 - **Spikes that conflict with the vision should be refused.** If a spike would explore a path that the vision's non-goals explicitly rule out, push back. The user should either drop the spike, reframe it against a vision-relevant question, or update the vision first via `/tdd-docs-update`.
+- **Demo / artifact convention**: every artifact a future reader of `spike-results.md` would want to inspect — tool inputs, tool outputs, logs, measurements, rendered media — goes in `docs/tdd-designs/<spike-name>/demos/`. This directory is **tracked**: demos are the spike's permanent evidence record and must survive across machines, archival, and review. See the full convention in `tdd-spike-implement`'s Rules.
 - **Demo convention**: rendered demos (MP4s, screenshots, logs) go in `docs/tdd-designs/{spike-name}/demos/`. This directory should be gitignored — demos are reproducible from source.
 - Keep design.md under 60 lines. Spikes are focused, not sprawling.
 - This is a conversation, not a monologue. Ask questions before writing.

@@ -16,6 +16,7 @@ Turn a high-level design into a concrete implementation blueprint.
 ## Steps
 
 1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "detail"`. This verifies the branch and refreshes the lock for this design. Honor `--force-takeover` if passed.
+1b. **Repo-map preamble (optional)** per `skills/_shared/repo-map-preamble.md`. If `aider` is on PATH, generate a structural map of the codebase before exploration. The map informs which files are load-bearing per PageRank — use it to focus the Explore agent / Grep / Glob calls in step 3 instead of scanning blind.
 2. **Read `design.md`** from the design directory.
 3. **Explore the codebase** to understand existing patterns, conventions, and integration points. Use the Explore agent or Grep/Glob as needed. Understand where the new code will live and what it will touch.
 4. **Read project docs** per `skills/_shared/read-project-docs.md`.

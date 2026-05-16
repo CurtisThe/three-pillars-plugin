@@ -110,5 +110,5 @@ Tell the user:
 - **Follow each skill's full instructions** — this orchestrator doesn't replace the skills, it chains them. Read each SKILL.md and follow its steps, adding `--auto` (and `--spike` for plan-audit) behavior.
 - **Decision log is the trust mechanism** — if something is ambiguous, log it with Low confidence. The user will review.
 - **On unrecoverable error** (skill can't proceed at all), append the error to decisions.md with full context and stop. Don't silently fail.
-- **Demo convention**: rendered demos go in `docs/tdd-designs/{spike-name}/demos/` (gitignored).
+- **Demo convention**: demos go in `docs/tdd-designs/<spike-name>/demos/` and are tracked (committed alongside each experiment). See the "Demo / artifact convention" rule in `tdd-spike-implement` for what belongs there.
 - Keep design.md under 60 lines, spike-results.md under 80 lines.

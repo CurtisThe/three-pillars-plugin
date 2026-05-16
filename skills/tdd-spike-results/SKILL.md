@@ -76,6 +76,7 @@ Designs in docs/tdd-designs/ that need updating based on these findings.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the verdict record must be written by the rightful owner.
 - Copy the **Parent** link from design.md. If design.md has no parent, use `none`.
 - **Verdict** must be exactly one of: `GO`, `PARTIAL`, `NO-GO`.
+- **Demo convention**: demo files live in `docs/tdd-designs/<spike-name>/demos/` and are tracked (committed alongside each experiment, archived with the spike). Reference them by relative path in the Demo Reference table.
 - **Demo convention**: demo files live in `docs/tdd-designs/{spike-name}/demos/` (gitignored, reproducible from source). Reference them by relative path in the Demo Reference table.
 - Keep under 80 lines. Dense findings, not narrative.
 - This skill captures findings only — don't propose doc updates (that's `/tdd-spike-learn`).

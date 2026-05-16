@@ -111,6 +111,7 @@ Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next l
 ## Gitignore
 
 - The lock file IS committed — do not add it to `.gitignore`.
-- `docs/tdd-designs/*/handoff.md` and `docs/tdd-designs/*/decisions.md` stay gitignored (per-developer session state; `auto-mode.md` handles these on first write).
+- `docs/tdd-designs/*/handoff.md` stays gitignored (per-developer session state; `tdd-session-save` handles this on first write).
 - `.claude/last-design` stays gitignored (per-developer MRU state; `validate-name.md` handles this on first write).
-- **Never `git add`** gitignored state files (`handoff.md`, `decisions.md`, `.claude/last-design`, `demos/`). Git emits a noisy "paths are ignored" hint and the file would only land in the repo if `-f` is passed. Skills write these files directly; leave staging to the user.
+- **Tracked design artifacts** (committed): `design.md`, `detailed-design.md`, `plan.md`, `spike-results.md`, `decisions.md`, everything under `demos/`, `lock.json`. These form the design's permanent record and must sync across machines, survive archival, and be reviewable.
+- **Never `git add`** the truly gitignored state files (`handoff.md`, `.claude/last-design`). Git emits a noisy "paths are ignored" hint and the file would only land in the repo if `-f` is passed. Skills write these files directly; leave staging to the user.

@@ -20,6 +20,9 @@ Comprehensive review of a completed implementation against both design documents
 ### 0. Preflight
 Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. This verifies the branch and refreshes the lock so the final audit artifact is written by the rightful owner. Honor `--force-takeover` if passed.
 
+### 0b. Repo-map preamble (optional)
+Per `skills/_shared/repo-map-preamble.md`. If `aider` is on PATH, generate a structural map of the codebase before walking design vs. implementation. Use it to focus interface-fidelity checks in Step 3 on files PageRank surfaces as load-bearing.
+
 ### 1. Load all design artifacts
 Read `design.md`, `detailed-design.md`, `plan.md`, and any `review.md` files from the design directory. Do not skim — read fully. Also read project docs per `skills/_shared/read-project-docs.md` for project context.
 
