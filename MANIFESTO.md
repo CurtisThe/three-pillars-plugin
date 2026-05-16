@@ -45,22 +45,22 @@ off, the people who use it, and the people who maintain it.
 - Two-command plugin install — no cloning, no bootstrap scripts.
 - 25 TDD skills that automate the design-plan-implement-review cycle. Red-green-refactor with Claude as pair.
 - Spike pipeline for time-boxed experiments — validate unknowns before committing to a full design.
-- `/tdd-spike-auto` runs an entire spike hands-off: plan, audit, implement, capture results. Review `decisions.md` the next morning.
+- `/tp-spike-auto` runs an entire spike hands-off: plan, audit, implement, capture results. Review `decisions.md` the next morning.
 - Parallel agent execution during implementation — independent tasks run concurrently.
 
 ### Quality
 
 - Council of High Intelligence: 18 reasoning personas stress-test decisions before code is written.
 - Design-first pipeline: every implementation traces back to a design document and passes through audit gates.
-- Council deliberation is built into the pipeline — `/tdd-plan-audit` and `/tdd-design-audit` convene the council automatically.
+- Council deliberation is built into the pipeline — `/tp-plan-audit` and `/tp-design-audit` convene the council automatically.
 - Domain-specific council triads (architecture, risk, debugging, product, AI safety) focus the right expertise on the right problems.
 
 ### Business Alignment
 
 - Four living project docs (`vision.md`, `architecture.md`, `product_roadmap.md`, `known_issues.md`) ground every design in the real state of the codebase — and in a stated "why" the audits can cite as a tie-breaker.
-- `/tdd-setup` draws the vision out of the user conversationally; `/tdd-docs-init` scaffolds the other three from codebase analysis; `/tdd-docs-update` maintains all four after milestones, with a sticky-vision protocol that prevents drift.
-- `/tdd-design-learn` and `/tdd-spike-learn` close the feedback loop — learnings from completed work flow back into project docs and surface affected downstream designs.
-- Session continuity (`/tdd-session-save` / `/tdd-session-restore`) preserves context across conversations and machines, so nothing is lost between sessions.
+- `/tp-setup` draws the vision out of the user conversationally; `/tp-docs-init` scaffolds the other three from codebase analysis; `/tp-docs-update` maintains all four after milestones, with a sticky-vision protocol that prevents drift.
+- `/tp-design-learn` and `/tp-spike-learn` close the feedback loop — learnings from completed work flow back into project docs and surface affected downstream designs.
+- Session continuity (`/tp-session-save` / `/tp-session-restore`) preserves context across conversations and machines, so nothing is lost between sessions.
 
 ## Long-term vision: decentralized AI ownership
 
@@ -83,7 +83,7 @@ This scales because no single person needs to understand every domain. The AI do
 - [x] Council of High Intelligence (18 thinkers, 4 modes, 20+ pre-built triads)
 - [x] TDD pipeline (27 skills): guide, setup, test-setup, design, detail, audit, plan, implement, review, final audit
 - [x] Spike pipeline: hypothesis-driven experiments with structured findings
-- [x] Autonomous spike execution (`/tdd-spike-auto`) with decision logging
+- [x] Autonomous spike execution (`/tp-spike-auto`) with decision logging
 - [x] Session continuity across conversations and machines
 - [x] Design lifecycle management (learn, complete, archive)
 - [x] Four living project docs (vision, architecture, roadmap, known-issues) with setup, init, and update skills

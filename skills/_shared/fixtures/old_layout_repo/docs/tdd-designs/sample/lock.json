@@ -1,0 +1,9 @@
+{
+  "design": "sample",
+  "branch": "tdd/sample",
+  "owner": "alice@example.com",
+  "phase": "implement",
+  "acquired_at": "2026-01-01T00:00:00Z",
+  "last_touched": "2026-01-01T00:00:00Z",
+  "previous_owners": []
+}

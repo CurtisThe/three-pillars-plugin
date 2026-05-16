@@ -4,9 +4,9 @@ Optional preamble for skills that benefit from up-front structural context about
 
 ## When to call this preamble
 
-**Call from**: design and audit skills that need awareness of the user's codebase as a whole — `tdd-design`, `tdd-design-detail`, `tdd-design-audit`, `tdd-implementation-audit`.
+**Call from**: design and audit skills that need awareness of the user's codebase as a whole — `tp-design`, `tp-design-detail`, `tp-design-audit`, `tp-implementation-audit`.
 
-**Do NOT call from**: implementation skills (`tdd-phase-implement`, `tdd-task-cycle`), planning skills whose primary input is `design.md` not the codebase (`tdd-plan`, `tdd-spike-plan`), or skills that touch the codebase trivially or not at all (`tdd-setup`, `tdd-design-release`, commit/lock-management).
+**Do NOT call from**: implementation skills (`tp-phase-implement`, `tp-task-cycle`), planning skills whose primary input is `design.md` not the codebase (`tp-plan`, `tp-spike-plan`), or skills that touch the codebase trivially or not at all (`tp-setup`, `tp-design-release`, commit/lock-management).
 
 Position the call **after the lock preflight** and **before** any "read project docs" / "explore codebase" steps, so the map informs both.
 
@@ -80,4 +80,4 @@ The preamble itself does not need to know whether aider is host-installed or wra
 
 ## Why this exists
 
-Empirical finding from the `codesight-integration` spike (2026-04, see `docs/tdd-designs/codesight-integration/spike-results.md` or its archived location): pre-analyzed structural context delivered as CLI content injection reduces design-phase token consumption by ~15–42% (heavier system prompts benefit more) compared to ad-hoc Read/Grep/Glob exploration. The same algorithm delivered via MCP costs ~70% MORE than CLI on the same workflow due to per-turn schema overhead — so this preamble deliberately uses CLI delivery, not an MCP server.
+Empirical finding from the `codesight-integration` spike (2026-04, see `three-pillars-docs/tp-designs/codesight-integration/spike-results.md` or its archived location): pre-analyzed structural context delivered as CLI content injection reduces design-phase token consumption by ~15–42% (heavier system prompts benefit more) compared to ad-hoc Read/Grep/Glob exploration. The same algorithm delivered via MCP costs ~70% MORE than CLI on the same workflow due to per-turn schema overhead — so this preamble deliberately uses CLI delivery, not an MCP server.

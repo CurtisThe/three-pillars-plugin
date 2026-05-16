@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://three-pillars.dev/schemas/repo-config.v1.json",
+  "title": "three-pillars repo config (.three-pillars/config.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version. v1 only; future versions are rejected so older code fails closed against newer configs (a forward-compat upgrade requires a new code release that recognizes the new const)."
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "completed_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when migrate.py --apply completed against this repo. Sole writer is migrate.py itself; SKILL.md wrappers must never set this independently."
+        },
+        "from_layout": {
+          "enum": ["docs+tdd", null],
+          "description": "Originating layout that was migrated. Only known historical value is 'docs+tdd' (the pre-workflow-cleanup layout); null means no migration has occurred."
+        }
+      }
+    },
+    "branch_protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "offered_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when first-run preflight last offered to set up branch protection. Used to suppress repeated prompts."
+        },
+        "applied_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when branch protection was successfully applied via gh api."
+        },
+        "declined": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if user explicitly declined branch protection setup. Suppresses future prompts permanently until manually flipped."
+        },
+        "profile": {
+          "enum": ["team-pr-1approval-noforce", null],
+          "description": "Named protection profile applied. Only known value today is 'team-pr-1approval-noforce' (PR required, 1 approval, no force-push)."
+        }
+      }
+    }
+  }
+}

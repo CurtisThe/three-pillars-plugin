@@ -12,7 +12,7 @@ When a skill supports `--auto`, it replaces human interaction with self-assessme
 ## Run Metadata
 **Started**: <ISO timestamp>
 **Spike**: {spike-name}
-**Design**: docs/tdd-designs/{spike-name}/design.md
+**Design**: three-pillars-docs/tp-designs/{spike-name}/design.md
 ```
 
 ### Decision Entry (appended by each skill)
@@ -48,7 +48,7 @@ When a skill supports `--auto`, it replaces human interaction with self-assessme
 
 1. **Never block on user input** — make the best available decision and log it.
 2. **Always append to decisions.md** — never overwrite. Each entry is chronological.
-3. **If decisions.md doesn't exist, create it** with the Run Metadata header. `decisions.md` is tracked (not gitignored) — it is the spike's permanent audit trail. Before creating, check that the project's `.gitignore` contains `docs/tdd-designs/*/handoff.md` (the only ephemeral design file). If missing, append it (with a `# three-pillars session artifacts` comment).
+3. **If decisions.md doesn't exist, create it** with the Run Metadata header. `decisions.md` is tracked (not gitignored) — it is the spike's permanent audit trail. Before creating, check that the project's `.gitignore` contains `three-pillars-docs/tp-designs/*/handoff.md` (the only ephemeral design file). If missing, append it (with a `# three-pillars session artifacts` comment).
 4. **Confidence levels**:
    - **High**: Clear from design/context, only one reasonable choice.
    - **Medium**: Multiple reasonable options, picked the most aligned with design.md.

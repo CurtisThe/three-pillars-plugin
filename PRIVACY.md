@@ -17,7 +17,7 @@ This plugin does not collect, transmit, or store any user data. Specifically:
 
 ## Local Files
 
-The plugin's skills may create or modify files within your project directory as part of normal operation (e.g., design documents in `docs/tdd-designs/`, a `.claude/last-design` tracking file). These files remain entirely on your local filesystem.
+The plugin's skills may create or modify files within your project directory as part of normal operation (e.g., design documents in `three-pillars-docs/tp-designs/`, a `.claude/last-design` tracking file). These files remain entirely on your local filesystem.
 
 ## Third-Party Dependencies
 

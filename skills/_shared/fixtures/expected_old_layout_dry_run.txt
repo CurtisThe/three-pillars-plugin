@@ -1,0 +1,21 @@
+Migration plan (dry-run, no changes made):
+
+Moves (8):
+  docs/architecture.md -> three-pillars-docs/architecture.md
+  docs/completed-tdd-designs/old-feature/design.md -> three-pillars-docs/completed-tp-designs/old-feature/design.md
+  docs/known_issues.md -> three-pillars-docs/known_issues.md
+  docs/product_roadmap.md -> three-pillars-docs/product_roadmap.md
+  docs/tdd-designs/sample/design.md -> three-pillars-docs/tp-designs/sample/design.md
+  docs/tdd-designs/sample/lock.json -> three-pillars-docs/tp-designs/sample/lock.json
+  docs/tdd-designs/sample/plan.md -> three-pillars-docs/tp-designs/sample/plan.md
+  docs/vision.md -> three-pillars-docs/vision.md
+
+Rewrites (6):
+  CLAUDE.md
+  CLAUDE.plugin.md
+  README.md
+  README.plugin.md
+  docs/tdd-designs/sample/design.md
+  docs/tdd-designs/sample/plan.md
+
+Run with --apply to execute.

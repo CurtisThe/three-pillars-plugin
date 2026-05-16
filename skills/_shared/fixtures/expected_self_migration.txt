@@ -1,0 +1,14 @@
+Migration plan (dry-run, no changes made):
+
+Moves (0):
+
+Rewrites (7):
+  CLAUDE.md
+  CLAUDE.plugin.md
+  MANIFESTO.md
+  PLUGIN-REVIEW.md
+  PRIVACY.md
+  README.md
+  README.plugin.md
+
+Run with --apply to execute.

@@ -122,8 +122,8 @@ if [ -n "$CWD" ] && [ -f "$CWD/.claude/last-design" ]; then
   # MRU stack: grab lines 2-5 (skip active, take next 4)
   RECENT_DESIGNS=$(tail -n +2 "$CWD/.claude/last-design" 2>/dev/null | head -4)
 fi
-if [ -n "$CWD" ] && [ -d "$CWD/docs/tdd-designs" ]; then
-  DESIGN_COUNT=$(ls -1 "$CWD/docs/tdd-designs/" 2>/dev/null | wc -l)
+if [ -n "$CWD" ] && [ -d "$CWD/three-pillars-docs/tp-designs" ]; then
+  DESIGN_COUNT=$(ls -1 "$CWD/three-pillars-docs/tp-designs/" 2>/dev/null | wc -l)
 fi
 
 # =====================================================================

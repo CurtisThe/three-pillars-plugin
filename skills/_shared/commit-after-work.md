@@ -5,20 +5,20 @@ When a skill produces a substantial artifact, it commits that artifact at the en
 ## Which skills apply this protocol
 
 **Opt-in** (commit at the end):
-- Setup: `/tdd-setup`, `/tdd-docs-init`, `/tdd-test-setup`
-- Design pipeline: `/tdd-design`, `/tdd-design-detail`, `/tdd-plan`
-- Implementation: `/tdd-task-cycle` (one commit per full red-green-refactor cycle), `/tdd-phase-implement` (stragglers only), `/tdd-phase-review`, `/tdd-implementation-audit`
-- Spike pipeline: `/tdd-spike`, `/tdd-spike-plan`, `/tdd-spike-implement` (one commit per experiment), `/tdd-spike-results`
-- Learn / docs: `/tdd-design-learn`, `/tdd-spike-learn`, `/tdd-docs-update`
-- Release: `/tdd-design-release` (the lock change is the substantial work)
+- Setup: `/tp-setup`, `/tp-docs-init`, `/tp-test-setup`
+- Design pipeline: `/tp-design`, `/tp-design-detail`, `/tp-plan`
+- Implementation: `/tp-task-cycle` (one commit per full red-green-refactor cycle), `/tp-phase-implement` (stragglers only), `/tp-phase-review`, `/tp-implementation-audit`
+- Spike pipeline: `/tp-spike`, `/tp-spike-plan`, `/tp-spike-implement` (one commit per experiment), `/tp-spike-results`
+- Learn / docs: `/tp-design-learn`, `/tp-spike-learn`, `/tp-docs-update`
+- Release: `/tp-design-release` (the lock change is the substantial work)
 
 **Do not apply** (skills don't commit):
-- Audit-only skills that don't write files: `/tdd-design-audit`, `/tdd-plan-audit`
-- Session state on gitignored paths: `/tdd-session-save`, `/tdd-session-restore`, `/tdd-session-clear`
-- Read-only guides: `/tdd-guide`
+- Audit-only skills that don't write files: `/tp-design-audit`, `/tp-plan-audit`
+- Session state on gitignored paths: `/tp-session-save`, `/tp-session-restore`, `/tp-session-clear`
+- Read-only guides: `/tp-guide`
 
 **Handles its own commit** (does not reference this doc):
-- `/tdd-design-complete` — commits the archival + opens the PR. See that skill's SKILL.md for the full flow.
+- `/tp-design-complete` — commits the archival + opens the PR. See that skill's SKILL.md for the full flow.
 
 ## The protocol
 
@@ -26,7 +26,7 @@ Run this at the end of the skill, after all artifact files are written.
 
 ### 1. Identify the artifact paths
 
-Each calling skill must pass a concrete, enumerable list of paths it just produced — e.g., `docs/tdd-designs/{name}/design.md` and `docs/tdd-designs/{name}/lock.json`. Never stage a broad directory.
+Each calling skill must pass a concrete, enumerable list of paths it just produced — e.g., `three-pillars-docs/tp-designs/{name}/design.md` and `three-pillars-docs/tp-designs/{name}/lock.json`. Never stage a broad directory.
 
 ### 2. Check for unrelated WIP
 
@@ -60,37 +60,37 @@ If `git commit` fails (pre-commit hook, lint, type check, etc.), stop and surfac
 
 ### 6. Do not push
 
-Skills never push from inside the run. Pushing + opening a PR is reserved for `/tdd-design-complete`. The user can push on their own schedule; the branch-per-design convention keeps their local branch isolated.
+Skills never push from inside the run. Pushing + opening a PR is reserved for `/tp-design-complete`. The user can push on their own schedule; the branch-per-design convention keeps their local branch isolated.
 
 ## Commit message conventions
 
 | Skill | Message template |
 |---|---|
-| `/tdd-setup` | `Setup: vision` |
-| `/tdd-docs-init` | `Docs: init project docs` |
-| `/tdd-test-setup` | `Setup: test infrastructure` |
-| `/tdd-design {name}` | `Design: {name} high-level` |
-| `/tdd-design-detail {name}` | `Design: {name} detailed` |
-| `/tdd-plan {name}` | `Plan: {name}` |
-| `/tdd-task-cycle` | `Implement: {design-name} {phase}.{task} — {task-title}` |
-| `/tdd-phase-implement {name}` | `Implement: {name} phase-{n} cleanup` (only if stragglers remain after per-task commits) |
-| `/tdd-phase-review {name}` | `Review: {name} phase-{n}` |
-| `/tdd-implementation-audit {name}` | `Audit: {name} implementation` |
-| `/tdd-spike {name}` | `Spike: {name} design` |
-| `/tdd-spike-plan {name}` | `Spike: {name} plan` |
-| `/tdd-spike-implement {name}` | `Spike: {name} {phase}.{experiment}` (one per experiment) |
-| `/tdd-spike-results {name}` | `Spike: {name} results` |
-| `/tdd-design-learn {name}` | `Learn: {name} design` |
-| `/tdd-spike-learn {name}` | `Learn: {name} spike` |
-| `/tdd-docs-update` | `Docs: update {file1},{file2}` (comma-separate; omit repeated "docs/" prefix) |
-| `/tdd-design-release {name}` | `Release: {name}` (or `Release: {name} (force)` if `--force` was used) |
-| `/tdd-design-complete {name}` | `Complete design: {name}` (owned by that skill — not this protocol) |
+| `/tp-setup` | `Setup: vision` |
+| `/tp-docs-init` | `Docs: init project docs` |
+| `/tp-test-setup` | `Setup: test infrastructure` |
+| `/tp-design {name}` | `Design: {name} high-level` |
+| `/tp-design-detail {name}` | `Design: {name} detailed` |
+| `/tp-plan {name}` | `Plan: {name}` |
+| `/tp-task-cycle` | `Implement: {design-name} {phase}.{task} — {task-title}` |
+| `/tp-phase-implement {name}` | `Implement: {name} phase-{n} cleanup` (only if stragglers remain after per-task commits) |
+| `/tp-phase-review {name}` | `Review: {name} phase-{n}` |
+| `/tp-implementation-audit {name}` | `Audit: {name} implementation` |
+| `/tp-spike {name}` | `Spike: {name} design` |
+| `/tp-spike-plan {name}` | `Spike: {name} plan` |
+| `/tp-spike-implement {name}` | `Spike: {name} {phase}.{experiment}` (one per experiment) |
+| `/tp-spike-results {name}` | `Spike: {name} results` |
+| `/tp-design-learn {name}` | `Learn: {name} design` |
+| `/tp-spike-learn {name}` | `Learn: {name} spike` |
+| `/tp-docs-update` | `Docs: update {file1},{file2}` (comma-separate; omit repeated "three-pillars-docs/" prefix) |
+| `/tp-design-release {name}` | `Release: {name}` (or `Release: {name} (force)` if `--force` was used) |
+| `/tp-design-complete {name}` | `Complete design: {name}` (owned by that skill — not this protocol) |
 
 ## Lock file handling
 
-If the skill acquires or refreshes `docs/tdd-designs/{name}/lock.json` during its preflight (per `skills/_shared/collaboration.md`), include the lock file in the **same** commit as the content artifact. Don't produce a separate "update lock" commit.
+If the skill acquires or refreshes `three-pillars-docs/tp-designs/{name}/lock.json` during its preflight (per `skills/_shared/collaboration.md`), include the lock file in the **same** commit as the content artifact. Don't produce a separate "update lock" commit.
 
-The exception: `/tdd-design-release` commits only `lock.json` — the lock change *is* the substantial work.
+The exception: `/tp-design-release` commits only `lock.json` — the lock change *is* the substantial work.
 
 ## User-initiated opt-out
 
@@ -98,12 +98,12 @@ If during a skill run the user explicitly asks to skip the commit ("don't commit
 
 ## Autonomous mode
 
-In `--auto` modes (e.g., `/tdd-spike-auto`), commits are **required** — the whole point is unattended execution. If a commit fails (hook rejection, unrelated WIP detected), the skill logs the failure to `decisions.md` and stops the autonomous pipeline rather than bypassing. See `skills/_shared/auto-mode.md` for failure-handling conventions.
+In `--auto` modes (e.g., `/tp-spike-auto`), commits are **required** — the whole point is unattended execution. If a commit fails (hook rejection, unrelated WIP detected), the skill logs the failure to `decisions.md` and stops the autonomous pipeline rather than bypassing. See `skills/_shared/auto-mode.md` for failure-handling conventions.
 
 ## Orchestrator skills
 
-Orchestrator skills (`/tdd-phase-implement`, `/tdd-spike-implement`, `/tdd-spike-auto`) delegate the bulk of their commits to the inner skills they invoke (`/tdd-task-cycle`, etc.). At the end of the orchestrator run, check for stragglers: if `git status --short` shows any staged or unstaged changes remaining, the orchestrator commits them with a "cleanup" message. If the tree is clean, the orchestrator skips its own commit.
+Orchestrator skills (`/tp-phase-implement`, `/tp-spike-implement`, `/tp-spike-auto`) delegate the bulk of their commits to the inner skills they invoke (`/tp-task-cycle`, etc.). At the end of the orchestrator run, check for stragglers: if `git status --short` shows any staged or unstaged changes remaining, the orchestrator commits them with a "cleanup" message. If the tree is clean, the orchestrator skips its own commit.
 
 ## Rationale
 
-Frequent, scoped commits produce a clean audit trail at every design phase and prevent the "I have 40 files of uncommitted work across design + implementation" failure mode. Combined with branch-per-design, this means every phase of every design is recoverable, reviewable, and mergeable independently. `/tdd-design-complete` then squashes/merges the branch to base, so downstream repos see a clean history if they prefer.
+Frequent, scoped commits produce a clean audit trail at every design phase and prevent the "I have 40 files of uncommitted work across design + implementation" failure mode. Combined with branch-per-design, this means every phase of every design is recoverable, reviewable, and mergeable independently. `/tp-design-complete` then squashes/merges the branch to base, so downstream repos see a clean history if they prefer.
