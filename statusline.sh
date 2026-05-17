@@ -9,7 +9,7 @@ field() { echo "$input" | jq -r "$1 // empty" 2>/dev/null; }
 
 # --- Gather all data ---
 MODEL=$(field '.model.display_name')
-CWD=$(field '.workspace.current_dir')
+CWD=$(field '.workspace.current_dir // .cwd')
 VERSION=$(field '.version')
 SESSION=$(field '.session_id')
 
@@ -259,7 +259,7 @@ if [ -n "$COST" ]; then
   L3+="${BYEL}\$${COST}${RST}"
 fi
 
-echo -e "$L3"
+[ -n "$L3" ] && echo -e "$L3"
 
 # =====================================================================
 # LINE 3: Design count + recent MRU designs (excluding active, which
@@ -285,3 +285,5 @@ fi
 
 # Only echo if non-empty — avoid a blank trailing line wasting statusline space
 [ -n "$L4" ] && echo -e "$L4"
+
+exit 0
