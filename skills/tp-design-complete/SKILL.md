@@ -48,24 +48,20 @@ Mark a finished design as complete, archive it out of the active designs directo
    e. **Update Current Focus in `product_roadmap.md`**: If the roadmap has a `## Current Focus` table containing this design, remove its row and shift remaining priorities up (Priority 2 → 1, etc.). If removing this row unblocks another row (was listed in its "Blocked By"), clear the blocker and update its "Next Action" to the now-available step. Show the proposed changes and get user confirmation before writing.
 
    f. **Commit the archival changes** on the current branch:
-      - Run `git status --short` and verify the only changes are the archival paths: the old `three-pillars-docs/tp-designs/<design-name>/` (as deletions from the rename), the new `three-pillars-docs/completed-tp-designs/<design-name>/` (additions, including any previously-untracked files like demos and decisions.md from a pre-rule-change design), and optionally `three-pillars-docs/product_roadmap.md` (modified). If unrelated changes appear in the working tree, stop and tell the user to commit or stash them first — the skill won't sweep unrelated WIP into the completion commit.
+      - Run `git status --short` and verify the only changes are the archival paths: the old `three-pillars-docs/tp-designs/{design-name}/` (as deletions from the rename), the new `three-pillars-docs/completed-tp-designs/{design-name}/` (additions, including any previously-untracked files like demos and decisions.md from a pre-rule-change design), and optionally `three-pillars-docs/product_roadmap.md` (modified). If unrelated changes appear in the working tree, stop and tell the user to commit or stash them first — the skill won't sweep unrelated WIP into the completion commit.
       - Stage the archival paths explicitly (do NOT use `git add -A` or `git add .`). The `git mv` from step 6d only stages tracked files — any untracked siblings in the design directory (e.g., `decisions.md` or `demos/` content from a pre-2026-05 design before those became tracked-from-creation) need explicit re-add at the new path:
         ```bash
         # Tracked files that git mv already staged
-        git add three-pillars-docs/tp-designs/<design-name> three-pillars-docs/completed-tp-designs/<design-name>/design.md
+        git add three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name}/design.md
         # Catch any previously-untracked siblings that came along at filesystem level
-        git add three-pillars-docs/completed-tp-designs/<design-name>/decisions.md 2>/dev/null
-        git add three-pillars-docs/completed-tp-designs/<design-name>/demos/ 2>/dev/null
+        git add three-pillars-docs/completed-tp-designs/{design-name}/decisions.md 2>/dev/null
+        git add three-pillars-docs/completed-tp-designs/{design-name}/demos/ 2>/dev/null
         # Roadmap update from step 6e
         git add three-pillars-docs/product_roadmap.md
         # Sanity check before commit:
         git status --short
-      - Run `git status --short` and verify the only changes are the archival paths: the old `three-pillars-docs/tp-designs/{design-name}/` (as deletions from the rename), the new `three-pillars-docs/completed-tp-designs/{design-name}/` (additions), and optionally `three-pillars-docs/product_roadmap.md` (modified). If unrelated changes appear in the working tree, stop and tell the user to commit or stash them first — the skill won't sweep unrelated WIP into the completion commit.
-      - Stage the archival paths explicitly (do NOT use `git add -A` or `git add .`):
-        ```bash
-        git add three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name} three-pillars-docs/product_roadmap.md
         ```
-        After this, `git status` should show no untracked entries under `three-pillars-docs/completed-tp-designs/<design-name>/`. If any remain, stage them too — the archive must be complete.
+        After this, `git status` should show no remaining untracked entries under `three-pillars-docs/completed-tp-designs/{design-name}/`. If any do, stage them too — the archive must be complete.
       - Commit with a focused message:
         ```bash
         git commit -m "Complete design: {design-name}"
@@ -74,7 +70,16 @@ Mark a finished design as complete, archive it out of the active designs directo
       - If the commit fails (e.g., a pre-commit hook blocks it), stop and surface the hook output to the user. Do not retry with `--no-verify`, and do not proceed to the PR step.
 
    g. **Offer to open a PR** back to the base branch:
-      - Resolve the base branch: try `git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null` and strip `origin/`; if that returns nothing, fall back to `main` (then `master`) if the remote has that ref (`git ls-remote --heads origin main` / `master`).
+      - Resolve the *default* branch: try `git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null` and strip `origin/`; if that returns nothing, fall back to `main` (then `master`) if the remote has that ref (`git ls-remote --heads origin main` / `master`). Call this `{default}`.
+      - **Parent-aware base resolution** — the current branch may have been cut from another in-flight design's branch rather than from `{default}`. The PR should target the parent in that case so the design's lineage is preserved through to merge.
+        - Compute the repo root: `ROOT="$(git rev-parse --show-toplevel)"`.
+        - Run `python3 ~/.claude/skills/tp-design-complete/scripts/detect_parent.py --repo "$ROOT" --design {design-name} --default-branch {default}`. The script inspects sibling designs' `lock.json` files (no namespace pattern matching — any branch name declared in `lock.json` is honored) to find branches that are ancestors of HEAD and have *not* been merged into `{default}`. Capture its stdout as JSON.
+        - On exit 0, parse the JSON and branch on the `verdict` field:
+          - **none** → set `{base} = {default}`. No prompt.
+          - **single** → tell the user: `Detected parent design '{design}' on branch '{branch}'. Target this for the merge instead of '{default}'? (parent / default / other)`. On `parent`, set `{base} = {branch}`. On `default`, set `{base} = {default}`. On `other`, prompt for an explicit branch name and use that.
+          - **multiple** → list each candidate numbered with design / branch / `last_touched`, plus `default` and `other` as keywords. Prompt for a number or keyword and set `{base}` accordingly.
+        - On non-zero exit or JSON parse failure, log a one-line warning (`parent-detection unavailable; defaulting to {default}`) and set `{base} = {default}`. The default-branch path must always remain reachable — a buggy detector must never block a completion.
+        - **Failure modes the heuristic can't catch** (worth knowing for when to override): rebased branches lose their original creation point so the merge-base ancestry breaks; force-pushed parents shift the merge-base under the script's feet; and if the user fast-forward-merged the parent into a different sibling, both will look like ancestors of HEAD until the parent gets deleted. The interactive prompt gives the user the last word — fall back to `default` or `other` when the detected target looks wrong.
       - Get the current branch: `git branch --show-current`.
       - **Skip** the PR offer and tell the user how to push manually if any of these are true:
         - No `origin` remote (`git remote get-url origin` fails).
@@ -103,13 +108,13 @@ Mark a finished design as complete, archive it out of the active designs directo
       - After reporting the PR URL in step 6g, tell the user:
         > When the PR is merged, say "it's merged" and I'll clean up the branch.
       - When the user confirms the merge:
-        1. Switch to the base branch: `git checkout <base>`.
-        2. Pull the merge: `git pull origin <base>`.
-        3. Delete the local design branch: `git branch -d tp/<design-name>`. Use `-d` (not `-D`) so git verifies the branch was merged. If deletion fails, surface the error — the branch may not be fully merged.
-        4. Delete the remote design branch: `git push origin --delete tp/<design-name>`. **Fail-open**: if the remote branch was already deleted (e.g., GitHub's auto-delete-on-merge), ignore the error.
-        5. Clear `.claude/last-design` if its first line is `<design-name>` — the design is archived; the MRU pointer is stale. If the file has other lines, remove only the matching line. If it becomes empty, delete the file.
+        1. Switch to the base branch: `git checkout {base}`.
+        2. Pull the merge: `git pull origin {base}`.
+        3. Delete the local design branch: `git branch -d tp/{design-name}`. Use `-d` (not `-D`) so git verifies the branch was merged. If deletion fails, surface the error — the branch may not be fully merged.
+        4. Delete the remote design branch: `git push origin --delete tp/{design-name}`. **Fail-open**: if the remote branch was already deleted (e.g., GitHub's auto-delete-on-merge), ignore the error.
+        5. Clear `.claude/last-design` if its first line is `{design-name}` — the design is archived; the MRU pointer is stale. If the file has other lines, remove only the matching line. If it becomes empty, delete the file.
       - If the user doesn't confirm a merge (says "no" or moves on), skip cleanup and remind them they can clean up manually:
-        > To clean up later: `git checkout <base> && git pull && git branch -d tp/<design-name> && git push origin --delete tp/<design-name>`
+        > To clean up later: `git checkout {base} && git pull && git branch -d tp/{design-name} && git push origin --delete tp/{design-name}`
 
    i. **Report success** with:
       - The archive location: `three-pillars-docs/completed-tp-designs/{design-name}/`
