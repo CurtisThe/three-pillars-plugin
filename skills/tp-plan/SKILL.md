@@ -1,7 +1,7 @@
 ---
 name: tp-plan
 description: Generate a plan.md from detailed-design.md — a sequenced list of implementation tasks, each with test criteria, ready for /tp-phase-implement.
-argument-hint: "{design-name} [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # Phase Plan
@@ -65,3 +65,20 @@ Turn a detailed design into a concrete, executable task list.
 - The plan is the contract for `/tp-phase-implement`. Be precise enough that an agent can execute each task without ambiguity.
 - Check for existing `plan.md` and ask before overwriting.
 - Don't start implementing — stop after writing the plan.
+
+## Auto Mode
+
+This skill is a **Shape B (Generator)** per `skills/_shared/auto-mode.md`. In `--auto` it derives the task breakdown from `detailed-design.md` without prompting the user.
+
+Differences from interactive mode:
+- **Skip step 7** (the user-confirmation walk-through). Self-review the plan against `detailed-design.md`: every Implementation Order item should map to at least one task; phases should match (or merge/split) the design's implementation order; each task should remain implementable in a single red-green-refactor cycle. No external approval.
+- **Overwrite an existing `plan.md` without asking** (the rule above defers to `--auto`). Prior content is replaced; git history is the rollback path.
+- **Lock conflict ⇒ BLOCKED**, never `--force-takeover` prompt. Follow Rule 5 in `auto-mode.md`: append a BLOCKED entry to `decisions.md` and exit non-zero. The orchestrator escalates.
+
+Log derivation choices to `three-pillars-docs/tp-designs/{design-name}/decisions.md` using the canonical init/append snippet in `skills/_shared/auto-mode.md` (Initialization + append section). One Decision Entry per non-trivial choice, prefixed `[tp-plan]`:
+
+- **Which Implementation Order items map to which phases/tasks** — note the mapping when it's anything other than 1:1.
+- **Any merges or splits** — when two design items collapse into one task, or one design item expands into several tasks, log both the choice and the rationale.
+- **Confidence**: High when the design's Implementation Order section is explicit and the mapping is mechanical; Medium when a judgment call (e.g., grouping two related items into one phase) is required; Low when the design under-specifies and you had to invent structure (flag for human review).
+
+**In `--auto`, the plan is committed without user confirmation; `decisions.md` is the audit trail and the rollback signal — every derivation choice must be logged before the commit step.**

@@ -1,7 +1,7 @@
 ---
 name: tp-design
 description: Interactive high-level design conversation that produces a design.md artifact in three-pillars-docs/tp-designs/{name}/. First step in the TDD pipeline.
-argument-hint: "{design-name} [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # High-Level Design
@@ -79,3 +79,18 @@ Unresolved items to address during detailed design.
 - Keep it under 80 lines. Dense, not verbose.
 - Don't proceed to detailed design in the same invocation — stop after writing design.md.
 - This is a conversation, not a monologue. Ask questions before writing.
+
+## Auto Mode
+
+`--auto` is **Shape A** per `skills/_shared/auto-mode.md` — a validator gate: this skill never generates `design.md` content in `--auto`. The upstream pickup owns the content; `--auto` only certifies that whatever already exists meets the floor schema.
+
+In `--auto`:
+- **Skip steps 4–6 (the design conversation).** Do not prompt the user, do not read existing content for revision, do not draft new sections.
+- **Run the validator**: `python3 skills/_shared/validate_design_floor.py three-pillars-docs/tp-designs/{design-name}` and read its exit code + stderr.
+- **PASS (exit 0)**: append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` with title `design.md accepted at floor schema v1`, **Confidence: High**, **Decided: accepted**, **Reasoning: validate_design_floor.py exited 0**. Use `[tp-design]` as the bare skill-name prefix per the auto-mode convention. Exit 0.
+- **BLOCKED (exit 1)**: append a BLOCKED entry with **Cause: floor-validator** and **Details:** the JSON verdict emitted by the validator on stderr. Exit non-zero so the orchestrator escalates.
+- Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).
+- **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
+- Step 8 (Design Inventory) and step 9 (Current Focus) are user-confirmation steps and are skipped in `--auto`. Step 10's commit still runs; stage `decisions.md` alongside any `lock.json` change.
+
+**Contract: in `--auto`, this skill is a gate, not a generator — it certifies the floor or blocks, and never writes design.md.**

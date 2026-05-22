@@ -79,7 +79,6 @@ Designs in three-pillars-docs/tp-designs/ that need updating based on these find
 - Copy the **Parent** link from design.md. If design.md has no parent, use `none`.
 - **Verdict** must be exactly one of: `GO`, `PARTIAL`, `NO-GO`.
 - **Demo convention**: demo files live in `three-pillars-docs/tp-designs/<spike-name>/demos/` and are tracked (committed alongside each experiment, archived with the spike). Reference them by relative path in the Demo Reference table.
-- **Demo convention**: demo files live in `three-pillars-docs/tp-designs/{spike-name}/demos/` (gitignored, reproducible from source). Reference them by relative path in the Demo Reference table.
 - Keep under 80 lines. Dense findings, not narrative.
 - This skill captures findings only — don't propose doc updates (that's `/tp-spike-learn`).
 - Check for existing `spike-results.md` and ask before overwriting (in `--auto` mode, overwrite without asking).

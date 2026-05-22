@@ -21,6 +21,7 @@ def assert_eq(actual, expected, msg=""):
     else:
         FAILED += 1
         print(f"  FAIL: {msg}\n    expected: {expected}\n    actual:   {actual}")
+        assert actual == expected, f"{msg}: expected {expected!r}, got {actual!r}"
 
 
 def assert_in(needle, haystack, msg=""):
@@ -30,6 +31,7 @@ def assert_in(needle, haystack, msg=""):
     else:
         FAILED += 1
         print(f"  FAIL: {msg}\n    '{needle}' not found in: {haystack}")
+        assert needle in haystack, f"{msg}: {needle!r} not in {haystack!r}"
 
 
 def assert_true(val, msg=""):
@@ -39,6 +41,7 @@ def assert_true(val, msg=""):
     else:
         FAILED += 1
         print(f"  FAIL: {msg}")
+        assert val, msg
 
 
 # ── Extraction tests ──────────────────────────────────────
@@ -168,6 +171,122 @@ def test_extract_interface_names():
     assert_eq(interfaces[0], "Widget.__init__(self, config)", "first interface")
 
 
+def test_field_continuation_modes():
+    print("test_field_continuation_modes")
+    # Shape 1: inline value (existing behavior)
+    inline = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Inline
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when**: the inline value works correctly
+    """)
+    tasks = ap.extract_tasks(inline)
+    assert_eq(len(tasks), 1, "inline: one task")
+    assert_in("the inline value works correctly", tasks[0]["fields"].get("Done when", ""),
+              "inline Done when value")
+
+    # Shape 2: indented continuation line (no inline value, next line is the body)
+    indented = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Indented
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when**:
+          the indented continuation body asserts behavior
+    """)
+    tasks = ap.extract_tasks(indented)
+    assert_eq(len(tasks), 1, "indented: one task")
+    assert_in("the indented continuation body asserts behavior",
+              tasks[0]["fields"].get("Done when", ""),
+              "indented Done when value")
+
+    # Shape 3: bullet-list continuation
+    bullets = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Bullets
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when**:
+          - bullet alpha clause holds
+          - bullet beta clause holds
+    """)
+    tasks = ap.extract_tasks(bullets)
+    assert_eq(len(tasks), 1, "bullets: one task")
+    assert_in("bullet alpha clause holds", tasks[0]["fields"].get("Done when", ""),
+              "bullets Done when value alpha")
+    assert_in("bullet beta clause holds", tasks[0]["fields"].get("Done when", ""),
+              "bullets Done when value beta")
+
+    # Shape 4: fenced-code continuation
+    fenced = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Fenced
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when**:
+          ```
+          fenced code block asserts behavior
+          ```
+    """)
+    tasks = ap.extract_tasks(fenced)
+    assert_eq(len(tasks), 1, "fenced: one task")
+    assert_in("fenced code block asserts behavior",
+              tasks[0]["fields"].get("Done when", ""),
+              "fenced Done when value")
+
+    # Shape 5: fenced-code continuation whose body contains lines that
+    # match _FIELD_BOUNDARY_RE (`## `, `### Task `, `**X**:`). Without
+    # fence-tracking the parser would terminate the continuation early
+    # at the first boundary-looking line inside the fence and lose
+    # subsequent fields.
+    fenced_with_boundary_lookalikes = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Fenced-with-tricky-body
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when**:
+          ```python
+          # Example output that the test prints:
+          ## Phase summary
+          **Result**: pass
+          ### Task 1.1: completed
+          ```
+          The trailing prose after the fence.
+        **Status**: implemented
+    """)
+    tasks = ap.extract_tasks(fenced_with_boundary_lookalikes)
+    assert_eq(len(tasks), 1, "fenced-tricky: one task")
+    done_when = tasks[0]["fields"].get("Done when", "")
+    # The fenced contents must be preserved verbatim — the `## Phase
+    # summary` line inside the fence is NOT a real boundary.
+    assert_in("## Phase summary", done_when,
+              "fenced contents preserved despite boundary-lookalike")
+    assert_in("### Task 1.1: completed", done_when,
+              "fenced task-marker preserved despite boundary-lookalike")
+    assert_in("The trailing prose after the fence", done_when,
+              "post-fence prose still part of continuation")
+    # Status field after the fence is also captured (continuation didn't
+    # consume it).
+    assert_eq("implemented", tasks[0]["fields"].get("Status", "").strip(),
+              "Status field after fence correctly parsed")
+
+
 def test_extract_design_phases():
     print("test_extract_design_phases")
     detailed = textwrap.dedent("""\
@@ -185,6 +304,33 @@ def test_extract_design_phases():
 
 
 # ── Check tests ───────────────────────────────────────────
+
+
+def test_extract_design_phases_both_shapes():
+    print("test_extract_design_phases_both_shapes")
+    h3 = textwrap.dedent("""\
+        ## Implementation Order
+
+        ### Phase 1: Foundation
+        - Set up widget module
+
+        ### Phase 2: Integration
+        - Wire to app
+    """)
+    h2 = textwrap.dedent("""\
+        ## Implementation Order
+
+        ## Phase 1: Foundation
+        - Set up widget module
+
+        ## Phase 2: Integration
+        - Wire to app
+    """)
+    h3_phases = ap.extract_design_phases(h3)
+    h2_phases = ap.extract_design_phases(h2)
+    assert_eq(h3_phases, h2_phases, "both heading shapes return same list")
+    assert_eq(len(h2_phases), 2, "## Phase shape returns two phases")
+    assert_eq(h2_phases[0], "Foundation", "first phase name")
 
 
 def test_completeness_all_fields():
@@ -224,6 +370,33 @@ def test_completeness_missing_fields():
     assert_eq(issues[0][0], "INCOMPLETE", "category is INCOMPLETE")
     assert_in("Red", issues[0][2], "should mention Red")
     assert_in("Green", issues[0][2], "should mention Green")
+
+
+def test_missing_field_error_cites_regex():
+    print("test_missing_field_error_cites_regex")
+    # Malformed plan: `**Done when **:` has a stray space inside the bold
+    # closer, so the inline regex misses; with no fallback content the field
+    # is missing entirely. The error should embed the regex literal tried
+    # and an excerpt of the offending raw body.
+    plan = textwrap.dedent("""\
+        ## Phase 1: P
+
+        ### Task 1.1: Malformed
+        **File**: `a.py` (new)
+        **Test**: `t.py`::test_a
+        **Red**: write red
+        **Green**: write green
+        **Done when **: extra space typo before the colon
+    """)
+    tasks = ap.extract_tasks(plan)
+    issues = ap.check_completeness(tasks)
+    assert_eq(len(issues), 1, "malformed task flagged")
+    msg = issues[0][2]
+    # The field name is fed through re.escape(), matching the parser's
+    # actual regex construction. Python's re.escape escapes spaces too,
+    # so "Done when" becomes "Done\\ when" in the literal regex.
+    assert_in(r"\*\*Done\ when\*\*", msg, "error contains the re.escape'd regex literal")
+    assert_in("**Done when **", msg, "error contains the offending line excerpt")
 
 
 def test_module_coverage_hit():
@@ -339,9 +512,12 @@ if __name__ == "__main__":
     test_extract_section()
     test_extract_module_files()
     test_extract_interface_names()
+    test_field_continuation_modes()
     test_extract_design_phases()
+    test_extract_design_phases_both_shapes()
     test_completeness_all_fields()
     test_completeness_missing_fields()
+    test_missing_field_error_cites_regex()
     test_module_coverage_hit()
     test_module_coverage_miss()
     test_interface_coverage()

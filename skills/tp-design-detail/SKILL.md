@@ -1,7 +1,7 @@
 ---
 name: tp-design-detail
 description: Produce a detailed-design.md from an existing design.md. Maps high-level entities and behaviors to concrete modules, interfaces, and test boundaries.
-argument-hint: "{design-name} [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # Low-Level Detailed Design
@@ -80,3 +80,16 @@ Key implementation choices made during this design and their rationale.
 - Keep it under 120 lines. If it's longer, the design scope is too big — suggest splitting.
 - Check for existing `detailed-design.md` and ask before overwriting.
 - Don't start implementing — stop after writing the artifact.
+
+## Auto Mode
+
+`--auto` is **Shape B** per `skills/_shared/auto-mode.md` — a generator skill: produce the artifact without human Q&A and log every judgment call.
+
+In `--auto`:
+- **Skip step 5's conversation.** Derive answers to the open questions (module structure, interfaces, test boundaries, dependencies, processing model) from `design.md`, the codebase exploration in step 3, and the project docs read in step 4.
+- **Self-assess each derivation** as High / Medium / Low confidence per the auto-mode convention, and **append a Decision Entry** to `three-pillars-docs/tp-designs/{design-name}/decisions.md` using the canonical init/append snippet in `skills/_shared/auto-mode.md`. Use `[tp-design-detail]` as the bare skill-name prefix.
+- **Existing artifact**: if `detailed-design.md` already exists, overwrite without asking and log the overwrite as a decision.
+- **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
+- Stage `decisions.md` alongside the artifact in the commit (step 7).
+
+**Contract: in `--auto`, this skill never prompts; the trail of judgment calls lives in `decisions.md` for human review.**

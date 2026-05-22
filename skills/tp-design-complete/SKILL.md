@@ -30,7 +30,13 @@ Mark a finished design as complete, archive it out of the active designs directo
 5. **Ask for confirmation** before proceeding. A simple "Complete this design?" is enough.
 6. **On confirmation, execute these steps in order:**
 
-   a. **Add frontmatter to `design.md`** with a completion timestamp. If `design.md` already has YAML frontmatter (starts with `---`), add a `completed: YYYY-MM-DD` field to the existing frontmatter. If it has no frontmatter, prepend a new frontmatter block:
+   a. **Delete `handoff.md`** if it exists. This is session state that's no longer needed once the design is archived.
+
+   b. **Create `three-pillars-docs/completed-tp-designs/`** directory if it doesn't exist.
+
+   c. **Move the design directory** using `git mv three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name}` to preserve git history.
+
+   d. **Stamp the completion date on `design.md` at its new location**. Edit `three-pillars-docs/completed-tp-designs/{design-name}/design.md`. If it already has YAML frontmatter (starts with `---`), add a `completed: YYYY-MM-DD` field to the existing frontmatter. If it has no frontmatter, prepend a new frontmatter block:
       ```
       ---
       completed: YYYY-MM-DD
@@ -39,26 +45,24 @@ Mark a finished design as complete, archive it out of the active designs directo
       ```
       followed by the existing content (preserve a blank line between the closing `---` and the document body).
 
-   b. **Delete `handoff.md`** if it exists. This is session state that's no longer needed once the design is archived.
-
-   c. **Create `three-pillars-docs/completed-tp-designs/`** directory if it doesn't exist.
-
-   d. **Move the design directory** using `git mv three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name}` to preserve git history.
+      **Why edit after the move, not before**: `git mv` transfers the index entry, not the working-tree content. If you edit `design.md` before the move, that edit becomes an unstaged modification at the old path; `git mv` then stages a pure rename with the pre-edit content, and your frontmatter quietly fails to make it into the archival commit. Editing at the new location avoids the trap — step 6f's `git add` of the new design.md path catches the rename and the modification in one shot.
 
    e. **Update Current Focus in `product_roadmap.md`**: If the roadmap has a `## Current Focus` table containing this design, remove its row and shift remaining priorities up (Priority 2 → 1, etc.). If removing this row unblocks another row (was listed in its "Blocked By"), clear the blocker and update its "Next Action" to the now-available step. Show the proposed changes and get user confirmation before writing.
 
    f. **Commit the archival changes** on the current branch:
       - Run `git status --short` and verify the only changes are the archival paths: the old `three-pillars-docs/tp-designs/{design-name}/` (as deletions from the rename), the new `three-pillars-docs/completed-tp-designs/{design-name}/` (additions, including any previously-untracked files like demos and decisions.md from a pre-rule-change design), and optionally `three-pillars-docs/product_roadmap.md` (modified). If unrelated changes appear in the working tree, stop and tell the user to commit or stash them first — the skill won't sweep unrelated WIP into the completion commit.
-      - Stage the archival paths explicitly (do NOT use `git add -A` or `git add .`). The `git mv` from step 6d only stages tracked files — any untracked siblings in the design directory (e.g., `decisions.md` or `demos/` content from a pre-2026-05 design before those became tracked-from-creation) need explicit re-add at the new path:
+      - Stage the archival paths explicitly (do NOT use `git add -A` or `git add .`). The `git mv` from step 6c only stages tracked files; any untracked siblings in the design directory (e.g., `decisions.md` or `demos/` content from a pre-2026-05 design before those became tracked-from-creation) need explicit re-add at the new path. The `git add` of the new `design.md` path is also what captures the frontmatter stamp from step 6d — `git mv` staged a pure rename, this `add` rewrites the index entry with the post-edit content:
         ```bash
-        # Tracked files that git mv already staged
+        # Tracked files that git mv already staged, plus the frontmatter modification at the new design.md path
         git add three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name}/design.md
         # Catch any previously-untracked siblings that came along at filesystem level
         git add three-pillars-docs/completed-tp-designs/{design-name}/decisions.md 2>/dev/null
         git add three-pillars-docs/completed-tp-designs/{design-name}/demos/ 2>/dev/null
         # Roadmap update from step 6e
         git add three-pillars-docs/product_roadmap.md
-        # Sanity check before commit:
+        # Sanity check before commit — design.md should appear as a rename WITH insertions (the frontmatter),
+        # NOT a pure rename (0 insertions). If you see a pure rename, step 6d's edit didn't land in the
+        # working tree at the new path; redo the frontmatter edit at the new path and re-add before committing.
         git status --short
         ```
         After this, `git status` should show no remaining untracked entries under `three-pillars-docs/completed-tp-designs/{design-name}/`. If any do, stage them too — the archive must be complete.

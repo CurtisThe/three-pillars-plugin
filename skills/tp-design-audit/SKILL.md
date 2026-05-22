@@ -1,7 +1,7 @@
 ---
 name: tp-design-audit
 description: "Design Audit — multi-angle review of a detailed design against the actual codebase before implementation."
-argument-hint: "{design-name} [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # Design Audit
@@ -127,3 +127,19 @@ After discussing findings with the user:
 - Check serialization boundaries for field name/type mismatches
 - Don't just find problems — propose concrete fixes with file paths
 - Present findings organized by severity (CRITICAL first), not by discovery order
+
+## Auto Mode
+
+`--auto` is **Shape C apply-fixes** per `skills/_shared/auto-mode.md` — an audit with confidence-based dispatch. Steps 1–6 run unchanged (load artifacts, vision-alignment check, interface verification, architecture feasibility, schema conflict detection, edge-case analysis, compile findings). Step 7 (interactive walk-through) and Step 8 (with-user-approval edits) are replaced by the dispatch rule below.
+
+In `--auto`:
+- **Per-finding self-assessment.** For each finding, self-assess **Confidence: High | Medium | Low** per the auto-mode convention. Confidence drives dispatch, not severity. A MINOR finding with an obvious fix is typically High; a CRITICAL finding with multiple plausible fixes is typically Low.
+- **MISALIGNMENT dispatch.** MISALIGNMENT findings get **High** confidence **only when `design.md`'s `## Vision alignment` section already names and justifies the exact tension** (e.g., the non-goal touched, the principle traded). Otherwise they are **Low** and escalate. Code-level fixes are never appropriate for MISALIGNMENT — High here means "the design already acknowledged this; the audit's job is to record the finding and move on," not "auto-apply a code edit."
+- **High-confidence findings ⇒ auto-apply.** Edit `detailed-design.md` and/or `plan.md` to land the fix exactly as it would have been applied in step 8. Append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` containing the finding, the fix, and a brief diff summary. Use `[tp-design-audit]` as the bare skill-name prefix.
+- **Any Medium or Low finding present ⇒ exit BLOCKED.** Do not apply any fixes (not even the High-confidence ones) when the batch contains lower-confidence findings — escalate the full list as one for human triage. Append a BLOCKED entry with **Cause: medium-low-confidence-findings** and **Details:** the full finding list (severity, confidence, where, what, recommended fix). Exit non-zero.
+- **Empty findings ⇒ PASS.** Append a Decision Entry titled `audit clean` with **Confidence: High** and exit 0.
+- Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).
+- **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
+- Stage `decisions.md` alongside any artifact edits in the audit's commit.
+
+**Contract: in `--auto`, this skill is all-or-nothing — either every finding is High-confidence and the fixes land cleanly, or the whole batch escalates BLOCKED for human review.**

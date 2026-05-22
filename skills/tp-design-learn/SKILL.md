@@ -1,7 +1,7 @@
 ---
 name: tp-design-learn
 description: Synthesize a completed design's impact into project docs updates and identify affected sibling designs. The "close the loop" step after implementation-audit.
-argument-hint: "{design-name}"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # Design Learn
@@ -42,3 +42,19 @@ Read a completed design's artifacts and synthesize what was built into proposed 
 - Follow `skills/_shared/propose-doc-edits.md` for all doc updates.
 - Works on both active (`three-pillars-docs/tp-designs/`) and archived (`three-pillars-docs/completed-tp-designs/`) designs.
 - **Never auto-edit `three-pillars-docs/vision.md`.** Flag tensions, recommend `/tp-docs-update vision`, let the user decide.
+
+## Auto Mode
+
+`/tp-design-learn --auto` follows **Shape B (Generator)** per `skills/_shared/auto-mode.md` — it derives Design Inventory updates, Current Focus updates, and architecture/known-issues/roadmap doc edits directly from the completed design's artifacts, without per-edit user confirmation.
+
+**Never auto-edits `vision.md`.**
+
+Behavior in `--auto`:
+
+- **Skip user-confirmation in steps 5, 6, and 7.** Apply the proposed Design Inventory row update (step 5), the proposed Current Focus table changes (step 6), and the proposed architecture / known-issues / roadmap doc edits (step 7) directly to disk. No "show diff and wait" — just write.
+- **Log every diff applied as a Decision Entry in `decisions.md`** — one entry per diff, with `Confidence: High | Medium | Low` and reasoning. Use the schema-v1 init/append protocol referenced inline in `skills/_shared/auto-mode.md` (canonical snippet — do not reimplement). The skill name prefix is `[tp-design-learn]`.
+- **Step 9 (vision drift check): log tension to `decisions.md` and continue.** If you detect a genuine tension between the implementation and `three-pillars-docs/vision.md`, append a Decision Entry describing the specific implementation detail and vision bullet in tension, with `Confidence: Low` (the user must review). **Do not propose, draft, or apply any edit to `vision.md`.** The bolded contract above (`**Never auto-edits \`vision.md\`.**`) is load-bearing: it preserves the sticky-vision principle even when no human is in the loop. Runtime enforcement of "no write to `vision.md`" is deferred to D12 dogfood per the design's Out-of-band boundary.
+- **Step 10 (commit) still runs.** Stage only the modified artifacts among `product_roadmap.md`, `architecture.md`, `known_issues.md` — never `vision.md`. Commit message stays `Learn: {design-name} design`.
+- **Lock conflict** is BLOCKED in `--auto`, not a prompt — append a BLOCKED Decision Entry and exit non-zero per `skills/_shared/auto-mode.md` Rule 5.
+
+This is the acknowledged-tension shape (Shape B with logging): per `design-pipeline-auto-mode/design.md` Vision alignment, the "Silent mutation" tension is accepted because `decisions.md` captures every diff and the outcome PR is human-reviewed.

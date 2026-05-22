@@ -1,7 +1,7 @@
 ---
 name: tp-implementation-audit
 description: "Final audit of a completed plan — verify the full implementation against both design.md and detailed-design.md."
-argument-hint: "{design-name} [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover]"
 ---
 
 # Implementation Audit
@@ -133,3 +133,22 @@ After presenting the audit verdict, tell the user:
 - Don't re-review individual task quality (that's `/tp-phase-review`'s job). Focus on the big picture: did we build what we set out to build?
 - If existing `review.md` files from phase reviews flagged issues, check whether those issues were resolved.
 - Keep `implementation-audit.md` under 80 lines. Dense and specific.
+
+## Auto Mode
+
+`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8 run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through is skipped.
+
+In `--auto`:
+- **Per-finding self-assessment.** While compiling findings in step 8, self-assess **Confidence: High | Medium | Low** for each finding per the auto-mode convention. Confidence drives the verdict, not severity. Record confidence alongside the finding in the Gaps / Unintended Additions / Cross-Phase Drift sections of `implementation-audit.md`.
+- **Deterministic verdict rule.** Compute the verdict from the confidence mix via `skills/_shared/auto_verdict.py::compute_verdict(confidences)`:
+  - **PASS** — empty findings list. Exit 0.
+  - **PASS WITH NOTES** — all findings are High confidence; no Medium or Low present. Exit 0.
+  - **NEEDS WORK** — any Medium or Low finding present. Exit non-zero.
+- **Never auto-edit code or design artifacts.** Even High-confidence findings are recorded as notes in `implementation-audit.md`; the human acts on them. This is the line between Shape C apply-fixes (`/tp-design-audit`) and Shape C verdict-only (this skill).
+- **Decisions log.** Append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` with the verdict, finding count by confidence (e.g., `2 High, 0 Medium, 0 Low → PASS WITH NOTES`), and **Confidence: High** (the verdict rule is deterministic, so the *decision-to-emit-the-verdict* is always high-confidence even when the underlying findings are not). Use `[tp-implementation-audit]` as the bare skill-name prefix.
+- **NEEDS WORK escalation.** On NEEDS WORK, append a BLOCKED entry instead with **Cause: medium-low-confidence-findings** and **Details:** the full finding list with confidence labels, then exit non-zero so the orchestrator escalates.
+- Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).
+- **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
+- Stage `decisions.md` alongside `implementation-audit.md` in step 9's commit.
+
+**Contract: in `--auto`, this skill writes a verdict and never edits code or design artifacts. The verdict-to-confidence-mix mapping is deterministic.**

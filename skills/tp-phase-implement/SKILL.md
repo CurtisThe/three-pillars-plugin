@@ -1,7 +1,7 @@
 ---
 name: tp-phase-implement
 description: Execute a phase from plan.md by running red-green-refactor cycles for each task. Spawns subagents for independent tasks within a phase.
-argument-hint: "{design-name} [phase-number] [--force-takeover]"
+argument-hint: "{design-name} [phase-number] [--auto] [--force-takeover]"
 ---
 
 # Phase Implement
@@ -87,3 +87,18 @@ Execute one or more phases from the implementation plan.
 - If a task fails after 3 attempts in the red-green cycle, mark it as `**Status**: Blocked` with the error, and continue to the next task. Report blocked tasks at the end.
 - Parallel agents should use `isolation: "worktree"` to avoid conflicts. **Always commit uncommitted changes before spawning worktree agents** — worktrees branch from HEAD, so uncommitted work is invisible to them and they will regress it. After they complete, review and merge their changes, then **always clean up**: `git worktree remove {path}` and `git branch -D {branch}` for each. Leftover worktrees pollute IDE git status.
 - For sequential tasks within a phase, do NOT use subagents — execute directly.
+
+## Auto Mode
+
+`--auto` is **Shape B with TDD-constrained retry** per `skills/_shared/auto-mode.md` — a generator skill that produces commits instead of an artifact, with a bounded retry-and-simplify failure mode unique to this skill.
+
+In `--auto`:
+- **Skip step 4's phase-confirmation prompt** and proceed directly into the chosen phase. If no phase number was passed on the command line, pick the first phase with unfinished tasks (same rule as step 3).
+- **Auto-advance across phase boundaries.** After step 9 commits the wrap-up, if subsequent phases still have unfinished tasks, append a Phase Boundary Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` (see `skills/_shared/auto-mode.md`) and continue into the next phase. Stop only when all phases are Done / Skipped / Blocked, or when every remaining task in the current phase is Blocked.
+- **Retry-and-simplify on task failure (N=3).** When a task's red-green cycle fails (the test does not pass after a green attempt), do not give up after one try. Up to **three attempts per task**: swap the implementation for a simpler equivalent that still satisfies the test. **TDD-constrained simplification: never modify the test.** If the test is wrong, that is a plan-level error, not a retry-eligible failure — mark the task Blocked and continue. Each retry appends a Simplification Entry to `decisions.md` (see `skills/_shared/auto-mode.md`) with **Problem / Simplification / Outcome**. After 3 unsuccessful attempts, mark the task `**Status**: Blocked` per the existing rule and continue to the next task.
+- **Skip step 7's interactive eyeball.** Replace it with a self-assessment Decision Entry: what was checked, what looked fine, what looked suspicious. Confidence reflects how thoroughly the self-check was possible (High when the affected files were directly inspectable; Low when behavior depended on runtime context the auto run could not exercise). Use `[tp-phase-implement]` as the bare skill-name prefix.
+- **Per-task commits remain mandatory.** Sequential tasks commit directly on the design branch; parallel worktree agents commit on their agent branch and are merged in by the parent per step 5's existing protocol. Failed-and-blocked tasks do not commit.
+- Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).
+- **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
+
+**Contract: in `--auto`, this skill runs the red-green-refactor cycle without prompting; failures are retried up to 3× by simplifying the implementation (never the test), and judgment calls are logged to `decisions.md`.**

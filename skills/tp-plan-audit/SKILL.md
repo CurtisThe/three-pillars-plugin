@@ -190,6 +190,25 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
+### Step 3.5: Round-2 short-circuit (`--auto` only)
+
+Before spawning Round 2, `--auto` runs a cheap convergence check: if all three Round-1 outputs flag the same highest-severity finding (Jaccard ≥ 0.5 on `(category + first 6 stop-word-filtered tokens)` bags, tokenized as `[A-Za-z0-9_.-]+` per the canonical regex), Round 2 cross-examination is unlikely to add new information.
+
+This short-circuit fires **only** under `--auto`; interactive mode always runs Round 2 — the human-deliberation product is part of what `/tp-plan-audit` delivers when a human is in the loop, and Round 2 cross-examination remains visible to the operator regardless of unanimity.
+
+In `--auto`, invoke `skills/tp-plan-audit/scripts/round2_short_circuit.py`'s pure function `round2_short_circuit.should_short_circuit`:
+
+```python
+from round2_short_circuit import should_short_circuit
+verdict = should_short_circuit([torvalds_round1, ada_round1, feynman_round1])
+if verdict["short_circuit"]:
+    # Append a single line to decisions.md and skip to Step 5.
+    append("decisions.md", f"[tp-plan-audit] round-2-short-circuit-unanimous converged_topic={verdict['converged_topic']}")
+    skip_to_step = 5
+```
+
+When the short-circuit fires, treat the converged Round-1 findings as the authoritative council output; do not synthesize a Round-2 transcript. When it does not fire (any pair below the threshold, any output without a severity keyword, or any divergent category), continue to Step 4 normally.
+
 ### Step 4: Council review — Round 2 (SEQUENTIAL)
 
 Run three agents **sequentially** — each sees all Round 1 outputs plus any prior Round 2 outputs.

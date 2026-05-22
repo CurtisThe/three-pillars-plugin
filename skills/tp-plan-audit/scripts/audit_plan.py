@@ -68,6 +68,11 @@ def extract_bold_names(text):
 STANDARD_FIELDS = ("File", "Test", "Red", "Green", "Refactor", "Done when", "Status")
 SPIKE_FIELDS = ("Hypothesis", "Try", "Evaluate", "Status")
 
+# A continuation block ends at the next field marker, the next task heading,
+# or the next phase/section heading. Hoisted per detailed-design §audit_plan
+# so future field extractors can share the same boundary.
+_FIELD_BOUNDARY_RE = re.compile(r"^(?:\*\*[A-Za-z ]+\*\*:|### Task |## )")
+
 
 def extract_tasks(plan_text, spike_mode=False):
     """Extract tasks from plan.md."""
@@ -76,10 +81,14 @@ def extract_tasks(plan_text, spike_mode=False):
     current_phase = None
     fields_to_check = SPIKE_FIELDS if spike_mode else STANDARD_FIELDS
 
-    for line in plan_text.split("\n"):
+    lines = plan_text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         pm = re.match(r"^##\s+Phase\s+(\d+)", line)
         if pm:
             current_phase = int(pm.group(1))
+            i += 1
             continue
 
         tm = re.match(r"^###\s+Task\s+([\d.]+):\s*(.+)", line)
@@ -93,14 +102,51 @@ def extract_tasks(plan_text, spike_mode=False):
                 "fields": {},
                 "raw": "",
             }
+            i += 1
             continue
 
         if current_task:
             current_task["raw"] += line + "\n"
+            matched_field = None
             for field in fields_to_check:
-                fm = re.match(rf"^\*\*{re.escape(field)}\*\*:\s*(.+)", line)
+                fm = re.match(rf"^\*\*{re.escape(field)}\*\*:\s*(.*)", line)
                 if fm:
-                    current_task["fields"][field] = fm.group(1).strip()
+                    inline = fm.group(1).strip()
+                    if inline:
+                        current_task["fields"][field] = inline
+                    else:
+                        # Continuation mode: gather subsequent lines until the
+                        # next boundary marker. Track ``` fences so a code
+                        # block containing `## `, `### Task `, or `**X**:`
+                        # doesn't truncate the field value early.
+                        collected = []
+                        j = i + 1
+                        in_fence = False
+                        while j < len(lines):
+                            stripped = lines[j].lstrip()
+                            if stripped.startswith("```"):
+                                in_fence = not in_fence
+                                collected.append(stripped)
+                                j += 1
+                                continue
+                            if not in_fence and _FIELD_BOUNDARY_RE.match(lines[j]):
+                                break
+                            collected.append(stripped)
+                            j += 1
+                        # Trim trailing blank lines so empty buffers stay empty.
+                        while collected and not collected[-1].strip():
+                            collected.pop()
+                        current_task["fields"][field] = "\n".join(collected)
+                        # Capture the continuation body in raw too, then resume
+                        # the outer loop at the boundary line.
+                        for k in range(i + 1, j):
+                            current_task["raw"] += lines[k] + "\n"
+                        matched_field = (field, j)
+                    break
+            if matched_field is not None:
+                i = matched_field[1]
+                continue
+        i += 1
 
     if current_task:
         tasks.append(current_task)
@@ -132,12 +178,30 @@ def extract_interface_names(detailed):
 
 
 def extract_design_phases(detailed):
-    section = extract_section(detailed, r"Implementation Order")
-    return [
-        m.group(1).strip()
-        for line in section.split("\n")
-        if (m := re.match(r"^###\s+Phase\s+\d+:\s*(.+)", line))
-    ]
+    """Find phase names from the Implementation Order section.
+
+    Accepts both `### Phase N:` (existing convention) and `## Phase N:`
+    (some legacy / hand-edited detailed designs). The h2 shape places
+    phase headings as siblings of Implementation Order, which
+    `extract_section` would otherwise truncate; so we scan from the
+    Implementation Order heading forward until the next non-Phase `## `
+    heading.
+    """
+    lines = detailed.split("\n")
+    phases = []
+    in_section = False
+    for line in lines:
+        if not in_section:
+            if re.match(r"^##\s+Implementation Order", line, re.IGNORECASE):
+                in_section = True
+            continue
+        # Boundary: another `## ` heading that is NOT `## Phase` ends the section.
+        if re.match(r"^##\s+", line) and not re.match(r"^#{2,3}\s+Phase\s+\d+:", line):
+            break
+        m = re.match(r"^#{2,3}\s+Phase\s+\d+:\s*(.+)", line)
+        if m:
+            phases.append(m.group(1).strip())
+    return phases
 
 
 # ── Checks ────────────────────────────────────────────────
@@ -155,11 +219,30 @@ def check_completeness(tasks, spike_mode=False):
             if f in t["fields"] and not t["fields"][f].strip()
         ]
         if missing:
+            # The same boundary regex the parser actually tries — surfaced
+            # in the error so an operator can grep for the typo's shape.
+            # Emit a single-field regex pinned to the first missing name so
+            # the literal `\*\*<Field>\*\*` survives intact (an operator
+            # grepping for the regex shouldn't see a wrapping group).
+            boundary_regex = rf"^\*\*{re.escape(missing[0])}\*\*:\s*(.*)"
+            # Prefer the offending line (a typo'd field marker) over the
+            # head of the raw body — that's what an operator wants to see.
+            excerpt_line = None
+            for missing_field in missing:
+                near = re.search(
+                    rf"^[^\n]*\*\*\s*{re.escape(missing_field)}\s*\*\*[^\n]*",
+                    t["raw"],
+                    re.MULTILINE,
+                )
+                if near:
+                    excerpt_line = near.group(0)
+                    break
+            excerpt = (excerpt_line or t["raw"][:80]).replace("\n", " \\n ")
             issues.append(
                 (
                     "INCOMPLETE",
                     f"Task {t['id']}: {t['name']}",
-                    f"Missing fields: {', '.join(missing)}",
+                    f"Missing fields: {', '.join(missing)}; tried r'{boundary_regex}' on '{excerpt}'",
                 )
             )
         if empty:
