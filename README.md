@@ -10,7 +10,7 @@ Two commands in your terminal:
 
 ```bash
 claude plugin marketplace add CurtisThe/three-pillars-plugin
-claude plugin install three-pillars@three-pillars-plugin
+claude plugin install three-pillars@three-pillars
 ```
 
 Restart Claude Code. That's it — 27 skills and 18 council agents are live.
