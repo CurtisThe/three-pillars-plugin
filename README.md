@@ -22,7 +22,7 @@ Restart Claude Code. That's it — 27 skills and 18 council agents are live.
 Releases ship new skills, bug fixes, and refinements. Check the [releases page](https://github.com/CurtisThe/three-pillars-plugin/releases) or the top of the commit log to see what's new.
 
 ```bash
-claude plugin update three-pillars@three-pillars-plugin
+claude plugin update three-pillars@three-pillars
 ```
 
 Restart Claude Code after updating so the new skills are loaded. Your existing designs, plans, and session state are untouched — updates only replace the plugin's own files (`skills/`, `agents/`, `CLAUDE.md`, etc.).
@@ -30,7 +30,7 @@ Restart Claude Code after updating so the new skills are loaded. Your existing d
 ## Uninstall
 
 ```bash
-claude plugin uninstall three-pillars@three-pillars-plugin
+claude plugin uninstall three-pillars@three-pillars
 claude plugin marketplace remove CurtisThe/three-pillars-plugin
 ```
 
@@ -98,7 +98,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 
 **Collaboration** — works solo, scales to teams:
 
-- **Branch-per-design**: each design or spike lives on its own branch, `tdd/{design-name}`. Skills prompt to create the branch if you start on `main`, and push it to `origin` immediately on creation so teammates see in-flight work without waiting for the first commit.
+- **Branch-per-design**: each design or spike lives on its own branch, `tp/{design-name}`. Skills prompt to create the branch if you start on `main`, and push it to `origin` immediately on creation so teammates see in-flight work without waiting for the first commit.
 - **Advisory lock**: `three-pillars-docs/tp-designs/{name}/lock.json` records who holds the design and on which branch. Committed to git — parallel work produces a merge conflict at PR time, which forces a conversation instead of silently merging divergent implementations.
 - **Takeover**: if the holder abandons the design, the next developer passes `--force-takeover` to claim it; the prior holder is preserved in `previous_owners[]` for history.
 - **Graceful handoff**: the holder can run `/tp-design-release {name}` to step away cleanly — `owner` goes to `null`, and the next person claims the design without needing `--force-takeover`.
