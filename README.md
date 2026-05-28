@@ -1,6 +1,8 @@
 # three-pillars
 
-A [Claude Code](https://claude.ai/code) plugin that wraps AI-assisted development in structured quality gates — design-first pipelines, council-based deliberation, and session continuity across conversations.
+Three-pillars is the published canon for design-first AI-assisted development. **One repo, three purposes**: methodology writing (the canon), a [Claude Code](https://claude.ai/code) reference implementation (`skills/` + `agents/`, installable today), and the source for the auto-generated Hermes distribution at `CurtisThe/three-pillars-hermes` (build pipeline planned, see [CHANGELOG.md](CHANGELOG.md)). The methodology is durable; the implementations propagate from it.
+
+The discipline: design before plan before code, with council-based deliberation and audit gates at every phase. The bet: AI lets you ship code fast — three-pillars makes sure you're shipping the *right* code.
 
 ## Install
 
@@ -13,7 +15,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars
 ```
 
-Restart Claude Code. That's it — 27 skills and 18 council agents are live.
+Restart Claude Code. That's it — 28 skills and 18 council agents are live.
 
 **Verify** by typing `/tp-guide` in any project. If the skill runs, you're set.
 
@@ -65,6 +67,23 @@ chmod +x ~/.claude/statusline.sh
 
 AI coding assistants are fast. The bottleneck is no longer writing code — it's writing the *right* code. Three-pillars adds the missing layers: a design-first pipeline that forces clarity before implementation, council-based deliberation that stress-tests decisions from multiple angles, and session continuity that preserves context across conversations and machines.
 
+## What's in this repo
+
+Three layers, one source of truth:
+
+- **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
+- **The Claude Code reference implementation** — `skills/` (28 `tp-*` skills) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
+
+## What's coming (monthly cadence)
+
+After v1.5.0 ships, substantive additions land one per month per [CHANGELOG.md](CHANGELOG.md):
+
+- **v1.6.0** — `adoption/via-claude-code.md`, `METHODOLOGY.md` (or v1.7.0)
+- **v1.7.0** — `examples/d17-readme-rename/` (worked example, authored fresh)
+- **v1.8.0+** — `adoption/via-hermes-skills.md` (after `CurtisThe/three-pillars-hermes` exists), `adoption/via-other-agents.md`
+- **v1.9.0** — `examples/d19-hook-abandonment/` (the honest-failure essay)
+
 ## How it works
 
 **`three-pillars-docs/vision.md` is the "why", design documents are the source of truth, tests are the proof, and audits are the gates.** Nothing ships without being traced back to a design that serves the vision and validated against the codebase. Every skill reads vision first and uses it as the tie-breaker when technical options are equivalent.
@@ -114,7 +133,7 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## What's included
 
-**27 skills** organized into pipelines:
+**28 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
@@ -208,6 +227,16 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 `/council` convenes multi-persona deliberation for complex decisions. 18 reasoning personas analyze problems from independent angles, cross-examine each other, and produce synthesized recommendations.
 
 Modes: full (18 members, 3 rounds), quick (fast 2-round), duo (2-member dialectic), or auto-triad (system picks the best 3).
+
+## Status
+
+**Actively maintained.** New patterns land monthly per the cadence above; smaller fixes (typos, broken links, refinements) land between releases. Cadence is monthly because methodology content isn't best produced weekly and quarterly looks abandoned. See [CHANGELOG.md](CHANGELOG.md) for the running record.
+
+The Claude Code reference implementation (`skills/` + `agents/`) is in production use — install it, run `/tp-guide`, ship designs. The Hermes-distribution build pipeline ships in a near-term release; until then, Hermes adopters can hand-port the methodology from this canon.
+
+## Who maintains this
+
+Curtis ([@CurtisThe](https://github.com/CurtisThe)) — practitioner working on AI agent discipline in production engineering contexts. Contributions welcome per [CONTRIBUTING.md](CONTRIBUTING.md); for substantive proposals, open an issue first so we can align on `three-pillars-docs/vision.md`.
 
 ## License
 
