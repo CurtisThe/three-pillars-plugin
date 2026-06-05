@@ -47,6 +47,49 @@
           "description": "Named protection profile applied. Only known value today is 'team-pr-1approval-noforce' (PR required, 1 approval, no force-push)."
         }
       }
+    },
+    "pdw": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "parallel-design-worktrees configuration: loop guards, URL allowlist for fix-comments, and runner backend selector.",
+      "properties": {
+        "guards": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "diff_growth_multiplier": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Multiplier vs. original_diff_lines at which the loop transitions convergence-failure. Default 3."
+            },
+            "k_consecutive": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of consecutive structural-present rounds that triggers convergence-failure. Default 3."
+            },
+            "idle_timeout_sec": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Seconds with no new comments after a non-structural verdict before transitioning to awaiting-human-review. Default 1800."
+            }
+          }
+        },
+        "comment_url_allowlist": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Additional URL netlocs allowed in fix-comment bodies beyond github.com and the repo origin host."
+        },
+        "runner_backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": ["claude"],
+              "description": "Runner backend identifier. v1 supports 'claude' only — `run_supervisor._wrap_slash` raises NotImplementedError on any other value, so the schema fails the misconfig at validation time rather than at runtime. The `local-run-auto-sessions` design will broaden this enum."
+            }
+          }
+        }
+      }
     }
   }
 }

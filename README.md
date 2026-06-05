@@ -15,7 +15,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars
 ```
 
-Restart Claude Code. That's it — 28 skills and 18 council agents are live.
+Restart Claude Code. That's it — 30 skills and 18 council agents are live.
 
 **Verify** by typing `/tp-guide` in any project. If the skill runs, you're set.
 
@@ -72,7 +72,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 Three layers, one source of truth:
 
 - **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
-- **The Claude Code reference implementation** — `skills/` (28 `tp-*` skills) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Claude Code reference implementation** — `skills/` (30 `tp-*` skills) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
 - **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
 
 ## What's coming (monthly cadence)
@@ -133,18 +133,20 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## What's included
 
-**28 skills** organized into pipelines:
+**30 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
-| Getting Started | guide, setup, test-setup | Vision draw-out, project doc scaffolding, test infrastructure configuration |
+| Getting Started | guide, setup, test-setup, migrate | Vision draw-out, project doc scaffolding, test infrastructure, legacy migration |
 | TDD Design | design, design-detail, design-audit | Design documents and review |
 | TDD Planning | plan, plan-audit | Task sequencing and verification |
 | TDD Implementation | phase-implement, task-cycle, phase-review, implementation-audit | Red-green-refactor execution |
-| Spike | spike, spike-plan, spike-implement, spike-results, spike-learn, spike-auto | Hypothesis-driven experiments |
-| Design Lifecycle | design-learn, design-complete | Post-implementation synthesis and archival |
+| Autonomous | run-full-design, spike-auto | Unattended end-to-end pipeline execution |
+| Spike | spike, spike-plan, spike-implement, spike-results, spike-learn | Hypothesis-driven experiments |
+| Design Lifecycle | design-learn, design-release, design-complete | Post-implementation synthesis, handoff, and archival |
 | Project Docs | docs-init, docs-update | Living documentation maintenance |
 | Session | session-save, session-restore, session-clear | Cross-conversation continuity |
+| Collaboration | inflight | In-flight design registry |
 | Infrastructure | council | Multi-persona deliberation |
 
 **18 council agents** — Aristotle, Feynman, Torvalds, Taleb, Kahneman, Meadows, and others. Used by `/council` for standalone deliberation and automatically by audit skills.
@@ -163,6 +165,7 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | `/tp-docs-init` | Scaffold `architecture.md`, `product_roadmap.md`, `known_issues.md` from codebase analysis, using the vision as context. |
 | `/tp-test-setup` | Configure test infrastructure (runner, layout, permissions, starter test) informed by `architecture.md`. Runs *after* docs-init so the test choices are grounded in the documented system structure. |
 | `/tp-guide [intent]` | Read project docs (vision first) and recommend the highest-impact next step. Weighs recommendations against the stated vision. |
+| `/tp-migrate` | Migrates an existing project from the legacy `docs/` + `tdd-*` layout to the current `three-pillars-docs/` + `tp-*` layout. Run once on repos that predate the rename. |
 
 ### Design phase
 
@@ -188,6 +191,13 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | `/tp-phase-review {name} [phase]` | Reviews completed phase against design and plan |
 | `/tp-implementation-audit {name}` | Final audit — does the code match what was designed? |
 
+### Autonomous orchestration
+
+| Command | What it does |
+|---|---|
+| `/tp-run-full-design {name}` | Drives the full TDD pipeline unattended — design → detail → plan → implement → audits → PR — logging every decision to `decisions.md` for morning review |
+| `/tp-spike-auto {name}` | Interactive spike design, then autonomous spike-plan → audit → implement → results chain |
+
 ### Spike pipeline
 
 | Command | What it does |
@@ -197,7 +207,6 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | `/tp-spike-implement {name}` | Execute experiments with human review gates |
 | `/tp-spike-results {name}` | Capture findings and verdict |
 | `/tp-spike-learn {name}` | Synthesize learnings into project docs |
-| `/tp-spike-auto {name}` | Autonomous end-to-end spike execution |
 
 ### Design lifecycle
 
@@ -221,6 +230,12 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | `/tp-session-save {name}` | Save context to `handoff.md` for cross-conversation continuity |
 | `/tp-session-restore [name]` | Restore context at start of a new conversation |
 | `/tp-session-clear {name}` | Clear stale context when switching tasks |
+
+### Collaboration
+
+| Command | What it does |
+|---|---|
+| `/tp-inflight [--json]` | Show every in-flight `tp/*` design branch across the team — owner, phase, branch age, staleness flag. Read-only, fail-open. |
 
 ### Council of High Intelligence
 

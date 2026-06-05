@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 # Maximum-detail Claude Code status line
-# Shows: model, git branch, context usage bar, tokens, cost, duration, API time,
+# Shows: model, git branch, context usage bar, tokens, cost,
 #        code changes, cache stats, rate limits, agent/worktree info
 
 input=$(cat)
@@ -10,8 +10,6 @@ field() { echo "$input" | jq -r "$1 // empty" 2>/dev/null; }
 # --- Gather all data ---
 MODEL=$(field '.model.display_name')
 CWD=$(field '.workspace.current_dir // .cwd')
-VERSION=$(field '.version')
-SESSION=$(field '.session_id')
 
 # Context window
 USED_PCT=$(field '.context_window.used_percentage')
@@ -24,10 +22,8 @@ CACHE_WRITE=$(field '.context_window.current_usage.cache_creation_input_tokens')
 CACHE_READ=$(field '.context_window.current_usage.cache_read_input_tokens')
 EXCEEDS_200K=$(field '.exceeds_200k_tokens')
 
-# Cost & duration
+# Cost
 COST=$(field '.cost.total_cost_usd')
-DURATION_MS=$(field '.cost.total_duration_ms')
-API_MS=$(field '.cost.total_api_duration_ms')
 LINES_ADD=$(field '.cost.total_lines_added')
 LINES_DEL=$(field '.cost.total_lines_removed')
 
@@ -106,8 +102,21 @@ progress_bar() {
 # --- Git info ---
 BRANCH=""
 DIRTY=""
+REPO=""
+WORKTREE_DIR=""
 if [ -n "$CWD" ] && git -C "$CWD" --no-optional-locks rev-parse --git-dir >/dev/null 2>&1; then
   BRANCH=$(git -C "$CWD" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
+  # Canonical repo name = the MAIN worktree's folder (always listed first by
+  # `worktree list`), so linked worktrees show the repo name, not the
+  # design-named worktree dir. Bare repos have no main work tree → omit.
+  WT_LIST=$(git -C "$CWD" --no-optional-locks worktree list --porcelain 2>/dev/null)
+  if [ -n "$WT_LIST" ] && ! printf '%s\n' "$WT_LIST" | grep -qx bare; then
+    REPO=$(basename "$(printf '%s\n' "$WT_LIST" | sed -n '1s|^worktree ||p')")
+  fi
+  # Current worktree dir — only shown when different from main repo name
+  WT_ROOT=$(git -C "$CWD" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)
+  WT_DIR_NAME=$(basename "$WT_ROOT")
+  [ -n "$WT_DIR_NAME" ] && [ "$WT_DIR_NAME" != "$REPO" ] && WORKTREE_DIR="$WT_DIR_NAME"
   if [ -n "$(git -C "$CWD" --no-optional-locks status --porcelain 2>/dev/null | head -1)" ]; then
     DIRTY="*"
   fi
@@ -142,6 +151,21 @@ if [ -n "$MODEL" ]; then
   fi
 fi
 
+# Repo name
+if [ -n "$REPO" ]; then
+  L1+=" ${DIM}|${RST} ${BLU}${REPO}${RST}"
+fi
+
+# Current worktree (root = main worktree, otherwise linked worktree dir name)
+if [ -n "$REPO" ]; then
+  WT_LABEL="${WORKTREE_DIR:-root}"
+  if [ "$WT_LABEL" = "root" ]; then
+    L1+=" ${DIM}|${RST} ${DIM}root${RST}"
+  else
+    L1+=" ${DIM}|${RST} ${CYN}${WT_LABEL}${RST}"
+  fi
+fi
+
 # Git branch
 if [ -n "$BRANCH" ]; then
   L1+=" ${DIM}|${RST} ${BMAG}${BRANCH}${YEL}${DIRTY}${RST}"
@@ -149,7 +173,7 @@ fi
 
 # Active TDD design
 if [ -n "$ACTIVE_DESIGN" ]; then
-  L1+=" ${DIM}|${RST} ${BGRN}tdd:${ACTIVE_DESIGN}${RST}"
+  L1+=" ${DIM}|${RST} ${BGRN}tp:${ACTIVE_DESIGN}${RST}"
 fi
 
 # Agent name

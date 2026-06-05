@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tp-pr-iterate/normalized-finding.v1",
+  "title": "Normalized dual-source review finding (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "file", "line_range", "summary", "verdict"],
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": ["copilot", "code-review"]
+    },
+    "finding_id": {
+      "type": ["string", "integer"]
+    },
+    "thread_id": {
+      "type": ["string", "null"]
+    },
+    "comment_id": {
+      "type": ["string", "integer", "null"]
+    },
+    "reviewer": {
+      "type": "string"
+    },
+    "file": {
+      "type": "string"
+    },
+    "line_range": {
+      "type": "array",
+      "items": {"type": "integer"},
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "summary": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["structural", "minor", "unclear"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["High", "Medium", "Low"]
+    },
+    "merged_from": {
+      "type": ["array", "null"],
+      "items": {"type": ["string", "integer"]}
+    }
+  }
+}

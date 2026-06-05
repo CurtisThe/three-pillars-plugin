@@ -68,6 +68,15 @@ def extract_bold_names(text):
 STANDARD_FIELDS = ("File", "Test", "Red", "Green", "Refactor", "Done when", "Status")
 SPIKE_FIELDS = ("Hypothesis", "Try", "Evaluate", "Status")
 
+# Per-phase token-budget cap (in thousands). Each plan.md phase is dispatched
+# under one `phase-implement` slot by /tp-run-full-design, whose soft budget is
+# 200k in that orchestrator's static budget table (skills/tp-run-full-design/
+# SKILL.md → ## Per-slot budget table). This constant is the source of truth for
+# CODE; the same 200k figure is ALSO stated in prose in that budget table and in
+# tp-plan/SKILL.md (neither can import this constant), so those copies must be
+# updated in lockstep if the slot budget changes (plan §Task 7.2).
+PER_PHASE_BUDGET_CAP_K = 200
+
 # A continuation block ends at the next field marker, the next task heading,
 # or the next phase/section heading. Hoisted per detailed-design §audit_plan
 # so future field extractors can share the same boundary.
@@ -85,7 +94,7 @@ def extract_tasks(plan_text, spike_mode=False):
     i = 0
     while i < len(lines):
         line = lines[i]
-        pm = re.match(r"^##\s+Phase\s+(\d+)", line)
+        pm = _PHASE_NUM_RE.match(line)
         if pm:
             current_phase = int(pm.group(1))
             i += 1
@@ -306,6 +315,58 @@ def check_phase_alignment(tasks, design_phases):
     return []
 
 
+# Phase-number matcher (colon NOT required) — shared by task extraction and the
+# spike deliverable scan so they agree on what counts as a phase header.
+_PHASE_NUM_RE = re.compile(r"^##\s+Phase\s+(\d+)")
+# Phase header with an OPTIONAL colon + optional name, for the budget-annotation
+# scan. The colon is optional so a colonless `## Phase 3` / `## Phase 3 Name`
+# header — which _PHASE_NUM_RE (and extract_tasks) still treat as a phase — is
+# checked for a budget annotation rather than silently skipped.
+_PHASE_HEADER_RE = re.compile(r"^##\s+Phase\s+(\d+)\s*:?\s*(.*?)\s*$")
+_BUDGET_ANNOTATION_RE = re.compile(r"\(~(\d+)k\)")
+
+
+def check_budget_annotations(plan_text, cap_k=PER_PHASE_BUDGET_CAP_K):
+    """Each plan.md phase header must carry a `(~Nk)` budget annotation and stay
+    under the per-phase cap (the `phase-implement` slot soft budget; Task 7.1).
+
+    This is an independent predicate: it reads only plan.md phase headers — never
+    the detailed-design structural counts — so it is orthogonal to the known
+    house-style false positives (vacuous 0-modules/0-interfaces/0-phases and
+    spurious phase-count drift) and cannot trigger or worsen them (plan §Task 7.2
+    note). Both failure modes are advisory WARNs (budget is a sizing hint, not a
+    hard gate; the cap is a strict upper bound, so an exact `cap_k` passes).
+    """
+    issues = []
+    for line in plan_text.split("\n"):
+        m = _PHASE_HEADER_RE.match(line)
+        if not m:
+            continue
+        phase_n, name = m.group(1), m.group(2).strip()
+        budget = _BUDGET_ANNOTATION_RE.search(name)
+        if not budget:
+            issues.append(
+                (
+                    "WARN",
+                    f"Phase {phase_n}: {name}",
+                    "phase header lacks a (~Nk) budget annotation "
+                    f"(target the {cap_k}k per-phase cap)",
+                )
+            )
+            continue
+        k = int(budget.group(1))
+        if k > cap_k:
+            issues.append(
+                (
+                    "WARN",
+                    f"Phase {phase_n}: {name}",
+                    f"phase budget ~{k}k exceeds the {cap_k}k per-phase cap "
+                    "(phase-implement slot soft budget) — split the phase",
+                )
+            )
+    return issues
+
+
 def check_file_existence(tasks):
     """Modified files should exist; new files should have valid parent dirs."""
     issues = []
@@ -385,12 +446,13 @@ def main():
 
         # Check each phase has a Deliverable line
         phase_deliverables = set()
+        current = 0  # deliverables seen before any phase header bucket under 0
         for line in plan.split("\n"):
-            pm = re.match(r"^##\s+Phase\s+(\d+)", line)
+            pm = _PHASE_NUM_RE.match(line)
             if pm:
                 current = int(pm.group(1))
             if re.match(r"^\*\*Deliverable\*\*:", line):
-                phase_deliverables.add(current if 'current' in dir() else 0)
+                phase_deliverables.add(current)
         phases_in_plan = set(t["phase"] for t in tasks if t["phase"])
         for p in phases_in_plan:
             if p not in phase_deliverables:
@@ -423,6 +485,7 @@ def main():
             + check_interface_coverage(tasks, interfaces)
             + check_phase_alignment(tasks, d_phases)
             + check_file_existence(tasks)
+            + check_budget_annotations(plan)
         )
 
     if not all_issues:

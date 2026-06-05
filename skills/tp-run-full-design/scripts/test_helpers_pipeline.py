@@ -1,7 +1,7 @@
 """Integration test: Tier 3.5 helper pipeline (parse → write → cleanup).
 
-Wires the three Phase 1 helpers as a single unit, exercising the lock-held
-retry path so the decisions.md prefix convention (OQ5) is observable
+Wires the three Phase 1 helpers as a single unit, exercising the locked-worktree
+cleanup path so the decisions.md prefix convention (OQ5) is observable
 end-to-end. Phase 2 SKILL.md tiers (2, 5, 6) are NOT exercised here —
 they rely on the dogfood run at /tp-implementation-audit time.
 """
@@ -37,28 +37,27 @@ WORKER_RESPONSE = """Some scratch prose from the worker.
 
 
 def test_tier_3_5_pipeline_end_to_end(tmp_path):
-    """parse → write → cleanup with lock-held retry → assert artifacts + tier prefix in decisions.md."""
+    """parse → write → cleanup of a locked worktree → assert artifacts + OQ5 forced-lock line in decisions.md."""
     design_dir = tmp_path / "design"
     design_dir.mkdir()
     decisions_log = design_dir / "decisions.md"
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir()  # cleanup_worker_worktree short-circuits if path doesn't exist
 
-    # Build the subprocess.run side-effect sequence: first call fails with
-    # lock-held stderr, second call (unlock) succeeds, third call (retry remove) succeeds.
-    lock_held_error = subprocess.CalledProcessError(
-        returncode=128,
-        cmd=["git", "worktree", "remove", "--force", "-f", str(worktree_path)],
-        stderr=b"fatal: '...' is locked by claude agent agent-aXYZ",
+    # subprocess.run side-effect: `git worktree list --porcelain` reports the
+    # worktree as locked (a claude agent held it); `git worktree remove --force
+    # -f` then force-removes it. cleanup self-logs the OQ5 forced-lock event.
+    porcelain = (
+        f"worktree {worktree_path}\n"
+        "HEAD 0000000000000000000000000000000000000000\n"
+        "branch refs/heads/candidate\n"
+        "locked claude agent agent-aXYZ\n"
     )
-    successful = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
-    calls = [lock_held_error, successful, successful]
 
     def fake_run(cmd, **kwargs):
-        result = calls.pop(0)
-        if isinstance(result, Exception):
-            raise result
-        return result
+        if cmd[:3] == ["git", "worktree", "list"]:
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=porcelain, stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
 
     # 1. Parse the worker response.
     parsed = parse_candidate_response(WORKER_RESPONSE)
@@ -90,18 +89,16 @@ def test_tier_3_5_pipeline_end_to_end(tmp_path):
     assert telemetry["agentId"] == "agent-aXYZ"
     assert telemetry["tokens_used"] == 9000
 
-    # Assertion (2) — cleanup retry was attempted: unlock + second remove.
+    # Assertion (2) — cleanup detected the lock then force-removed: list + remove.
     invocations = [call.args[0] for call in mock_run.call_args_list]
-    assert len(invocations) == 3, f"expected 3 subprocess calls (initial + unlock + retry), got {len(invocations)}: {invocations}"
-    assert invocations[0][:4] == ["git", "worktree", "remove", "--force"]
-    assert invocations[1][:3] == ["git", "worktree", "unlock"]
-    assert invocations[2][:4] == ["git", "worktree", "remove", "--force"]
+    assert any(cmd[:4] == ["git", "worktree", "list", "--porcelain"] for cmd in invocations), invocations
+    assert any(cmd[:5] == ["git", "worktree", "remove", "--force", "-f"] for cmd in invocations), invocations
 
-    # Assertion (3) — decisions.md contains the tier-3.5 retry prefix line.
+    # Assertion (3) — decisions.md contains the tier-3.5 forced-lock line.
     # This enforces OQ5 end-to-end through the helper pipeline; if Task 2.3
     # (or any future caller) drops the `decisions_log` argument, this assertion fails.
     log_contents = decisions_log.read_text()
-    assert "[tp-run-full-design/tier-3.5] worktree-cleanup-retry" in log_contents, (
-        f"decisions.md missing tier-3.5 retry prefix line; got:\n{log_contents!r}"
+    assert "[tp-run-full-design/tier-3.5] worktree-cleanup-locked" in log_contents, (
+        f"decisions.md missing tier-3.5 forced-lock line; got:\n{log_contents!r}"
     )
     assert str(worktree_path) in log_contents

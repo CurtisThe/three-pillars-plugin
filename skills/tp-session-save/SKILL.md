@@ -10,6 +10,8 @@ Write a structured handoff that captures what compaction and memory would lose �
 
 **Argument**: `{design-name}` (required) — must match an existing directory under `three-pillars-docs/tp-designs/`.
 
+> **Top-level / cross-design work** (fleet launches, merge-queue drains, multi-design campaigns) has no single design dir — save it under the reserved **`orchestration`** slot (`/tp-session-save orchestration`). It is not a design (no `design.md` / lock / branch), so `/tp-design-complete` never archives it out from under you. See `three-pillars-docs/tp-designs/orchestration/README.md`.
+
 ## Steps
 
 0. **Run first-run preflight** per skills/_shared/first-run.md.
@@ -41,6 +43,8 @@ Unresolved items to raise next session.
 Any still-relevant context from the prior handoff (max 5 lines).
 Drop anything superseded by this session's work.
 ```
+
+5. **Update the MRU.** Run the MRU snippet from `skills/_shared/validate-name.md` with `name={design-name}` so the first line of `.claude/last-design` is the design you just saved — saving a session *is* using it. This is what lets a later `/clear` + `/tp-session-restore` (no argument) resolve back to this design (or to the `orchestration` slot for fleet / cross-design sessions). Never `git add` the file (it's gitignored).
 
 ## Rules
 - **Validate `<design-name>`** per `skills/_shared/validate-name.md`.

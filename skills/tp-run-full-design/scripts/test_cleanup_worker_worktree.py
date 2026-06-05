@@ -1,11 +1,14 @@
 """Tests for cleanup_worker_worktree helper.
 
-Covers the five behaviors specified in Task 1.4 of tp-run-full-design plan:
-  (a) happy path: single `git worktree remove --force -f <path>` call.
-  (b) lock-held retry: unlock then retry remove --force <path>.
-  (c) already-removed: no subprocess call when path missing.
-  (d) retry-path audit log written when decisions_log provided.
-  (e) retry-path audit log silent when decisions_log is None (default).
+Covers:
+  (a) not-locked happy path: `git worktree list` then `remove --force -f`,
+      no decisions.md line.
+  (b) locked path: list reports `locked`, remove --force -f, and the OQ5 audit
+      line is appended when decisions_log is provided.
+  (c) already-removed: no subprocess call when the path is missing.
+  (d) locked but decisions_log is None (default): removed, no log file written.
+  (e) a non-lock removal failure propagates (CalledProcessError).
+  (f) double-force generalizes to any tier worktree path.
 """
 
 from __future__ import annotations
@@ -16,74 +19,82 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cleanup_worker_worktree import cleanup_worker_worktree
+from cleanup_worker_worktree import _LOG_PREFIX, cleanup_worker_worktree
 
 
-def _ok() -> MagicMock:
-    """Return a CompletedProcess-like stand-in for a successful subprocess.run."""
-    result = MagicMock()
-    result.returncode = 0
-    result.stderr = b""
-    result.stdout = b""
-    return result
+def _porcelain(worktree: Path, locked: bool) -> str:
+    """A `git worktree list --porcelain` block for one worktree."""
+    lines = [
+        f"worktree {worktree}",
+        "HEAD 0000000000000000000000000000000000000000",
+        "branch refs/heads/candidate",
+    ]
+    if locked:
+        lines.append("locked claude agent")
+    return "\n".join(lines) + "\n"
 
 
-def _lock_held_error(path: str) -> subprocess.CalledProcessError:
-    err = subprocess.CalledProcessError(
-        returncode=128,
-        cmd=["git", "worktree", "remove", "--force", "-f", path],
-    )
-    err.stderr = (
-        f"fatal: '{path}' is locked by claude agent; use --force or unlock"
-    ).encode()
-    err.stdout = b""
-    return err
+def _runner(porcelain_text: str, remove_exc: Exception | None = None):
+    """subprocess.run side-effect: `list` -> porcelain (text), `remove` -> ok/raise."""
+    def run(cmd, **kwargs):
+        if cmd[:3] == ["git", "worktree", "list"]:
+            r = MagicMock()
+            r.returncode = 0
+            r.stdout = porcelain_text  # text=True path returns str
+            r.stderr = ""
+            return r
+        if cmd[:3] == ["git", "worktree", "remove"]:
+            if remove_exc is not None:
+                raise remove_exc
+            r = MagicMock()
+            r.returncode = 0
+            r.stdout = b""
+            r.stderr = b""
+            return r
+        raise AssertionError(f"unexpected command: {cmd}")
+    return run
 
 
 # ---------------------------------------------------------------------------
-# (a) happy path
+# (a) not-locked happy path
 # ---------------------------------------------------------------------------
-def test_happy_path_single_remove_call(tmp_path):
+def test_unlocked_removes_without_log(tmp_path):
     wt = tmp_path / "worker-1"
     wt.mkdir()
+    log = tmp_path / "decisions.md"
 
-    with patch("cleanup_worker_worktree.subprocess.run") as run:
-        run.return_value = _ok()
-        cleanup_worker_worktree(wt)
+    with patch(
+        "cleanup_worker_worktree.subprocess.run",
+        side_effect=_runner(_porcelain(wt, locked=False)),
+    ) as run:
+        cleanup_worker_worktree(wt, decisions_log=log)
 
-    assert run.call_count == 1
-    args, kwargs = run.call_args
-    assert args[0] == ["git", "worktree", "remove", "--force", "-f", str(wt)]
-    assert kwargs.get("check") is True
+    cmds = [c.args[0] for c in run.call_args_list]
+    assert any(cmd[:4] == ["git", "worktree", "list", "--porcelain"] for cmd in cmds), cmds
+    assert any(cmd[:5] == ["git", "worktree", "remove", "--force", "-f"] for cmd in cmds), cmds
+    assert not log.exists(), "no audit line should be written when the worktree was not locked"
 
 
 # ---------------------------------------------------------------------------
-# (b) lock-held retry path
+# (b) locked path: remove + audit line
 # ---------------------------------------------------------------------------
-def test_lock_held_unlocks_and_retries(tmp_path):
+def test_locked_removes_and_logs(tmp_path):
     wt = tmp_path / "worker-2"
     wt.mkdir()
+    log = tmp_path / "decisions.md"
 
-    with patch("cleanup_worker_worktree.subprocess.run") as run:
-        run.side_effect = [
-            _lock_held_error(str(wt)),  # first remove --force -f fails
-            _ok(),                        # unlock succeeds
-            _ok(),                        # second remove --force succeeds
-        ]
-        cleanup_worker_worktree(wt)
+    with patch(
+        "cleanup_worker_worktree.subprocess.run",
+        side_effect=_runner(_porcelain(wt, locked=True)),
+    ) as run:
+        cleanup_worker_worktree(wt, decisions_log=log)
 
-    assert run.call_count == 3
-    first_call = run.call_args_list[0]
-    unlock_call = run.call_args_list[1]
-    retry_call = run.call_args_list[2]
-
-    assert first_call.args[0] == [
-        "git", "worktree", "remove", "--force", "-f", str(wt),
-    ]
-    assert unlock_call.args[0] == ["git", "worktree", "unlock", str(wt)]
-    assert retry_call.args[0] == [
-        "git", "worktree", "remove", "--force", str(wt),
-    ]
+    cmds = [c.args[0] for c in run.call_args_list]
+    assert any(cmd[:5] == ["git", "worktree", "remove", "--force", "-f"] for cmd in cmds), cmds
+    assert log.exists()
+    contents = log.read_text()
+    assert _LOG_PREFIX in contents
+    assert str(wt) in contents
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +102,6 @@ def test_lock_held_unlocks_and_retries(tmp_path):
 # ---------------------------------------------------------------------------
 def test_path_missing_returns_silently(tmp_path):
     wt = tmp_path / "does-not-exist"
-    # Sanity: tmp_path subdir we never created should not exist.
     assert not wt.exists()
 
     with patch("cleanup_worker_worktree.subprocess.run") as run:
@@ -101,43 +111,70 @@ def test_path_missing_returns_silently(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# (d) retry-path log written when decisions_log provided
+# (d) locked but decisions_log is None (default): no log written
 # ---------------------------------------------------------------------------
-def test_retry_path_appends_to_decisions_log(tmp_path):
+def test_locked_default_no_log(tmp_path):
     wt = tmp_path / "worker-d"
+    wt.mkdir()
+
+    with patch(
+        "cleanup_worker_worktree.subprocess.run",
+        side_effect=_runner(_porcelain(wt, locked=True)),
+    ):
+        cleanup_worker_worktree(wt)
+
+    leftover = [p for p in tmp_path.iterdir() if p.name == "decisions.md"]
+    assert leftover == []
+
+
+# ---------------------------------------------------------------------------
+# (e) a non-lock removal failure propagates
+# ---------------------------------------------------------------------------
+def test_remove_failure_propagates(tmp_path):
+    wt = tmp_path / "worker-e"
+    wt.mkdir()
+    err = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=["git", "worktree", "remove", "--force", "-f", str(wt)],
+    )
+    err.stderr = b"fatal: some other, non-lock failure"
+
+    with patch(
+        "cleanup_worker_worktree.subprocess.run",
+        side_effect=_runner(_porcelain(wt, locked=False), remove_exc=err),
+    ):
+        with pytest.raises(subprocess.CalledProcessError):
+            cleanup_worker_worktree(wt)
+
+
+# ---------------------------------------------------------------------------
+# (f) the lock query is advisory + fail-open: if `git worktree list` fails,
+#     cleanup must still force-remove the worktree (double-force removes a
+#     locked one outright anyway) and simply skip the audit line. A failing
+#     lock query must NOT abort cleanup.
+# ---------------------------------------------------------------------------
+def test_list_failure_is_advisory_still_removes(tmp_path):
+    wt = tmp_path / "worker-f"
     wt.mkdir()
     log = tmp_path / "decisions.md"
 
-    with patch("cleanup_worker_worktree.subprocess.run") as run:
-        run.side_effect = [
-            _lock_held_error(str(wt)),
-            _ok(),
-            _ok(),
-        ]
+    def run(cmd, **kwargs):
+        if cmd[:3] == ["git", "worktree", "list"]:
+            raise subprocess.CalledProcessError(
+                returncode=128, cmd=cmd, stderr=b"fatal: not a git repository"
+            )
+        if cmd[:3] == ["git", "worktree", "remove"]:
+            r = MagicMock()
+            r.returncode = 0
+            r.stdout = b""
+            r.stderr = b""
+            return r
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    # Must NOT raise even though the lock query failed.
+    with patch("cleanup_worker_worktree.subprocess.run", side_effect=run) as runmock:
         cleanup_worker_worktree(wt, decisions_log=log)
 
-    assert log.exists()
-    contents = log.read_text()
-    assert "[tp-run-full-design/tier-3.5] worktree-cleanup-retry" in contents
-    assert str(wt) in contents
-
-
-# ---------------------------------------------------------------------------
-# (e) retry-path log silent when decisions_log is None (default)
-# ---------------------------------------------------------------------------
-def test_retry_path_default_no_log(tmp_path):
-    wt = tmp_path / "worker-e"
-    wt.mkdir()
-
-    # No log file created beforehand.
-    with patch("cleanup_worker_worktree.subprocess.run") as run:
-        run.side_effect = [
-            _lock_held_error(str(wt)),
-            _ok(),
-            _ok(),
-        ]
-        cleanup_worker_worktree(wt)
-
-    # No stray decisions log files in tmp_path.
-    leftover = [p for p in tmp_path.iterdir() if p.name == "decisions.md"]
-    assert leftover == []
+    cmds = [c.args[0] for c in runmock.call_args_list]
+    assert any(cmd[:5] == ["git", "worktree", "remove", "--force", "-f"] for cmd in cmds), cmds
+    assert not log.exists(), "undetermined lock state -> no audit line, but removal still happened"

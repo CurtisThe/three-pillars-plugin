@@ -158,6 +158,7 @@ Follow these steps in order. Do NOT skip steps or merge rounds.
 ### STEP 0: Parse Mode and Select Panel
 
 **Determine mode:**
+- If `--orchestrator` → ORCHESTRATOR MODE (`if --orchestrator` → jump to `## ORCHESTRATOR MODE` below; skip the rest of STEP 0 and the entire Coordinator Execution Sequence)
 - If `--quick` → QUICK MODE (skip to Quick Mode Sequence below)
 - If `--duo` → DUO MODE (skip to Duo Mode Sequence below)
 - Otherwise → FULL MODE (continue here)
@@ -308,6 +309,86 @@ No new arguments — only crystallization of your stance.
 ### STEP 9: Synthesize Verdict
 
 Produce the Council Verdict using the template below. This is the final deliverable.
+
+---
+
+## ORCHESTRATOR MODE
+
+A thin, stateless per-round dispatcher used **only** by the autonomous
+`tp-run-full-design` orchestrator for its audit slots (Slots 4/6/8). It is a peer
+of `## Coordinator Execution Sequence`, NOT a step nested under it. When
+`--orchestrator` is absent this section is never entered:
+**standalone `/council` is byte-identical when `--orchestrator` is absent** — every
+existing flag and STEP 0–9 step runs exactly as before.
+
+CLI:
+
+```
+/council --orchestrator --round {1|2} --members name1,name2,... --artifacts path1,path2[,...] [--round1 path-to-round1-bundle.json]
+```
+
+- `--orchestrator` — selects this mode. Absent ⇒ the standalone Coordinator
+  Execution Sequence (or `--quick`/`--duo`) runs unchanged.
+- `--round {1|2}` — which round to dispatch. There is no Round 3 here.
+- `--members name1,name2,...` — the explicit persona list the orchestrator
+  selected (the audit-slot triad, or the full panel under `--deep-audit`).
+- `--artifacts path1,path2[,...]` — comma-separated file **paths** the personas
+  read themselves. **Never inline file contents** (mirrors `tp-plan-audit`'s "do
+  NOT paste file contents" rule) — pass paths only, preserving context isolation.
+- `--round1 path-to-round1-bundle.json` — (Round 2 only) the **full Round-1
+  round-bundle file** from Round 1, so each persona sees every peer's complete
+  Round-1 envelope.
+
+### Round 1 dispatch contract (`--round 1`)
+
+Dispatch the N named members **IN PARALLEL** as top-level `council-{name}`
+subagents — the orchestrator is the caller, so this is a legal single-level
+fan-out. Each member is **blind to its peers** (sees only the artifact paths and
+the deliberation question). Each returns a **Round-1 verdict envelope**
+(`tp-run-full-design/council-round1/v1`): `{schema, member, verdict, confidence,
+findings[], argument_summary}`, where each `findings[]` item carries its own
+per-finding `confidence` (mirroring `audit-return.v1`'s finding shape).
+
+### Round 2 dispatch contract (`--round 2`)
+
+Dispatch the same N members **IN PARALLEL**, each fed the **full Round-1 envelope
+of every peer** — verdict + findings + argument_summary, not just a prose summary
+— via the `--round1` round-bundle file. Feeding the full envelopes lets each
+persona's cross-examination target concrete peer findings **by index**. Each
+returns a **Round-2 rebuttal envelope** (`tp-run-full-design/council-round2/v1`):
+`{schema, member, position_held, counter_argument}` plus the optional
+`challenged_finding_indices` (integer indices into the challenged peer's Round-1
+`findings[]`). Round 2 deliberately does **not** re-emit findings — Round-1
+findings stay authoritative; Round 2 is index-anchored cross-examination the
+synthesizer weighs.
+
+### Return shape — the round-bundle
+
+`/council --orchestrator` returns ONE fenced ```json block: the **round-bundle
+envelope** `{schema, round, members[], outputs[]}` (`council-round-bundle.v1`),
+where `members` and `outputs` are parallel arrays and each `outputs[i]` is the
+Round-1 or Round-2 envelope for `members[i]`. The bundle carries its own `schema`
+const so the orchestrator can validate it through `parse_tier_return`; the
+orchestrator then validates each `outputs[i]` against the per-round schema in a
+second loop.
+
+### No synthesis / no Round 3 / no tie-breaking / no Output Templates
+
+ORCHESTRATOR MODE **does not synthesize a verdict**, **does not run Round 3,
+tie-breaking, or any of the Output Templates** — those belong to standalone
+`/council`. The orchestrator owns synthesis via its own synthesizer subagent.
+ORCHESTRATOR MODE is purely a per-round dispatcher that returns the round-bundle.
+
+### Load-bearing inline invariant (F7)
+
+The orchestrator follows ORCHESTRATOR MODE
+**inline in its own context; it does NOT dispatch `/council` as a subagent.**
+Dispatching `/council` itself as a
+subagent would make that subagent the caller of the `council-{name}` dispatches —
+recreating the exact L23 single-level-nesting problem this mode exists to
+eliminate. The orchestrator *is* the top-level caller: it reads this
+ORCHESTRATOR-MODE contract and issues the `council-{name}` and synthesizer
+dispatches directly.
 
 ---
 

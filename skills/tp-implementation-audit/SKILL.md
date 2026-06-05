@@ -118,11 +118,18 @@ Commit per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
 
 Commit message: `Audit: {design-name} implementation`.
 
-### 10. Present findings
+### 10. Present findings and prompt to invoke `/tp-design-learn`
 Walk through the audit with the user. If the verdict is PASS, keep it brief. If NEEDS WORK, prioritize the gaps by severity and suggest whether to fix them, update the design to match reality, or accept the deviation.
 
-After presenting the audit verdict, tell the user:
-> **Required next step**: Run `/tp-design-learn {design-name}` to propagate implementation results into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status, and scan for affected sibling designs. Do this BEFORE `/tp-design-complete`. Skipping this step causes the roadmap to go stale and downstream designs to miss critical updates.
+After presenting the audit verdict, **prompt the user to run `/tp-design-learn` immediately** rather than relying on a soft reminder:
+
+> Run `/tp-design-learn {design-name}` now to keep project docs current? (yes / no — default yes)
+
+- On **yes** (or empty response): invoke `/tp-design-learn {design-name}` via the Skill tool directly. The user doesn't have to context-switch; doc updates land in the same session while the audit's findings are fresh.
+- On **no**: surface the existing required-next-step warning so the consequences are explicit:
+  > **Required next step**: Run `/tp-design-learn {design-name}` to propagate implementation results into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status, and scan for affected sibling designs. Do this BEFORE `/tp-design-complete` — that skill will refuse to archive a design whose roadmap status hasn't been updated (override available via `--skip-learn` for legacy designs only). Skipping this step causes the roadmap to go stale and downstream designs to miss critical updates.
+
+This prompt is **interactive-only**. In `--auto` mode it does not fire — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict.
 
 ## Rules
 - **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
@@ -136,7 +143,7 @@ After presenting the audit verdict, tell the user:
 
 ## Auto Mode
 
-`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8 run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through is skipped.
+`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8 run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through **and the prompt-to-invoke-`/tp-design-learn`** are both skipped — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict. This skill must NOT invoke `/tp-design-learn` from inside `--auto` mode: that would double-fire learn on the autonomous path and would re-introduce the "audit also writes docs" coupling that Shape C verdict-only explicitly forbids.
 
 In `--auto`:
 - **Per-finding self-assessment.** While compiling findings in step 8, self-assess **Confidence: High | Medium | Low** for each finding per the auto-mode convention. Confidence drives the verdict, not severity. Record confidence alongside the finding in the Gaps / Unintended Additions / Cross-Phase Drift sections of `implementation-audit.md`.

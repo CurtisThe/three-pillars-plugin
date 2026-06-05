@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tp-pr-iterate/iterate-state.v1",
+  "title": "tp-pr-iterate loop state (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "phase",
+    "iteration",
+    "max_iterations",
+    "max_wall_clock_sec",
+    "started_at",
+    "transitions"
+  ],
+  "properties": {
+    "phase": {
+      "type": "string",
+      "enum": [
+        "opening-pr",
+        "awaiting-review",
+        "fixing",
+        "awaiting-human-review",
+        "cap-exhausted",
+        "convergence-failure",
+        "errored"
+      ]
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_wall_clock_sec": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "last_verdict": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "structural-present",
+        "minor-only",
+        "no-applicable-fixes",
+        "all-conflicting-deferred-to-human"
+      ]
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phase", "at"],
+        "properties": {
+          "phase": {"type": "string"},
+          "at": {"type": "string"},
+          "note": {"type": ["string", "object", "null"]}
+        }
+      }
+    },
+    "cumulative_diff_lines": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "original_diff_lines": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "consecutive_structural_rounds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_loop_sha": {
+      "type": ["string", "null"]
+    },
+    "last_comment_seen_at": {
+      "type": ["string", "null"]
+    },
+    "resolved_thread_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "seen_thread_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "termination_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "classifier-flip",
+        "two-stable",
+        "idle-timeout",
+        "human-push",
+        "all-conflicting"
+      ]
+    }
+  }
+}

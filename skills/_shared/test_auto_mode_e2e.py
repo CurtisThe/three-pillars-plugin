@@ -69,7 +69,11 @@ def _load_canonical_helpers() -> dict[str, object]:
     Yields `append_decision` and `SCHEMA_HEADER` for direct invocation.
     """
     ns: dict[str, object] = {}
-    exec(_extract_canonical_snippet(), ns)  # noqa: S102 — tests of doc-canonical snippet
+    # Executes the repo's OWN auto-mode.md canonical snippet (trusted,
+    # version-controlled input) to verify the doc's code runs — not external
+    # input. S102/B102 suppressed below; the reason lives here rather than after
+    # the inline marker, because bandit mis-parses trailing prose as test IDs.
+    exec(_extract_canonical_snippet(), ns)  # noqa: S102  # nosec B102
     return ns
 
 

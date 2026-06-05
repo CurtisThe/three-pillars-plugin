@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tp-pr-iterate/classified-comment.v1",
+  "title": "Classified PR review comment (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "comment_id",
+    "reviewer",
+    "verdict",
+    "confidence",
+    "reason"
+  ],
+  "properties": {
+    "comment_id": {
+      "type": ["string", "integer"]
+    },
+    "reviewer": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["structural", "minor", "unclear"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["High", "Medium", "Low"]
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}

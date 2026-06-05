@@ -87,6 +87,16 @@ Follow the instructions in `skills/tp-spike-results/SKILL.md` with `--auto` flag
 - Write spike-results.md
 - Log verdict reasoning to decisions.md
 
+### Step 5.5: Closeout — propagate learnings (enforced, no longer deferred)
+
+Follow `skills/tp-spike-learn/SKILL.md` with the `--auto` flag:
+- Propagate findings into `product_roadmap.md` / `architecture.md` / `known_issues.md`; update the Design Inventory status with the verdict.
+- Run learn-verification (`verify_learn.py` over `{default}...tp/{spike-name}`) — advisory, flagged stale refs logged to decisions.md.
+- Scan downstream designs; if the verdict is NO-GO, mark dependent rows blocked.
+- **Never edits `vision.md`** — flags tensions to decisions.md only.
+
+This is the **closeout-before-merge** discipline (design `merged-design-closeout`): spike-auto no longer defers learn to a manual post-review step, so a spike can't strand its findings across the ship boundary. The roadmap is propagated *within* the autonomous run; `/tp-design-complete` (archival + completion PR) remains the human-gated next step.
+
 ### Step 6: Signal completion
 
 Append to decisions.md:
@@ -102,7 +112,9 @@ Append to decisions.md:
 Tell the user:
 > **Autonomous spike complete.** Review `decisions.md` for the full decision trail and `spike-results.md` for findings.
 >
-> **Required next step (after human review):** Run `/tp-spike-learn {spike-name}` to propagate findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, update the Design Inventory status with the verdict, and scan for affected downstream designs. The roadmap has NOT been updated by this autonomous run — only `-learn` writes to it. If the verdict is NO-GO, `-learn` will also mark dependent designs as blocked. Do this BEFORE `/tp-design-complete`.
+> **Closeout already ran (Step 5.5):** `/tp-spike-learn --auto` propagated findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, updated the Design Inventory status with the verdict, ran learn-verify, and (if NO-GO) marked dependent designs blocked. **Review those diffs + `decisions.md`.** No separate manual `/tp-spike-learn` is needed — it is no longer deferred.
+>
+> **Next step (after human review):** `/tp-design-complete {spike-name}` to archive the spike and open the completion PR.
 
 ## Rules
 - **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.

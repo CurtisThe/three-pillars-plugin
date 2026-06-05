@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tp-pr-fix/fix-envelope.v1",
+  "title": "tp-pr-fix round envelope (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "iteration",
+    "fixes_applied",
+    "fixes_deferred",
+    "verdict",
+    "diff_lines_added"
+  ],
+  "properties": {
+    "schema": {
+      "const": "tp-pr-fix/v1"
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "fixes_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["comment_id", "summary"],
+        "properties": {
+          "comment_id": {"type": ["string", "integer"]},
+          "summary": {"type": "string", "maxLength": 200}
+        }
+      }
+    },
+    "fixes_deferred": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["comment_id", "reason"],
+        "properties": {
+          "comment_id": {"type": ["string", "integer"]},
+          "reason": {
+            "type": "string",
+            "enum": [
+              "non-collaborator",
+              "identity-gate-unreachable",
+              "minor-only",
+              "unclear-verdict",
+              "other"
+            ]
+          }
+        }
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["applied", "no-applicable-fixes"]
+    },
+    "diff_lines_added": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

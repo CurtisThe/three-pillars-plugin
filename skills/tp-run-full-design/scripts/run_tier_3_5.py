@@ -20,8 +20,8 @@ Per detailed-design §Interfaces, the wrapper's single source of truth for
 ``candidate_id`` is ``parsed["candidate_id"]`` extracted from the worker
 response. The stdin top-level ``candidate_id`` is advisory routing
 context only — never used for path construction or assertion. There is
-no case (d): the lock-held cleanup retry is an internal helper concern
-that self-logs via ``[tp-run-full-design/tier-3.5] worktree-cleanup-retry``.
+no case (d): locked-worktree cleanup is an internal helper concern that
+self-logs via ``[tp-run-full-design/tier-3.5] worktree-cleanup-locked``.
 """
 from __future__ import annotations
 
@@ -175,8 +175,8 @@ def main() -> int:
             2,
         )
 
-    # Clean up the worker worktree. Lock-held retries self-log via the
-    # helper; the wrapper never surfaces them as a case. A non-lock-held
+    # Clean up the worker worktree. Locked worktrees self-log via the
+    # helper; the wrapper never surfaces them as a case. A non-lock
     # failure (worktree gone, permission denied) must escalate, not retry.
     worktree_path = Path(agent_meta["worktreePath"])
     decisions_log = design_dir / "decisions.md"

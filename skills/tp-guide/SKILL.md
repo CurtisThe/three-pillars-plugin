@@ -18,6 +18,7 @@ Read the project's current state and recommend the highest-impact next step.
 2. **Scan active designs**: Check `three-pillars-docs/tp-designs/` for in-flight work. For each, read `design.md` (first 20 lines) and `handoff.md` (if present) to understand phase and status. While scanning, note whether each design's Problem/Vision alignment section is consistent with the current `three-pillars-docs/vision.md` — a design that drifted from the vision is a candidate for either reshaping or dropping.
 3. **Check completed designs**: Scan `three-pillars-docs/completed-tp-designs/` to understand what's already been built.
 4. **Read the first line of `.claude/last-design`** if it exists, to know what the user was last working on. This file is an MRU stack — one design per line, most recent first.
+4.5. **Closeout nudge (read-only, fail-open)**: run `python3 skills/_shared/detect_unarchived.py --repo . --exclude {mru-top-design} --slugs-only` (exclude the MRU-top design from step 4 — that's the user's own active work, not drift). Any slugs returned are designs whose `three-pillars-docs/tp-designs/{slug}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has not been archived to `completed-tp-designs/` — i.e. **closeout pending**. Surface each in the recommendation as "closeout pending — run `/tp-design-learn {slug}` (or `/tp-spike-learn`) then `/tp-design-complete {slug}`", since an unarchived merged design hard-fails `framework-check` invariant **#27** on `{default}` (known-issue M10). **Non-blocking, fail-open** — the helper always exits 0; a detector error yields no nudge, never an error. One detector, two surfaces: this soft nudge shares `detect_unarchived.py` with the hard CI invariant #27.
 5. **If an intent was provided**, filter your analysis through that lens. For example:
    - `"auth feels fragile"` → focus on auth-related known issues, architecture gaps, and whether a design or spike is warranted
    - `"ready to ship"` → focus on blocking issues, incomplete designs, and release readiness
@@ -42,6 +43,37 @@ Read the project's current state and recommend the highest-impact next step.
    - **Recommendation**: the single highest-impact next action, with approach and rationale
    - **Alternatives**: 1-2 other reasonable next steps if the user wants to go a different direction
    - **Suggested command**: the specific command to run next — either a `/tp-*` command or just "describe the change and I'll build it" for simple tasks
+
+## Other worktrees in flight
+
+After the recommendation, if a worktree-aggregation helper is present in this
+install (glob `skills/*/scripts/list_worktrees.py` — it ships only with the
+paid worktree plugin and is absent on the free core build), append a short
+status block surfacing what's happening in sibling worktrees so the user
+doesn't context-switch blind:
+
+1. Import the matched `list_worktrees.py` and call `list_worktrees()` to
+   enumerate sibling worktrees on `tp/<design>` branches.
+2. For each, read its merged `state.json` via the same plugin's
+   `scripts/state_io.read_state(<worktree_path>)`. The file lives at
+   `<worktree>/.three-pillars/run/state.json` and merges the `supervisor` and
+   `iterate` namespaces written by that plugin's supervisor and PR-loop driver.
+3. Render one line per worktree:
+
+   ```
+   - tp/<design> — supervisor=<supervisor.state> iterate=<iterate.phase> iter=<iterate.iteration>
+   ```
+
+   Each field falls back to `?` when the corresponding namespace is missing
+   (e.g., a worktree that ran interactively and never spawned a supervisor
+   has no `supervisor.state`).
+
+4. If the helper glob matches nothing (free core build) or no sibling
+   worktrees exist, omit the block entirely.
+
+The block is informational, not advisory — don't block the recommendation on a
+sibling worktree's state. Surface it so the user can tail or kill a run with
+their worktree plugin's own tail/kill commands if they want to.
 
 ## Rules
 - Keep the output concise — under 22 lines. This is a compass, not an essay.

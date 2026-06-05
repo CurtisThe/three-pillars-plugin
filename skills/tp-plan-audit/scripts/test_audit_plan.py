@@ -471,6 +471,90 @@ def test_phase_alignment_mismatch():
     assert_eq(issues[0][0], "INCONSISTENT", "category is INCONSISTENT")
 
 
+# ── Budget-annotation check (Task 7.2) ────────────────────
+
+
+def test_budget_annotation_missing():
+    print("test_budget_annotation_missing")
+    plan = textwrap.dedent("""\
+        # Plan
+        ## Phase 1: Setup
+        ### Task 1.1: X
+    """)
+    issues = ap.check_budget_annotations(plan)
+    assert_eq(len(issues), 1, "unannotated phase header flagged")
+    assert_eq(issues[0][0], "WARN", "category WARN")
+    assert_in("budget annotation", issues[0][2], "message names the missing annotation")
+
+
+def test_budget_annotation_over_cap():
+    print("test_budget_annotation_over_cap")
+    plan = textwrap.dedent("""\
+        # Plan
+        ## Phase 1: Big (~250k)
+        ### Task 1.1: X
+    """)
+    issues = ap.check_budget_annotations(plan)
+    assert_eq(len(issues), 1, "over-cap phase flagged")
+    assert_in("exceeds", issues[0][2], "message says it exceeds the cap")
+    # The message cites the cap value sourced from the module constant.
+    assert_in(str(ap.PER_PHASE_BUDGET_CAP_K), issues[0][2], "message cites the cap constant")
+
+
+def test_budget_annotation_colonless_header_flagged():
+    print("test_budget_annotation_colonless_header_flagged")
+    # A colonless `## Phase N` header is treated as a phase by extract_tasks, so
+    # the budget scan must see it too — regression guard for the colon-only regex.
+    plan = textwrap.dedent("""\
+        # Plan
+        ## Phase 1 Foundation
+        ### Task 1.1: X
+    """)
+    issues = ap.check_budget_annotations(plan)
+    assert_eq(len(issues), 1, "colonless unannotated phase header flagged")
+    assert_eq(issues[0][0], "WARN", "category WARN")
+
+
+def test_budget_annotation_colonless_over_cap_flagged():
+    print("test_budget_annotation_colonless_over_cap_flagged")
+    plan = textwrap.dedent("""\
+        # Plan
+        ## Phase 1 Big (~500k)
+        ### Task 1.1: X
+    """)
+    issues = ap.check_budget_annotations(plan)
+    assert_eq(len(issues), 1, "colonless over-cap phase flagged")
+    assert_in("exceeds", issues[0][2], "message says it exceeds the cap")
+
+
+def test_budget_annotation_under_cap_passes():
+    print("test_budget_annotation_under_cap_passes")
+    plan = textwrap.dedent("""\
+        # Plan
+        ## Phase 1: Foundation (~80k)
+        ### Task 1.1: X
+
+        ## Phase 2: Integration (~200k)
+        ### Task 2.1: Y
+    """)
+    issues = ap.check_budget_annotations(plan)
+    # 200k is the boundary and is allowed (cap is a strict upper bound).
+    assert_eq(len(issues), 0, "well-annotated under-cap plan passes")
+
+
+def test_budget_cap_is_single_module_constant():
+    print("test_budget_cap_is_single_module_constant")
+    # The 200k cap is defined once as a module constant tied to the
+    # phase-implement slot soft budget (Task 7.1 / tp-run-full-design budget
+    # table), not hard-coded in scattered places.
+    assert_eq(ap.PER_PHASE_BUDGET_CAP_K, 200, "per-phase cap constant is 200(k)")
+    # The check honors the constant: a phase 1k over it is flagged.
+    over = ap.check_budget_annotations(
+        f"## Phase 1: P (~{ap.PER_PHASE_BUDGET_CAP_K + 1}k)\n"
+    )
+    assert_eq(len(over), 1, "a phase 1k over the constant is flagged")
+
+
 # ── Integration test against completed design ─────────────
 
 
@@ -523,6 +607,12 @@ if __name__ == "__main__":
     test_interface_coverage()
     test_phase_alignment_match()
     test_phase_alignment_mismatch()
+    test_budget_annotation_missing()
+    test_budget_annotation_over_cap()
+    test_budget_annotation_colonless_header_flagged()
+    test_budget_annotation_colonless_over_cap_flagged()
+    test_budget_annotation_under_cap_passes()
+    test_budget_cap_is_single_module_constant()
     test_against_completed_design()
 
     print(f"\n{'=' * 40}")

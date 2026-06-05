@@ -23,7 +23,7 @@ Schema:
   "design": "{design-name}",
   "branch": "tp/{design-name}",
   "owner": "<git config user.email>",
-  "phase": "design|detail|plan|implement|review|audit|spike-plan|spike-implement",
+  "phase": "design|detail|plan|implement|review|audit|spike-plan|spike-implement|cleanup-pending",
   "acquired_at": "<ISO 8601 UTC>",
   "last_touched": "<ISO 8601 UTC>",
   "previous_owners": []
@@ -81,6 +81,15 @@ Lock-aware skills run this before executing their main work:
 
    **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: {now}`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
 
+   **In-flight remote collision check (additive)** — the local + `origin/{default-branch}` checks above only see locks that have landed on the default branch. In-flight locks live on `tp/*` branches and never touch the default branch, so they are invisible to those checks until PR-merge time. To close that gap, also consult the in-flight registry built from `origin/tp/*` branches via `skills/_shared/inflight_registry.py`:
+   - **Situational-awareness print** — build the registry (`build_registry`) and print `format_table` so the operator sees every in-flight design (owner, phase, branch, age, `⚠ stale`/`· unreadable` flags) before any work begins. This print is awareness-only; different design names never block.
+   - **Same-name collision verdict** — run `collision_verdict(entries, {design-name}, {git user.email})` for the design being claimed and act on the verdict:
+     - `clear` → proceed (no in-flight `origin/tp/{design-name}` lock, or it was explicitly released).
+     - `self` → **non-blocking notice**: the same git email holds `origin/tp/{design-name}` from another machine. Note it (you may be working in two places) but do **not** refuse — refusing would block your own legitimate work.
+     - `conflict` → **refuse before any work** unless `--force-takeover` was passed. A `conflict` is either a different owner *or* a same-name `tp/{design-name}` ref whose lock can't be read (ownership unconfirmed — the ref's existence is itself the collision signal). On `--force-takeover`, run the same takeover procedure above (record the prior holder in `previous_owners[]`).
+   - This check **augments, does not replace** the existing local and `origin/{default-branch}` lock checks — local semantics are unchanged; the remote same-name check just moves the in-flight collision gate from PR-merge to branch-startup.
+   - **Freshness dependency** — the collision read depends on step 2's `git fetch --quiet origin` being **unscoped** (it fetches all heads, including `tp/*`, so the lock objects `read_lock_blob` needs are present locally). If a future change scopes step 2's fetch to exclude `tp/*`, every collision verdict silently degrades to `readable=False → conflict` — i.e. it **fails *closed*** (conservatively refuses rather than missing a real collision; `--force-takeover` overrides), which is safe but noisy. (This is the opposite of the *registry build's* whole-failure behavior, which fails *open* — degrades to the local view and never blocks.) Keep step 2's fetch unscoped, or update this dependency note alongside any change to it.
+
 6. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. The lock update is rolled into the skill's artifact commit per `skills/_shared/commit-after-work.md` — never commit just a lock change on its own (the sole exception is `/tp-design-release`, where the lock change is the work).
 
 ## Release
@@ -103,9 +112,10 @@ Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next l
 **Lock-aware skills** (inspect only, warn on mismatch, never block):
 - `/tp-session-restore`, `/tp-guide`, review/audit/learn skills.
 
-**Lock-releasing skills**:
-- `/tp-design-complete` — the directory move carries the lock with it; no separate release needed.
+**Lock-releasing & teardown skills** (close out or tear down a design at end-of-life — `/tp-post-merge` is grouped here as the final lifecycle step even though it is lock-*aware*, not lock-releasing: it leaves the archived `lock.json` intact):
+- `/tp-design-complete` — the directory move carries the lock with it; no separate release needed. Sets `phase = "cleanup-pending"` as part of the archival commit (before opening the PR) so `/tp-post-merge` can identify designs awaiting teardown.
 - `/tp-design-release` — graceful step-away. Clears the owner without completing the design, so a teammate can pick it up without `--force-takeover`.
+- `/tp-post-merge` — the sole **merge-verified lifecycle** teardown path (other tooling can remove a worktree as a general unverified operation; this is the one that fires, merge-verified, after a completion-PR merge). It is **lock-aware, not lock-enforcing**: `phase == "cleanup-pending"` is the *discovery* signal for the no-arg scan (paired with the branch still existing on origin), but the **merge-verify** (`verify_merged.py`), not the advisory lock, is the safety gate. It verifies the merge, then tears down the design's branch, sibling worktree, and MRU entry. It does **not** update or clear the archived `lock.json` (there is no post-cleanup phase in the enum) — the lock stays alongside the archived design under `completed-tp-designs/` as the historical record, and the branch's absence is the durable "torn down" signal.
 
 ## Gitignore
 
@@ -114,3 +124,35 @@ Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next l
 - `.claude/last-design` stays gitignored (per-developer MRU state; `validate-name.md` handles this on first write).
 - **Tracked design artifacts** (committed): `design.md`, `detailed-design.md`, `plan.md`, `spike-results.md`, `decisions.md`, everything under `demos/`, `lock.json`. These form the design's permanent record and must sync across machines, survive archival, and be reviewable.
 - **Never `git add`** the truly gitignored state files (`handoff.md`, `.claude/last-design`). Git emits a noisy "paths are ignored" hint and the file would only land in the repo if `-f` is passed. Skills write these files directly; leave staging to the user.
+
+## Inline worktree-driving is unsupported
+
+Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-merge,
+tp-design-complete, and the worktree-management skill) from the **main checkout** while a
+`tp/<design>` worktree is live is unsupported and actively guarded. Two controls enforce this:
+
+1. **Fail-closed commit guard** — framework-check invariant #28 calls
+   `skills/_shared/worktree_write_guard.py` before every commit. If the commit is on
+   a default branch (`main`/`master`), a `tp/*` worktree is live, AND the staged set
+   contains framework code or design artifacts, the commit is refused with guidance.
+   This is the backstop control — it fires even if the preflight was bypassed.
+
+2. **Fail-open cwd preflight** — each of the five worktree-operating skills runs
+   `python3 skills/_shared/cwd_preflight.py <design>` as a numbered preflight step
+   (see `skills/_shared/cwd-preflight.md`). If a `tp/<design>` worktree exists and
+   the session cwd is not inside it, the skill refuses with a `cd` fix before any
+   file is written. This is the ergonomic early-refuse.
+
+The pattern the fleet's interactive launch windows enforce by construction — each window is
+`cd`-ed into its own worktree before the skill fires, so the cwd is already correct.
+
+**Fix**: `cd` into the worktree before running the skill.
+
+```
+cd ../<repo>-wt/<design>
+# then re-run your command
+```
+
+The preflight message (exit 3) prints the concrete target worktree path; the
+commit-guard guidance (exit 1) prints the live `tp/*` branch name(s) and a generic
+`cd ../<repo>-wt/<slug>` re-run pattern (it does not resolve a concrete path).

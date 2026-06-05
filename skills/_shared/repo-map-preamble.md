@@ -25,11 +25,31 @@ If aider is absent, set `REPO_MAP=""` and continue the skill normally. Do **not*
 ### Step 2 — Generate the map (if aider available)
 
 ```bash
-REPO_MAP=$(aider --show-repo-map --yes --no-check-update --no-show-release-notes 2>/dev/null \
+REPO_MAP=$(BROWSER=true aider --show-repo-map --model gpt-4o --yes --no-check-update --no-show-release-notes 2>/dev/null \
   | sed -n '/^Here are summaries/,$p')
 ```
 
 The `sed -n '/^Here are summaries/,$p'` strips aider's startup chatter (gitignore mutations, model warnings, optional network errors) and keeps only the map proper. The first kept line is aider's instruction header, which is useful context for the model.
+
+**Why `BROWSER=true`:** aider has multiple `webbrowser.open()` call sites — onboarding OAuth
+(no `--model` + no API key), the model-warnings doc page (`--model` set but its key missing),
+release notes, install offers, and more. Under `--yes`, every `io.offer_url(...)` auto-confirms
+and launches a browser. `2>/dev/null` does **not** suppress this — the launch is a subprocess,
+not stderr. Python's `webbrowser` module honors `$BROWSER`; `true` is a no-op binary that
+"succeeds" without opening anything, neutralizing every `webbrowser.open()` in the aider
+invocation regardless of which trigger fires. Scoped to the subprocess — it's a command-prefix
+env var, never exported to the user's shell. See
+`three-pillars-docs/tp-designs/aider-onboarding-browser-suppression/design.md` for the full
+trigger inventory.
+
+**Why `--model gpt-4o` (still required):** without an explicit model *and* with no LLM API
+key, aider's onboarding (`select_default_model`) falls through to an OpenRouter OAuth offer
+that `--yes` auto-confirms — and even though `BROWSER=true` blocks the *launch*, the prompt
+still wastes a turn. `--model` makes `select_default_model` return immediately and never
+enter onboarding. No API key is required: `--show-repo-map` is fully offline and only needs
+the model's local tokenizer (tiktoken) to size the map, so an unset/invalid key produces at
+most a stderr warning that `2>/dev/null` already discards. `gpt-4o` is just a stable,
+always-present metadata alias — its choice does not affect the map content.
 
 Aider auto-creates a tag cache at `.aider.tags.cache.v4/cache.db` in the repo root and adds `.aider*` to `.gitignore` on first run.
 

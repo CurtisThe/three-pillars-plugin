@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:tp-run-full-design:handoff:v1",
+  "title": "tp-run-full-design handoff envelope",
+  "description": "Pre-split / cold-resume handoff worklist entry. When the orchestrator pre-splits a long tier into sequential dispatches (audit-by-dimension, plan-by-section, phase-by-phase), each checkpoint is committed at tp-designs/{slug}/.handoffs/{slot}-{attempt}-{N}.md as a markdown body with this schema embedded in a fenced json block. Standalone (not allOf base) — a handoff is not a tier-result envelope.",
+  "type": "object",
+  "required": [
+    "schema",
+    "slot",
+    "attempt",
+    "partial_state",
+    "next_action",
+    "files_to_continue_with",
+    "remaining_budget_estimate"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "tp-run-full-design/handoff/v1"
+    },
+    "slot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "partial_state": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files_to_continue_with": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "remaining_budget_estimate": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

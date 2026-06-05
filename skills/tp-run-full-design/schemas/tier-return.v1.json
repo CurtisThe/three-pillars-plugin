@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:tp-run-full-design:tier-return:v1",
+  "title": "tp-run-full-design tier return (base)",
+  "description": "Base envelope a dispatched tier subagent synthesizes and returns to the orchestrator. Generator/audit tier schemas extend this via allOf+$ref (the $id is a urn: so cross-file refs resolve by exact match rather than relative-URI mangling; the instance `schema` field keeps the slash-style logical name to match candidate.v1). The orchestrator branches on `status`; budget accounting uses the harness `subagent_tokens` from Agent return metadata, NOT `telemetry.tokens_used` (advisory/nullable, self-report undercounts ~50% per spike F4).",
+  "type": "object",
+  "required": [
+    "schema",
+    "slot",
+    "status",
+    "summary"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "type": "string"
+    },
+    "slot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "needs-work", "handoff-pending", "errored"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "tool_calls": {"type": "integer", "minimum": 0},
+        "tokens_used": {"type": ["integer", "null"], "minimum": 0}
+      }
+    }
+  }
+}

@@ -90,3 +90,8 @@ Concrete defaults under `--auto`:
 | Aider absent + no prior decision | Skip the prompt; leave `~/.three-pillars/aider-install.json` untouched (so the next interactive run still gets to ask). The skill's optional aider preamble will be no-ops for this run. | Medium |
 
 The `decisions.md` lives in the design directory the skill is operating on (`three-pillars-docs/tp-designs/{name}/decisions.md`). If the file does not exist, create it with the Run Metadata header per `auto-mode.md` §Initialization. The first-run entry is appended chronologically alongside the calling skill's own entries.
+
+**Note**: worktree-operating skills (tp-phase-implement, tp-spike-implement, tp-merge,
+tp-design-complete, and the worktree-management skill) additionally run the cwd preflight after this preflight.
+See the "Inline worktree-driving is unsupported" section of `collaboration.md` for the two controls
+(fail-closed commit guard + fail-open cwd preflight) and the one-line fix.

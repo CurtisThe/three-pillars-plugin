@@ -32,7 +32,7 @@ Turn a detailed design into a concrete, executable task list.
 ```markdown
 # <Design Name> — Implementation Plan
 
-## Phase 1: <Phase Name>
+## Phase 1: <Phase Name> (~Nk)
 
 ### Task 1.1: <Task Title>
 **File**: `<path/to/file>` (new|modify)
@@ -45,9 +45,11 @@ Turn a detailed design into a concrete, executable task list.
 ### Task 1.2: <Task Title>
 ...
 
-## Phase 2: <Phase Name>
+## Phase 2: <Phase Name> (~Nk)
 ...
 ```
+
+**Per-phase budget annotation.** Each phase header carries a `(~Nk)` token-budget annotation — a rough estimate of the tokens implementing that phase will cost. Keep each phase **under the per-phase cap of 200k**: when `/tp-run-full-design` drives the plan it dispatches every plan phase under a single `phase-implement` slot, whose **200k soft budget** comes from that orchestrator's static **budget table** (`skills/tp-run-full-design/SKILL.md` → ## Per-slot budget table). Reference that table value as the authoritative source rather than re-deriving the number here — if the slot budget changes, this annotation target tracks it. A phase whose estimate exceeds 200k should be split into smaller phases so each fits one dispatch. The annotation is a sizing hint (for the human reviewer and for the orchestrator's pre-split decision), not a hard gate this skill enforces.
 
 7. **Confirm the plan with the user**. Walk through it briefly. Adjust if they want to reorder, split, or drop tasks.
 8. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
@@ -62,6 +64,7 @@ Turn a detailed design into a concrete, executable task list.
 - Every task MUST have a test. No "write boilerplate" or "create empty file" tasks.
 - Tasks within a phase can run in parallel (no interdependencies). Tasks across phases are sequential.
 - Keep task count realistic — a phase of 3-7 tasks is healthy. More than 10 suggests the phase should split.
+- Each phase header carries a `(~Nk)` budget annotation and should stay under the **200k** per-phase cap — the `phase-implement` slot budget from tp-run-full-design's static budget table. Split any phase whose estimate exceeds it.
 - The plan is the contract for `/tp-phase-implement`. Be precise enough that an agent can execute each task without ambiguity.
 - Check for existing `plan.md` and ask before overwriting.
 - Don't start implementing — stop after writing the plan.

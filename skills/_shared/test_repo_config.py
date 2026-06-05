@@ -108,3 +108,49 @@ def test_schema_version_2_or_higher_rejected_as_unsupported(validator):
     cfg["schema_version"] = 0
     with pytest.raises(ValidationError):
         validator.validate(cfg)
+
+
+# -------- Task 1.4: pdw subsection (parallel-design-worktrees) --------
+
+def test_pdw_subsection_validates_complete_config(validator):
+    cfg = {
+        "schema_version": 1,
+        "pdw": {
+            "guards": {"diff_growth_multiplier": 3, "k_consecutive": 3},
+            "comment_url_allowlist": [],
+            "runner_backend": {"type": "claude"},
+        },
+    }
+    validator.validate(cfg)
+
+
+def test_pdw_rejects_unknown_property(validator):
+    cfg = {
+        "schema_version": 1,
+        "pdw": {
+            "guards": {"diff_growth_multiplier": 3, "k_consecutive": 3},
+            "comment_url_allowlist": [],
+            "runner_backend": {"type": "claude"},
+            "rogue_field": True,
+        },
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_pdw_runner_backend_type_constrained_to_claude(validator):
+    """Unknown `pdw.runner_backend.type` values fail at validation, not at
+    runtime via `run_supervisor._wrap_slash`'s NotImplementedError."""
+    cfg = {
+        "schema_version": 1,
+        "pdw": {
+            "guards": {"diff_growth_multiplier": 3, "k_consecutive": 3},
+            "comment_url_allowlist": [],
+            "runner_backend": {"type": "claude"},
+        },
+    }
+    validator.validate(cfg)  # baseline passes
+
+    cfg["pdw"]["runner_backend"]["type"] = "bedrock"
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)

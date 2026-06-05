@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:tp-run-full-design:council-round-bundle:v1",
+  "title": "tp-run-full-design council round-bundle wrapper",
+  "description": "The wrapper /council --orchestrator returns in ONE fenced json block, wrapping the per-member round outputs (F2). It carries its own schema const so parse_tier_return's class-guard accepts it. outputs[] is typed loosely as object — each is validated against council-round1.v1 (round 1) or council-round2.v1 (round 2) in a second loop (§6), resolved by the orchestrator, not by this schema.",
+  "type": "object",
+  "required": [
+    "schema",
+    "round",
+    "members",
+    "outputs"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "tp-run-full-design/council-round-bundle/v1"
+    },
+    "round": {
+      "type": "integer",
+      "enum": [1, 2]
+    },
+    "members": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "outputs": {
+      "type": "array",
+      "items": {"type": "object"}
+    }
+  }
+}

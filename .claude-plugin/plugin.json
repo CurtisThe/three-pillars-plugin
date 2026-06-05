@@ -1,6 +1,6 @@
 {
   "name": "three-pillars",
-  "version": "1.5.1",
+  "version": "2.0.0",
   "description": "Structured TDD pipeline, council deliberation, and session continuity for Claude Code",
   "author": {
     "name": "Curtis"
@@ -28,6 +28,8 @@
     "./agents/council-sutskever.md",
     "./agents/council-taleb.md",
     "./agents/council-torvalds.md",
-    "./agents/council-watts.md"
+    "./agents/council-watts.md",
+    "./agents/tp-readonly-auditor.md",
+    "./agents/tp-worker.md"
   ]
 }

@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:tp-run-full-design:council-round2:v1",
+  "title": "tp-run-full-design council Round-2 rebuttal envelope",
+  "description": "Round-2 rebuttal a council persona returns under /council --orchestrator --round 2. Cross-examination only — it does not re-emit findings (those stay authoritative from Round 1). The optional challenged_finding_indices (F4) makes which peer Round-1 findings the rebuttal targets machine-readable for the synthesizer.",
+  "type": "object",
+  "required": [
+    "schema",
+    "member",
+    "position_held",
+    "counter_argument"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "tp-run-full-design/council-round2/v1"
+    },
+    "member": {
+      "type": "string",
+      "minLength": 1
+    },
+    "position_held": {
+      "type": "string",
+      "enum": ["held", "revised"]
+    },
+    "counter_argument": {
+      "type": "string"
+    },
+    "challenged_finding_indices": {
+      "type": "array",
+      "items": {"type": "integer"}
+    }
+  }
+}
