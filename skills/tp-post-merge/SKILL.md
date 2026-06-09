@@ -8,7 +8,7 @@ argument-hint: "{design-name} [--auto]"
 
 Verify a design's completion PR is merged, then tear down its branch, sibling worktree, and MRU state. This skill is the **sole merge-verified lifecycle teardown path** — within the design lifecycle, it is the one place that deletes the design branch and removes its worktree *after verifying the merge*. (Other tooling can remove a git worktree as a general, unverified operation; that is out of scope here. The point is the merge-verified lifecycle teardown, which only `/tp-post-merge` performs.)
 
-`/tp-design-complete` stops at PR-open; `/tp-post-merge` picks up after the human merge. `/tp-merge` auto-chains this skill via step 8 after a successful completion-PR merge.
+`/tp-design-complete` stops at PR-open; `/tp-post-merge` picks up after the human merge. `/tp-merge-from-main` auto-chains this skill via step 8 after a successful completion-PR merge.
 
 **Arguments**:
 - `{design-name}` (optional) — must match `[a-z0-9-]+` per `skills/_shared/validate-name.md`. If absent, runs the no-arg scan form (see below).
@@ -25,6 +25,8 @@ When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaitin
 3. For each remaining design, run `verify_merged.py` and **partition** by the result: `merged == true` ⇒ *actionable*; `merged == false` ⇒ *pending* (kept for the listing in step 5, never torn down).
 4. Present an interactive checklist of the **actionable** (verified-merged) designs. On confirmation, run the teardown sequence (step 5 of `## Steps`) for each selected design.
 5. List the **pending** (unverified) designs separately as "pending merge — not actionable" — they are never torn down without explicit verification.
+
+Teardown for each actionable design also removes `candidate/{name}/single` (local and remote, fail-open) in addition to the `tp/{name}` branch — see steps 5f and 5g.
 
 ## Steps
 
@@ -51,7 +53,14 @@ When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaitin
    > Run `/tp-post-merge {name}` again after the PR is merged.
    Stop. Do not proceed with any teardown step.
 
-5. **Teardown** — only on `merged == true`. Execute in order; each step is fail-open unless noted. **Run this from the base worktree (the main checkout), never from inside `tp/{name}`'s own worktree** — the teardown removes that worktree, and running from within it would pull the cwd out from under the remaining steps.
+5. **Teardown** — only on `merged == true`. Before executing the teardown steps, **resolve the seat** (the base checkout / worktree host) via `seat_resolve.sh --where` and route per verdict (see `skills/_shared/topology.md` for the canonical seat and worktree layout definitions):
+
+   - **`seat-healthy`** → run all teardown steps from the resolved seat path (`--where` output). This is the canonical case.
+   - **`core-bare-flip`** → **STOP**. The `git checkout {base}` in step 5a will itself be refused while the checkout is flagged bare — do NOT attempt to proceed against a refusing seat. Instruct the operator: "Run the worktree seat repair verb with `--apply` to clear the `core.bare` flip, then re-run `/tp-post-merge`." (See `skills/_shared/topology.md` for the repair surface.)
+   - **`missing-seat` / `--where` returns `NONE`** → **STOP**. There is no worktree to run teardown from or against — do NOT fall back to the current cwd (it is often the design worktree being torn down, exactly what must not host the teardown). Instruct: "No seat resolved — run the worktree seat repair verb with `--apply` (or the printed `git worktree add` per the `repair_hint`) to establish the seat, then re-run `/tp-post-merge`." (See `skills/_shared/topology.md`.)
+   - **`redundant-base-worktree` / `bare-hub-variant`** → warn and point at the worktree seat verb for consolidation, but **proceed** — a usable `{base}` worktree exists and teardown can run. The consolidation is advisory, not blocking. (See `skills/_shared/topology.md`.)
+
+   Execute the steps below in order from the resolved seat; each step is fail-open unless noted. (Never from inside `tp/{name}`'s own worktree — the teardown removes that worktree, and running from within it would pull the cwd out from under the remaining steps.)
 
    a. `git checkout {base}` — switch to the base branch before deleting the design branch. (No-op if you are already on `{base}` in the main checkout.)
 
@@ -63,13 +72,19 @@ When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaitin
 
    e. `git push origin --delete tp/{name}` — delete the remote branch. **Fail-open**: if the remote branch was already deleted (e.g., GitHub auto-delete-on-merge), ignore the error and continue.
 
-   f. **Clear MRU** — if `.claude/last-design` exists and contains `{name}` (first line or any line), remove that line. If the file becomes empty, delete it. **Never `git add`** this file (it is gitignored).
+   f. `git branch -D candidate/{name}/single` — local force-delete of the candidate branch. **Fail-open**: the branch is often absent on human-run designs (only orchestrator-run designs via `/tp-run-full-design` ever create it); a "branch not found" is a no-op success, not an error.
+
+   g. `git push origin --delete candidate/{name}/single` — delete the remote candidate branch. **Fail-open**: already-absent remote ref is ignored, mirroring step e.
+
+   h. **Clear MRU** — if `.claude/last-design` exists and contains `{name}` (first line or any line), remove that line. If the file becomes empty, delete it. **Never `git add`** this file (it is gitignored).
 
 6. **Report** success or partial success:
    - Base branch checked out: `{base}`
    - Worktree removed: `<path>` / none found / failed (manual step shown)
    - Local branch deleted: yes / no (reason)
    - Remote branch deleted: yes / no (reason, fail-open)
+   - Candidate branch deleted (local): yes / not present / failed
+   - Candidate branch deleted (remote): yes / not present / failed
    - MRU cleared: yes / not present
 
 ## Rules
@@ -88,7 +103,35 @@ When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaitin
 - **No-arg scan**: walk `three-pillars-docs/completed-tp-designs/*/lock.json` for `phase == "cleanup-pending"` (the archived location, per the No-arg scan form above), then **drop any whose `tp/{name}` branch is confirmed gone from origin** — `git ls-remote --heads origin tp/{name}` must **exit 0 with empty output** to count as absent (already torn down). On a **non-zero exit** (offline/auth/network) do *not* drop — empty stdout from a failed command is not proof of absence; keep the design (the merge gate still governs). `cleanup-pending` is not cleared, so a confirmed-absent branch is the durable done-signal.
 - **Verified-only teardown**: run `verify_merged.py` for each remaining design. Tear down only designs where `merged == true`. Unverified designs are **skipped** with a reason (`merged=false — not actionable`). This is not a block; the teardown simply does not run for them.
 - **No confirmation prompt** — proceed without asking in auto mode.
-- **Logging is the caller's, not this skill's**: by design, `/tp-post-merge` runs *after* `/tp-design-complete` archived the design to `completed-tp-designs/{name}/` and is in the middle of deleting the branch — there is no live `tp-designs/{name}/decisions.md` to own, and this skill performs **no commit** (see Rules). So in auto mode it **does not write or commit a `decisions.md`** of its own (which would dirty the working tree, possibly on the default branch, with no commit/discard path). Instead it returns the per-design verdict + steps to its caller; the orchestrator (`/tp-run-full-design`) or `/tp-merge` records them in the run log it already owns and commits. This keeps the skill consistent with `skills/_shared/auto-mode.md`'s rule that `decisions.md` is a *committed* audit trail — the owning caller does the committing.
+- **Logging is the caller's, not this skill's**: by design, `/tp-post-merge` runs *after* `/tp-design-complete` archived the design to `completed-tp-designs/{name}/` and is in the middle of deleting the branch — there is no live `tp-designs/{name}/decisions.md` to own, and this skill performs **no commit** (see Rules). So in auto mode it **does not write or commit a `decisions.md`** of its own (which would dirty the working tree, possibly on the default branch, with no commit/discard path). Instead it returns the per-design verdict + steps to its caller; the orchestrator (`/tp-run-full-design`) or `/tp-merge-from-main` records them in the run log it already owns and commits. This keeps the skill consistent with `skills/_shared/auto-mode.md`'s rule that `decisions.md` is a *committed* audit trail — the owning caller does the committing.
 - **The merge gate is still absolute** in auto mode — an unverified design is never torn down, only reported as pending.
+- **Candidate branch cleanup**: teardown also removes `candidate/{name}/single` (local and remote, steps 5f/5g) for each verified design — these are orchestrator-created branches and are absent on human-run designs (fail-open no-op in that case).
 
-Auto mode is the path used by `/tp-run-full-design` after an orchestrated completion PR merge and by `/tp-merge` step 8 — each owns its own audit log and commits the teardown verdicts this skill returns.
+Auto mode is the path used by `/tp-run-full-design` after an orchestrated completion PR merge and by `/tp-merge-from-main` step 8 — each owns its own audit log and commits the teardown verdicts this skill returns.
+
+## Backfill sweep
+
+For repos where candidate branches accumulated before this teardown was wired up, `/tp-post-merge` provides a backfill sweep powered by `sweep_candidates.py` (in `skills/tp-post-merge/scripts/`).
+
+**How it works**:
+
+1. Run `python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . [--remote]` to enumerate and classify all `candidate/*` branches.
+2. The script uses `is_archived` to check whether each branch's slug has a completed-design archive in `three-pillars-docs/completed-tp-designs/{slug}/design.md`.
+3. Results are split into:
+   - **orphaned** — slug is archived (design is done; branch is safe to delete).
+   - **live** — slug is not archived (design still in flight; never touch).
+4. `sweep_candidates.py` is a **reporter** (like `verify_merged.py`) — it only enumerates and classifies and always exits 0; it performs **no deletion** and has no `--auto` flag. `/tp-post-merge` owns the deletion, acting on the script's `orphaned` list.
+5. In **interactive mode**: present the orphaned branches as a delete checklist; for each branch the operator confirms, run `git branch -D candidate/{slug}/single` and `git push origin --delete candidate/{slug}/single` — both **fail-open**, exactly as teardown steps 5f/5g.
+6. In **`/tp-post-merge --auto` mode**: run those same two delete commands for **every** orphaned branch without prompting. Live (non-archived) branches are never touched in either mode.
+
+**Safety invariant**: the sweep only matches the `candidate/{slug}/single` shape (the MVP single-candidate orchestrator). Future non-`single` candidate IDs are intentionally not swept — if the shape does not match `candidate/<slug>/single`, the branch is silently ignored (fail-safe: never mis-deletes a live branch by guessing at a new shape).
+
+To run the sweep for local branches:
+```bash
+python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . --json
+```
+
+To include remote (origin) branches:
+```bash
+python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . --remote --json
+```

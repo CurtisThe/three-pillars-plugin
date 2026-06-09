@@ -4,7 +4,9 @@
   "title": "three-pillars repo config (.three-pillars/config.json)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version"],
+  "required": [
+    "schema_version"
+  ],
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -16,11 +18,17 @@
       "additionalProperties": false,
       "properties": {
         "completed_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "ISO-8601 UTC timestamp when migrate.py --apply completed against this repo. Sole writer is migrate.py itself; SKILL.md wrappers must never set this independently."
         },
         "from_layout": {
-          "enum": ["docs+tdd", null],
+          "enum": [
+            "docs+tdd",
+            null
+          ],
           "description": "Originating layout that was migrated. Only known historical value is 'docs+tdd' (the pre-workflow-cleanup layout); null means no migration has occurred."
         }
       }
@@ -30,11 +38,17 @@
       "additionalProperties": false,
       "properties": {
         "offered_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "ISO-8601 UTC timestamp when first-run preflight last offered to set up branch protection. Used to suppress repeated prompts."
         },
         "applied_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "ISO-8601 UTC timestamp when branch protection was successfully applied via gh api."
         },
         "declined": {
@@ -43,8 +57,42 @@
           "description": "True if user explicitly declined branch protection setup. Suppresses future prompts permanently until manually flipped."
         },
         "profile": {
-          "enum": ["team-pr-1approval-noforce", null],
+          "enum": [
+            "team-pr-1approval-noforce",
+            null
+          ],
           "description": "Named protection profile applied. Only known value today is 'team-pr-1approval-noforce' (PR required, 1 approval, no force-push)."
+        }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Continuous-integration posture for this repo. Read by the tp-pr-iterate loop's CI-settle wait (loop_driver._ci_settled_on_head).",
+      "properties": {
+        "expects_github_checks": {
+          "type": "boolean",
+          "description": "Whether this repo expects GitHub-hosted check-runs on its PRs. Default (absent) is true — an empty statusCheckRollup is treated as 'CI not settled yet' (fail-closed). Set false when CI runs locally / off-GitHub (self-hosted-ci-runner): an empty rollup then counts as settled so the review loop converges instead of spinning to a cap. Only affects empty rollups; a non-empty rollup is evaluated normally regardless."
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Code-review posture for this repo. Read by the tp-pr-iterate loop's two-stable success terminal (loop_driver._expects_copilot_review).",
+      "properties": {
+        "expects_copilot": {
+          "type": "boolean",
+          "description": "Whether GitHub Copilot code review is an available reviewer on this repo's PRs. Default (absent) is true — the two-stable terminal requires copilot_reviewed_successfully as its third conjunct, so a Copilot-reviewed repo never converges on an absent/stale Copilot signal. Set false when Copilot code review is NOT attachable (e.g. an individual account with no Copilot entitlement — a structural absence, distinct from a transient 'Copilot encountered an error' review): the loop is already dual-source, so the /code-review arm then carries the terminal on its own (codereview-clean + zero unresolved actionable threads + the minor-only classifier flip) instead of spinning to cap-exhausted. Only DROPS the Copilot conjunct; the /code-review and ground-truth-thread conjuncts are unchanged, so convergence is never weakened into a false positive."
+        },
+        "require_human_approval": {
+          "type": "boolean",
+          "description": "Whether the deterministic merge gate requires a current human-approval (`tp:human-approved` on the PR head) as its fifth predicate. Default (absent) is true — the gate folds pred_human_approved strictly, so the autonomous path can never cross the irreversible `gh pr merge` boundary without an explicit, out-of-band human approval that is current on the head SHA. Set false only to OPT OUT of the human-approval predicate (the other four predicates still gate); the predicate is then OMITTED from evaluate_gate and the pre-change four-predicate fold is unchanged. The predicate is read by deterministic_gate.evaluate_gate via human_approval._require_human_approval."
+        },
+        "automation_identities": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Optional additional automation logins (lowercased) treated as NON-human by the human-approval predicate, beyond the hardcoded floor (github-actions[bot], dependabot[bot], the Copilot REST logins) and the framework's own resolved self-login. Use this for committing CI service accounts so an approval applied by such an account never satisfies pred_human_approved (separation-of-duties / multi-account SoD). Each entry is matched case-insensitively against the labeling actor's login. A non-list value is ignored gracefully."
         }
       }
     },
@@ -76,7 +124,9 @@
         },
         "comment_url_allowlist": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Additional URL netlocs allowed in fix-comment bodies beyond github.com and the repo origin host."
         },
         "runner_backend": {
@@ -84,10 +134,24 @@
           "additionalProperties": false,
           "properties": {
             "type": {
-              "enum": ["claude"],
+              "enum": [
+                "claude"
+              ],
               "description": "Runner backend identifier. v1 supports 'claude' only — `run_supervisor._wrap_slash` raises NotImplementedError on any other value, so the schema fails the misconfig at validation time rather than at runtime. The `local-run-auto-sessions` design will broaden this enum."
             }
           }
+        }
+      }
+    },
+    "fleet": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Fleet-level configuration for worktree-isolation guards and related tunables.",
+      "properties": {
+        "diff_balloon_factor": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Multiplier vs. base diff size at which the diff-balloon guard fires and rejects the candidate. Default 5."
         }
       }
     }

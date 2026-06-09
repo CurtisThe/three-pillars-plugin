@@ -174,23 +174,35 @@ def main(argv=None) -> int:
       --repo               repo root (default: cwd)
       --branch             override the current branch
       --staged-file        override staged files (repeatable)
+      --no-staged          explicit empty staged set (hermetic; never reads git)
       --worktree-porcelain override the porcelain output (literal string)
 
     Exit 0 → no block. Exit 1 → blocked (guidance printed to stderr).
-    Empty staged set → exit 0 immediately (no commit in progress).
+    Empty staged set → exit 0 immediately (no commit in progress). In override
+    mode an explicit empty set is expressed via --no-staged, decoupled from the
+    real `git diff --cached`; with no override flags the real index is read
+    (live mode, exactly as framework-check.sh invokes it).
     """
     parser = argparse.ArgumentParser(
         description="Worktree write-guard: refuse default-branch commits of worktree work."
     )
     parser.add_argument("--repo", default=".", help="repo root (default: cwd)")
     parser.add_argument("--branch", default=None, help="override branch name")
-    parser.add_argument(
+    staged_group = parser.add_mutually_exclusive_group()
+    staged_group.add_argument(
         "--staged-file",
         action="append",
         dest="staged_files",
         default=None,
         metavar="PATH",
         help="override staged files (repeatable); absent = read from git",
+    )
+    staged_group.add_argument(
+        "--no-staged",
+        action="store_true",
+        dest="no_staged",
+        default=False,
+        help="override mode: explicit empty staged set (hermetic; never reads the git index)",
     )
     parser.add_argument(
         "--worktree-porcelain",
@@ -209,7 +221,10 @@ def main(argv=None) -> int:
         branch = _run_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
 
     # Resolve staged paths
-    if args.staged_files is not None:
+    if args.no_staged:
+        # Explicit empty staged override — hermetic, never touches the real index.
+        staged_paths = []
+    elif args.staged_files is not None:
         staged_paths = args.staged_files
     else:
         raw = _run_git(repo, ["diff", "--cached", "--name-only", "--diff-filter=ACMR"])

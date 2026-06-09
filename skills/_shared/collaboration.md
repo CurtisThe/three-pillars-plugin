@@ -7,6 +7,8 @@ When multiple developers share a project, two conventions prevent stepping on ea
 
 These conventions apply on solo projects too: the lock catches the "I forgot which spike I was on" class of mistake when switching between designs mid-flight.
 
+For the physical workspace layout (seat, worktree host, bare-hub variant, broken-state catalogue) see `skills/_shared/topology.md`.
+
 ## Branch convention
 
 - One design/spike = one long-lived branch, named `tp/{design-name}`.
@@ -127,7 +129,7 @@ Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next l
 
 ## Inline worktree-driving is unsupported
 
-Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-merge,
+Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-merge-from-main,
 tp-design-complete, and the worktree-management skill) from the **main checkout** while a
 `tp/<design>` worktree is live is unsupported and actively guarded. Two controls enforce this:
 

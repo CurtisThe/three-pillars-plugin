@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from jsonschema import Draft202012Validator
 
 SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
@@ -115,3 +117,113 @@ def test_iterate_state_accepts_two_stable_fields():
         "termination_reason": "two-stable",
     }
     Draft202012Validator(schema).validate(instance)
+
+
+# ---------- Phase 1: awaiting-copilot phase ----------
+
+
+def test_iterate_state_phase_enum_includes_awaiting_copilot():
+    """Phase 1, Task 1.1: the phase enum must include 'awaiting-copilot'
+    and an instance using that phase must validate against the schema."""
+    schema = _load(ITERATE_STATE_PATH)
+    phase_enum = schema["properties"]["phase"]["enum"]
+    assert "awaiting-copilot" in phase_enum, (
+        "iterate-state.v1.json phase enum must include 'awaiting-copilot'"
+    )
+
+    instance = {
+        "phase": "awaiting-copilot",
+        "iteration": 1,
+        "max_iterations": 8,
+        "max_wall_clock_sec": 14400,
+        "started_at": "2026-06-05T00:00:00Z",
+        "transitions": [],
+    }
+    Draft202012Validator(schema).validate(instance)
+
+
+# ---------- Phase 2 Task 2.1: new state fields + blocked-no-independent-review phase ----------
+
+
+def _base_instance():
+    return {
+        "phase": "awaiting-copilot",
+        "iteration": 1,
+        "max_iterations": 8,
+        "max_wall_clock_sec": 14400,
+        "started_at": "2026-06-05T00:00:00Z",
+        "transitions": [],
+    }
+
+
+def test_iterate_state_accepts_reviewed_head_shas():
+    """reviewed_head_shas (array of strings) is accepted as an optional field."""
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["reviewed_head_shas"] = ["abc1234", "def5678"]
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_accepts_last_codereview_findings():
+    """last_codereview_findings (array) is accepted as an optional field."""
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["last_codereview_findings"] = [
+        {"file": "a.py", "verdict": "structural", "summary": "bug", "line_range": [1, 2]}
+    ]
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_accepts_empty_last_codereview_findings():
+    """last_codereview_findings = [] (clean review) is accepted."""
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["last_codereview_findings"] = []
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_accepts_last_codereview_head_sha_string():
+    """last_codereview_head_sha as a string is accepted."""
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["last_codereview_head_sha"] = "abc1234def5678"
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_accepts_last_codereview_head_sha_null():
+    """last_codereview_head_sha as null is accepted."""
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["last_codereview_head_sha"] = None
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_phase_enum_includes_blocked_no_independent_review():
+    """The phase enum must include 'blocked-no-independent-review'."""
+    schema = _load(ITERATE_STATE_PATH)
+    phase_enum = schema["properties"]["phase"]["enum"]
+    assert "blocked-no-independent-review" in phase_enum, (
+        "iterate-state.v1.json phase enum must include 'blocked-no-independent-review'"
+    )
+    # validate an instance that uses this phase
+    instance = _base_instance()
+    instance["phase"] = "blocked-no-independent-review"
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_new_fields_are_optional():
+    """New fields are optional — existing state without them must still validate."""
+    schema = _load(ITERATE_STATE_PATH)
+    # Minimal required-only state (no new fields)
+    instance = _base_instance()
+    Draft202012Validator(schema).validate(instance)
+
+
+def test_iterate_state_rejects_unknown_field():
+    """additionalProperties:false must reject an unknown top-level field."""
+    import jsonschema
+    schema = _load(ITERATE_STATE_PATH)
+    instance = _base_instance()
+    instance["totally_unknown_field_xyz"] = "oops"
+    with pytest.raises(jsonschema.ValidationError):
+        Draft202012Validator(schema).validate(instance)

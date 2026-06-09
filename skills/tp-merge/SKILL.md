@@ -1,88 +1,100 @@
 ---
 name: tp-merge
-description: "Merge a base branch into a design's worktree and auto-resolve the safe living-doc conflict classes behind a zero-drop verifier, deferring everything semantic to the human. Re-runs tests, re-pushes only when green, updates the PR."
-argument-hint: "{design-name} [--base <branch>] [--dry-run] [--no-push] [--force-takeover]"
+description: "Land a reviewed PR at the irreversible boundary: enforce the deterministic merge gate (require_merge_gate_pass — five predicates incl. a current human approval) and run the irreversible gh pr merge ONLY on PASS. Refuse on a blocked gate, printing the blocking predicate(s) and how to authorize. The base-into-branch base-sync operation is the separate /tp-merge-from-main skill."
+argument-hint: "{pr-url|design-name}"
 ---
 
-# tp-merge — worktree-aware living-doc conflict resolution
+# tp-merge — the land gate (irreversible `gh pr merge`)
 
-When parallel designs run in their own worktrees, the base branch moves under them and a
-merge conflict on the shared living docs (`known_issues.md`, `product_roadmap.md`,
-`architecture.md`, `vision.md`) is the *expected* case at `/tp-design-complete` time. Manual
-resolution is slow and — as the parent spike proved on real PR-#28 history — a silent
-**content-drop** risk: a careful human merge dropped a known-issue entry outright.
+`/tp-merge` is the **land** skill: it crosses the one irreversible boundary in the
+framework — running `gh pr merge` to land a reviewed PR onto its base. It is the sole
+code site where the "the framework never crosses the irreversible boundary without an
+explicit, current human approval" guarantee is enforced in code.
 
-`/tp-merge` merges the base into the design's worktree branch and auto-resolves only the
-**provably-mechanical** living-doc conflict classes behind an independent zero-drop verifier.
-Everything semantic is left as conflict markers for the human. It is the conflict-handling
-step the merge-back flow never had; it composes with `/tp-pr-iterate` for the post-merge
-re-review loop.
+It does **not** sync the base into the branch, resolve living-doc conflicts, or rewrite
+tracked files — that reversible base-into-branch operation is the separate
+`/tp-merge-from-main` skill. `/tp-merge` only gates and lands.
 
-**The boundary** (from the `worktree-merge-conflict-flow` spike, verdict GO):
-- **AUTO-SAFE** (auto-resolved + verified): `design-inventory-row-merge`, `id-renumber-collision`.
-- **ALWAYS-HUMAN** (deferred): `preamble`/`Last updated`, `current-focus-reprioritization`, `generic-prose`.
-- **GATED** (treated as human until a fixture exists): `append-only-log`.
+> **Two distinct skills, one former name.** Before the human-approval-merge-gate design
+> (D7), `/tp-merge` was the base-sync conflict resolver. That half is now
+> `/tp-merge-from-main`. The `/tp-merge` name is retained for this **land** half, because
+> operator and orchestrator references to "`/tp-merge`" mean *land/merge*. Keep them
+> distinct: `/tp-merge-from-main` syncs the base in (reversible, below the gate);
+> `/tp-merge` lands the PR out (irreversible, behind the gate).
 
 ## Arguments
 
-- `{design-name}` (required) — must match an existing directory under `three-pillars-docs/tp-designs/` and an active `tp/{design-name}` worktree branch.
-- `--base <branch>` (optional, default `master`) — the base branch to merge in (uses `origin/<branch>`).
-- `--dry-run` (optional) — run the merge + resolution, print the report, then `git merge --abort`. Changes nothing, pushes nothing.
-- `--no-push` (optional) — resolve and re-run tests, but stop before pushing (human pushes).
-- `--force-takeover` (optional) — claim the design lock per `skills/_shared/collaboration.md`.
+- `{pr-url|design-name}` (required) — the PR to land. A PR URL is used directly; a design
+  name resolves to its open completion PR.
 
 ## Prerequisites
 
-- `gh` CLI installed and authenticated (PR update + re-review).
-- The project test command must run from the repo root.
-- You are inside the design's worktree (the merge happens here, never in a sibling worktree).
+- `gh` CLI installed and authenticated (the merge runs `gh pr merge`).
+- The PR has been reviewed and is reviewed-stable (the autonomous loop pauses here — this
+  step is the human's).
+
+## The gate (load-bearing)
+
+The land is gated by `require_merge_gate_pass(pr_url)` from
+`skills/tp-merge-from-main/scripts/merge_gate.py` — the **fail-closed enforcing** form of
+the deterministic merge gate. It evaluates the gate's predicates over the PR head SHA and
+**raises `MergeGateBlocked` on any non-PASS verdict**, so a caller that ignores the return
+value still cannot proceed. The gate now carries **five** head-SHA-keyed predicates:
+
+- **threads_resolved** — all review threads resolved.
+- **mergeable** — PR is in MERGEABLE state.
+- **checks_success** — all required CI checks settled and concluded SUCCESS.
+- **copilot_on_head** — Copilot has reviewed the current head SHA.
+- **human_approved** — a **current human approval** (`tp:human-approved`, applied by a
+  human out-of-band, on the head SHA) is present. Absent / stale (predates the head) /
+  automation-applied → INDETERMINATE. This is the predicate the autonomous path can never
+  satisfy: it never applies the label out-of-band, the push-time auto-strip clears a stale
+  one, and the gate re-derives currency from the timeline-event-vs-head-commit time.
+
+The emitted label is always *"mechanical predicates hold — semantics UNVERIFIED — your
+review is the only semantic check"* — shown even on PASS. The gate never asserts the PR is
+ready-to-merge-without-caveats; the operator's review is the only semantic check.
 
 ## Steps
 
-0. **Run first-run preflight** per skills/_shared/first-run.md.
+0. **Run first-run preflight** per `skills/_shared/first-run.md`.
 
-0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
+1. **Resolve the PR.** If a PR URL was passed, use it. If a design name was passed,
+   resolve it to the design's open completion PR (`gh pr view`). Validate `{design-name}`
+   per `skills/_shared/validate-name.md` when a name (not a URL) is passed.
 
-1. **Validate `{design-name}`** per `skills/_shared/validate-name.md` (must match `[a-z0-9-]+`; reject `/`, `..`, spaces). Then run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implement"` (the merge-back rewrites tracked files like an implementation step; `phase` is constrained to the schema's fixed set, which has no `merge` value). `/tp-merge` rewrites tracked files and pushes, so the lock must be held by the rightful owner. Honor `--force-takeover` if passed.
-
-2. **Fetch the base**: `git fetch origin <base>` (default `master`).
-
-3. **Run the merge driver** from the repo root of the design worktree:
+2. **Gate, then land.** Run the land driver:
    ```bash
-   python3 skills/tp-merge/scripts/merge_driver.py "$(git rev-parse --show-toplevel)" "origin/<base>"
+   python3 skills/tp-merge/scripts/land.py <pr_url>
    ```
-   (If the skill is installed at `~/.claude/skills/`, use that path.) The driver:
-   - runs `git merge --no-commit --no-ff origin/<base>` inside the worktree;
-   - for each conflicted **living-doc** file, reconstructs `(base, ours, theirs)` from the index stages, then runs `classify → resolve → verify` **per hunk**;
-   - applies the staging policy and prints a JSON report with three per-file outcomes:
-     - **auto-resolved** — every hunk mechanical, verifier zero-drop, no markers → written + `git add`ed.
-     - **partially-resolved** — mechanical hunks pre-resolved in place, semantic hunks left as markers (file *not* staged). This is the common case: every real living-doc conflict also conflicts on the `*Last updated:*` preamble, which is semantic.
-     - **deferred** — all-semantic, a verifier-flagged drop, an add/delete conflict, or any non-living-doc (code) conflict → left untouched.
-   - exit `0` = fully resolved/clean; exit `2` = human attention needed.
+   The driver calls `require_merge_gate_pass(pr_url)`:
+   - **On PASS** — it runs `gh pr merge <pr_url> --merge` exactly once and exits **0**.
+   - **On `MergeGateBlocked`** (any non-PASS verdict) — it **REFUSES**: it does **NOT**
+     run `gh pr merge`, prints the blocking predicate(s), and exits **2**.
 
-4. **Surface what the human must finish.** From the report's `partially_resolved` + `deferred` lists, tell the user exactly which files still carry conflict markers and which semantic classes remain (e.g. "`product_roadmap.md`: preamble + current-focus need you"). **Never stage or commit a file that still contains conflict markers** — the driver enforces this; do not work around it. Wait for the human to finish the deferred hunks before continuing (in `--dry-run`, stop here and `git merge --abort`).
-
-5. **Re-run the project test suite** in the worktree once all conflicts are resolved (auto + human). If tests fail, stop and surface the failure — do not push.
-
-6. **Commit the merge** once the tree is conflict-free and green: `git commit --no-edit` (preserves the merge message). With `--dry-run` or `--no-push`, stop before this.
-
-6.5. **Closeout check (warn, never block)**: before pushing, run `python3 skills/_shared/detect_unarchived.py --repo . --slugs-only` and check whether `{design-name}` appears — i.e., its `three-pillars-docs/tp-designs/{design-name}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has **not** been archived to `completed-tp-designs/`. If it does, **warn** (do not block): the design has shipped but is not closed out — run `/tp-design-learn {design-name}` (or `/tp-spike-learn`) **then** `/tp-design-complete {design-name}` before the human merges, or `framework-check` invariant **#27** will hard-fail once the dir lands on `{default}` unarchived (known-issue M10). `/tp-merge` is a conflict resolver, **not** a closeout gate — it surfaces the gap and proceeds; the #27 invariant is the hard backstop, this is only the soft in-context nudge. **Fail-open**: a detector error is ignored (the helper always exits 0).
-
-7. **Push only when green**, then **update the PR**: push the branch, refresh the PR body with a short merge note (base SHA merged, which classes auto-resolved, which the human finished), and **re-request review** so branch protection re-triggers — compose with `/tp-pr-iterate` / `pr-fix-targeting-and-auto-review` for the Copilot loop. Pushing happens only here, at the irreversible boundary, and only on a green suite.
-
-8. **Post-merge auto-chain** (fires only when the design's completion PR has actually landed on `{base}`): after the step-7 push, check whether the archive is now present on `{base}` — guard: run `python3 skills/tp-post-merge/scripts/verify_merged.py --repo . --design {design-name} --base {base} --json`; `merged == true` confirms the completion PR was merged to base. **`/tp-merge` itself does not land the completion PR** — it merges `{base}` *into* the design branch and updates the PR; the human (or a later `gh pr merge`) lands it. So in the ordinary base-sync invocation this guard is **false** and the step silently skips (see the last bullet). Only when `verify_merged.py` reports `merged == true` does this chain `/tp-post-merge {design-name}`.
-
-   - **Fail-open**: a teardown error from `/tp-post-merge` **never** undoes the merge. If `/tp-post-merge` fails, log the error and report it to the user — do not roll back anything. The merge already landed; cleanup can be retried manually with `/tp-post-merge {design-name}`.
-   - **Skip under `--dry-run` or `--no-push`**: if either flag was passed, skip the auto-chain entirely (the merge did not actually happen or was not pushed).
-   - **Additive and silent on non-completion merges**: if `verify_merged.py` reports `merged == false` (offline, unfetched refs, or this was just a base-sync merge, not a completion-PR merge), skip this step silently with no error.
+3. **On refusal, remediate and re-run.** The refusal prints which predicate(s) blocked.
+   When `human_approved` is the blocker, follow `skills/_shared/human-approval-howto.md`:
+   a human applies `tp:human-approved` on the **current head** out-of-band, then re-run
+   `/tp-merge`. (Re-pushing a new commit auto-strips the label — re-approve the new head.)
+   When the blocker is a base-moved conflict (`mergeable`), run `/tp-merge-from-main` to
+   sync the base in first, then re-run `/tp-merge`.
 
 ## Rules
 
-- **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
-- **Respect the lock** per `skills/_shared/collaboration.md` — `/tp-merge` rewrites tracked files and pushes.
-- **Zero content drops is the hard gate.** The verifier is the backstop for *mechanical* drops; it is **necessary but not sufficient** (a semantic mis-merge can survive it), so semantic safety is carried by **deferral**, never by the verifier. Auto-resolution fires only when **mechanical-class ∧ classifier-confident ∧ verifier-passes**.
-- **Merge, not rebase.** Rebase force-pushes the branch and strands parallel worktree agents that forked from the old HEAD. `/tp-merge` always merges.
-- **Never disturb sibling worktrees.** The merge runs inside the design's own worktree.
-- **Never auto-resolve code or prose.** Only the structured living-doc classes are touched; everything else is surfaced untouched.
-- **Optimize for zero-drop over reproducing past hand-merges** — the ground-truth human merge can itself be lossy (the spike's L4 case); a union+renumber that *diverges* from a lossy human result by preserving content is the correct answer.
-- Use `mktemp` for any scratch files; the driver uses Python `tempfile` internally.
+- **Refuse on a blocked gate — never cross the irreversible boundary without PASS.**
+  `gh pr merge` is reached ONLY after `require_merge_gate_pass` returns; a `MergeGateBlocked`
+  exit is **2** with the blockers printed and `gh pr merge` NOT invoked. This is the code
+  enforcement of the human-approval guarantee; it is not advisory.
+- **Human approval is the human's, applied out-of-band.** The framework never applies
+  `tp:human-approved` for itself (the autonomous path cannot satisfy `human_approved`).
+  See `skills/_shared/human-approval-howto.md`.
+- **`/tp-merge` does not sync or rewrite files.** Base-sync / living-doc conflict
+  resolution is `/tp-merge-from-main`. This skill only gates and lands.
+- **Honest GitHub-UI bypass note**: a merge clicked in the GitHub UI outside the tooling
+  **bypasses** this gate. The branch-protection required-check backstop is deferred to the
+  `self-hosted-ci-runner` design. Until that ships, the tooling-path land gate is the only
+  enforcement — land via `/tp-merge`, not the GitHub UI, on guarded branches. The gate's
+  on-head currency re-check still treats a stale/absent approval as unauthorized regardless
+  of how the head advanced, so the approve-then-push bypass is closed even on a UI push.
+- **Never bypass hooks**: if a `git`/`gh` step is blocked, surface the output and stop —
+  do not retry with `--no-verify`.

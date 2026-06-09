@@ -269,15 +269,28 @@ def test_main_no_worktree_exits_0():
 
 
 def test_main_empty_staged_exits_0():
-    """Empty staged set (no --staged-file): exit 0 even with live tp/* worktrees.
+    """Empty staged set (explicit --no-staged): exit 0 even with live tp/* worktrees.
 
     This is the load-bearing no-commit / CI case: framework-check runs with
-    nothing staged and must never self-block.
+    nothing staged and must never self-block. Expressed hermetically via
+    --no-staged so the assertion does not depend on the ambient git index
+    (the pass-by-luck leak this design closes).
     """
     rc, stderr = _run_main([
         "--branch", "master",
         "--worktree-porcelain", _PORCELAIN_WITH_TP_X,
-        # no --staged-file → empty staged list
+        "--no-staged",  # explicit empty staged override — never reads the real index
     ])
     assert rc == 0
     assert not stderr
+
+
+def test_main_no_staged_and_staged_file_mutually_exclusive():
+    """--no-staged and --staged-file are contradictory ⇒ argparse exits 2."""
+    with pytest.raises(SystemExit):
+        main([
+            "--branch", "master",
+            "--worktree-porcelain", _PORCELAIN_WITH_TP_X,
+            "--no-staged",
+            "--staged-file", "skills/foo.py",
+        ])

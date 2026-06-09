@@ -21,7 +21,10 @@ SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
 C1_HELPERS = [
     Path(__file__).parent / "classifier_judge.py",
     Path(__file__).parent / "review_merge.py",
-    Path(__file__).parent / "thread_resolver.py",
+    Path(__file__).parent.parent.parent / "_shared" / "thread_resolver.py",
+    # Phase 4 (pr-iterate-codereview-real-harness): run_round.py is the B1 CLI
+    # wrapper — C1-clean (no anthropic, no claude subprocess; fan-out is caller-driven).
+    Path(__file__).parent / "run_round.py",
 ]
 
 
@@ -177,4 +180,171 @@ def test_copilot_rerequest_new_sha_gotcha_documented() -> None:
     )
     assert "unchanged" in body_lower and "sha" in body_lower, (
         "the re-request gotcha must explain that an unchanged head SHA does not re-fire"
+    )
+
+
+# ---------- Phase 6: run_loop and _request_copilot_review references ----------
+
+
+def test_terminal_mentions_reviewed_conjunct() -> None:
+    """Phase 2.4 — the terminal section must name the third copilot_reviewed_successfully
+    conjunct, the tp:ready-for-human-merge readiness signal, and the fail-open behavior."""
+    body = _read_skill()
+
+    assert "copilot_reviewed_successfully" in body, (
+        "SKILL.md terminal section must name the copilot_reviewed_successfully "
+        "third conjunct (pr-readiness-surface)"
+    )
+    assert "tp:ready-for-human-merge" in body, (
+        "SKILL.md terminal section must name the tp:ready-for-human-merge readiness label "
+        "applied on convergence"
+    )
+    # The loop stays fail-open when the predicate is false/unverifiable.
+    body_lower = body.lower()
+    assert "fail-open" in body_lower or "fail open" in body_lower, (
+        "SKILL.md must document that the loop stays fail-open when the readiness "
+        "predicate is false/unverifiable"
+    )
+
+
+def test_skill_md_points_loop_body_at_run_loop() -> None:
+    """Phase 6, Task 6.1: SKILL.md loop-body section must reference run_loop
+    and the per-round Copilot re-request must delegate to _request_copilot_review
+    rather than restating raw REST prose as the source of truth."""
+    body = _read_skill()
+    assert "run_loop" in body, (
+        "SKILL.md loop-body section must name run_loop (the assembled driver)"
+    )
+    assert "_request_copilot_review" in body, (
+        "SKILL.md must reference _request_copilot_review for the per-round Copilot re-request"
+    )
+    assert "awaiting-copilot" in body, (
+        "SKILL.md must note the awaiting-copilot phase around the CI/Copilot wait"
+    )
+
+
+def test_code_review_comment_post_is_mandatory() -> None:
+    """Every /code-review invocation must post a summary comment (no silent reviews).
+    The SKILL step 2.5 must mandate review_merge.post_codereview_comment."""
+    body = _read_skill()
+    assert "post_codereview_comment" in body, (
+        "step 2.5 must call review_merge.post_codereview_comment after the /code-review parse"
+    )
+    assert "mandatory" in body.lower() and "silent" in body.lower(), (
+        "the SKILL must state the review-summary comment is mandatory and that there are no "
+        "silent reviews"
+    )
+
+
+def test_code_review_is_multi_angle_and_fail_closed_parse() -> None:
+    """Step 2.5 must fan out MULTIPLE review angles (not a single /code-review subagent,
+    which can't fan out under L23) and parse fail-closed (unparseable != clean). Locked
+    tightly enough that a rewrite back to a single-angle / fail-soft form fails here."""
+    body = _read_skill()
+    assert "merge_codereview_angles" in body, (
+        "step 2.5 must use review_merge.merge_codereview_angles (multi-angle, fail-closed)"
+    )
+    # The fan-out must be explicit (an ANGLES set the driver dispatches), not rewordable
+    # to a single dispatch while still passing.
+    assert "ANGLES" in body, "step 2.5 must define the explicit ANGLES fan-out set"
+    assert "fan out" in body.lower() or "fans out" in body.lower(), (
+        "step 2.5 must state the loop driver FANS OUT the angles (multi-angle, not single-pass)"
+    )
+    # The unparseable-is-not-clean contract must be stated.
+    assert "unparseable" in body.lower(), (
+        "the SKILL must state that an unparseable review is NOT a clean one"
+    )
+    # The anti-pattern the change exists to prevent must be called out negatively.
+    assert "parse_codereview_response" in body and "never use the bare" in body.lower(), (
+        "the SKILL must warn never to use the bare parse_codereview_response on the convergence path"
+    )
+
+
+# ---------- Phase 5 (pr-iterate-codereview-real-harness): Tier 7 prose + step 10b ----------
+
+TIER7_SKILL_MD = Path(__file__).parent.parent.parent / "tp-run-full-design" / "SKILL.md"
+
+
+def _read_tier7_skill() -> str:
+    return TIER7_SKILL_MD.read_text()
+
+
+def test_tier7_orchestrator_owns_round_loop() -> None:
+    """Tier 7 / Slot 11: the orchestrator MUST drive run_round iteration-by-iteration —
+    it must NOT delegate the whole loop to one Slot 11 subagent (the B1 regression this
+    design fixes). Asserts: (a) the orchestrator drives each round; (b) uses
+    run_round.py shell-out; (c) dispatches ANGLES fan-out at top level; (d) dispatches
+    /tp-pr-fix per round; (e) the old 'delegate-whole-loop' anti-pattern is absent."""
+    body = _read_tier7_skill()
+
+    # (a) The orchestrator-driven round loop must name run_round.py shell-out.
+    assert "run_round.py" in body, (
+        "Tier 7 prose must name run_round.py (the B1 shell-out seam, not an in-process call)"
+    )
+
+    # (b) Must reference the ANGLES fan-out at top level (general-purpose sub-agents).
+    assert "ANGLES" in body, (
+        "Tier 7 prose must reference the ANGLES fan-out set (per-head review dispatch)"
+    )
+    assert "merge_codereview_angles" in body, (
+        "Tier 7 prose must name merge_codereview_angles (multi-angle merge step)"
+    )
+
+    # (c) Must reference post_codereview_comment (mandatory review-summary comment).
+    assert "post_codereview_comment" in body, (
+        "Tier 7 prose must name post_codereview_comment"
+    )
+
+    # (d) Per-head /tp-pr-fix dispatch.
+    assert "/tp-pr-fix" in body, (
+        "Tier 7 prose must name /tp-pr-fix dispatch per round"
+    )
+
+    # (e) blocked-no-independent-review terminal must be acknowledged.
+    assert "blocked-no-independent-review" in body, (
+        "Tier 7 prose must name the blocked-no-independent-review terminal"
+    )
+
+    # (f) The old 'delegate whole loop to Slot 11' anti-pattern must NOT appear.
+    bad_phrases = [
+        "runs /tp-pr-iterate {slug} inline",
+        "runs `/tp-pr-iterate {slug}` inline",
+    ]
+    for bad in bad_phrases:
+        assert bad not in body, (
+            f"Tier 7 prose must NOT say the old 'delegate whole loop to Slot 11' form; "
+            f"found: {bad!r}"
+        )
+
+
+def test_step_10b_blocked_no_independent_review_terminal() -> None:
+    """tp-pr-iterate SKILL.md step 10b must document the blocked-no-independent-review
+    fail-closed terminal and the honest-attribution rule (a single-context self-pass
+    is never signed /code-review).
+
+    The honest-attribution assertions pin the ACTUAL rule text — a distinctive phrase
+    that only appears because the rule is present. They must be RED if the rule is
+    removed: a generic 'self in body' / 'review in body' check would pass even if the
+    rule were deleted (both words appear in other contexts throughout the skill). (F-T1)
+    """
+    body = _read_skill()
+
+    assert "blocked-no-independent-review" in body, (
+        "SKILL.md must document the blocked-no-independent-review fail-closed terminal"
+    )
+
+    # Pin the SPECIFIC honest-attribution rule text. The phrase
+    # "single-context self-pass" is the load-bearing descriptor: it names the exact
+    # pattern being forbidden. This assertion is genuinely RED if the rule is removed
+    # or reworded away from this concept — unlike a generic 'self in body' check.
+    assert "single-context self-pass" in body, (
+        "SKILL.md honest-attribution rule must use the phrase 'single-context self-pass' "
+        "to name the forbidden pattern (a /code-review running in the loop's own context). "
+        "This is the distinctive marker that makes the test RED when the rule is removed."
+    )
+    # Also pin the prohibition itself: that a self-pass must NOT be signed as /code-review.
+    assert "must never be signed as" in body, (
+        "SKILL.md honest-attribution rule must state the prohibition: "
+        "'must never be signed as /code-review on the convergence path'. "
+        "This pins the rule text, not just a tangentially relevant word."
     )

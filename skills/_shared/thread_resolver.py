@@ -89,41 +89,12 @@ def disposition_for(finding: dict, envelope: dict, resolved_ids: set) -> str:
 # ---------- GitHub plumbing ----------
 
 
-def list_review_threads(pr_url: str) -> list[dict]:
-    """Every review thread on the PR, via GraphQL.
+def _threads_from_nodes(nodes: list) -> list[dict]:
+    """Map GraphQL reviewThreads `nodes` → the public thread-dict shape.
 
-    Returns [{thread_id, is_resolved, comment_id, path, body, author}]. The
-    `thread_id` is the GraphQL node id (resolve); `comment_id` is the first
-    comment's databaseId (reply) — the two differ.
+    Shared by the fail-open and fail-closed fetchers so the two never drift.
+    Returns [{thread_id, is_resolved, comment_id, path, body, author}].
     """
-    owner, repo, number = _parse_pr_url(pr_url)
-    result = subprocess.run(
-        [
-            "gh", "api", "graphql",
-            "-f", f"query={_THREADS_QUERY}",
-            "-F", f"owner={owner}",
-            "-F", f"repo={repo}",
-            "-F", f"number={number}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        return []
-    try:
-        data = json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return []
-    # Null-safe navigation: a GraphQL partial-error returns the key present with
-    # a JSON null value (e.g. {"data":{"repository":{"pullRequest":null}}}), so a
-    # plain .get(k, {}) yields None, not the default — guard each hop with `or {}`
-    # to preserve the fail-open [] contract.
-    nodes = (
-        ((((data.get("data") or {}).get("repository") or {}).get("pullRequest") or {})
-         .get("reviewThreads") or {}).get("nodes")
-        or []
-    )
     out = []
     for n in nodes:
         comments = (n.get("comments") or {}).get("nodes") or [{}]
@@ -139,6 +110,78 @@ def list_review_threads(pr_url: str) -> list[dict]:
             }
         )
     return out
+
+
+def list_review_threads_strict(pr_url: str) -> list[dict]:
+    """Every review thread on the PR, via GraphQL — FAIL-CLOSED (RAISES on failure).
+
+    Unlike `list_review_threads` (which swallows every failure to `[]`), this RAISES
+    on any condition under which the thread set cannot be PROVEN: a non-zero `gh`
+    return, empty stdout, unparsable JSON, or a null `pullRequest` (GraphQL partial
+    error / missing PR). The deterministic merge gate calls THIS — via
+    `deterministic_gate.fetch_threads_or_none` — so a transient fetch failure folds
+    to INDETERMINATE, never an empty-looks-resolved PASS.
+
+    Why this exists: the gate's `fetch_threads_or_none` only returns its fail-closed
+    `None` sentinel when its `threads_fn` raises or returns a non-list. Wired to the
+    fail-open `list_review_threads`, that wrapper was a production no-op — the live
+    fetcher never raised, so a token/rate-limit/network blip collapsed an unresolved
+    blocking thread to `[]` and the gate PASSed it. (Audit: H3-defeating fail-open.)
+
+    A genuinely thread-less PR still returns `[]` WITHOUT raising (pullRequest
+    present, `reviewThreads.nodes` empty) — empty means "no threads", a proven
+    success, not a fetch failure.
+
+    Returns [{thread_id, is_resolved, comment_id, path, body, author}].
+    """
+    owner, repo, number = _parse_pr_url(pr_url)
+    result = subprocess.run(
+        [
+            "gh", "api", "graphql",
+            "-f", f"query={_THREADS_QUERY}",
+            "-F", f"owner={owner}",
+            "-F", f"repo={repo}",
+            "-F", f"number={number}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"gh api graphql failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+    if not result.stdout.strip():
+        raise RuntimeError("gh api graphql returned empty stdout")
+    data = json.loads(result.stdout)  # JSONDecodeError (ValueError subclass) propagates
+    # A GraphQL partial-error returns `pullRequest` as JSON null with exit 0. The
+    # fail-open variant treats that as `[]` via `or {}`; here it is an UNPROVEN fetch
+    # → raise, so the gate cannot read a partial error as a clean zero-thread PR.
+    pr = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+    if pr is None:
+        raise RuntimeError(
+            "GraphQL returned null pullRequest (partial error or missing PR)"
+        )
+    nodes = (pr.get("reviewThreads") or {}).get("nodes") or []
+    return _threads_from_nodes(nodes)
+
+
+def list_review_threads(pr_url: str) -> list[dict]:
+    """Every review thread on the PR, via GraphQL — FAIL-OPEN (every failure → []).
+
+    Best-effort wrapper used by the `/tp-pr-iterate` loop, which tolerates a
+    transient miss and re-polls. The deterministic merge gate must NOT use this — a
+    swallowed failure is indistinguishable from a clean zero-thread PR; the gate uses
+    `list_review_threads_strict` via `fetch_threads_or_none`.
+
+    The `thread_id` is the GraphQL node id (resolve); `comment_id` is the first
+    comment's databaseId (reply) — the two differ.
+    Returns [{thread_id, is_resolved, comment_id, path, body, author}].
+    """
+    try:
+        return list_review_threads_strict(pr_url)
+    except Exception:
+        return []
 
 
 def reply_to_thread(pr_url: str, comment_id, body: str) -> bool:

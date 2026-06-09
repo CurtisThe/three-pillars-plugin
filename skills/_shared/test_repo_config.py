@@ -154,3 +154,164 @@ def test_pdw_runner_backend_type_constrained_to_claude(validator):
     cfg["pdw"]["runner_backend"]["type"] = "bedrock"
     with pytest.raises(ValidationError):
         validator.validate(cfg)
+
+
+# --- ci subsection (self-hosted-ci-runner: no-GitHub-CI opt-out) ---
+
+def test_ci_subsection_validates(validator):
+    cfg = _complete_config()
+    cfg["ci"] = {"expects_github_checks": False}
+    validator.validate(cfg)
+
+
+def test_ci_rejects_unknown_key(validator):
+    cfg = _complete_config()
+    cfg["ci"] = {"bogus": 1}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_ci_expects_github_checks_must_be_bool(validator):
+    cfg = _complete_config()
+    cfg["ci"] = {"expects_github_checks": "no"}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_config_without_ci_still_validates(validator):
+    # backward compat: a config with no `ci` subsection is valid (default applies in code)
+    cfg = _complete_config()
+    assert "ci" not in cfg
+    validator.validate(cfg)
+
+
+def test_this_repo_opts_out_of_github_ci(validator):
+    # This repo runs CI locally — its committed config must opt out and stay schema-valid.
+    repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
+    cfg = json.loads(repo_cfg_path.read_text())
+    validator.validate(cfg)
+    assert cfg.get("ci", {}).get("expects_github_checks") is False
+
+
+# --- review subsection (Copilot-optional two-stable terminal) ---
+
+def test_review_subsection_validates(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"expects_copilot": False}
+    validator.validate(cfg)
+
+
+def test_review_rejects_unknown_key(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"bogus": 1}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_review_expects_copilot_must_be_bool(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"expects_copilot": "no"}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_config_without_review_still_validates(validator):
+    # backward compat: a config with no `review` subsection is valid (default true in code)
+    cfg = _complete_config()
+    assert "review" not in cfg
+    validator.validate(cfg)
+
+
+def test_this_repo_opts_out_of_copilot(validator):
+    # This account has no Copilot entitlement — its committed config must declare it so
+    # the tp-pr-iterate loop converges on the /code-review arm instead of cap-exhausting.
+    repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
+    cfg = json.loads(repo_cfg_path.read_text())
+    validator.validate(cfg)
+    assert cfg.get("review", {}).get("expects_copilot") is False
+
+
+# --- fleet subsection (worktree-isolation-guards tunable) ---
+
+def test_fleet_subsection_validates(validator):
+    cfg = _complete_config()
+    cfg["fleet"] = {"diff_balloon_factor": 5}
+    validator.validate(cfg)
+
+
+def test_fleet_rejects_unknown_key(validator):
+    cfg = _complete_config()
+    cfg["fleet"] = {"diff_balloon_factor": 5, "bogus": True}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+# --- review.require_human_approval + automation_identities (human-approval merge gate) ---
+
+def test_require_human_approval_keys(schema):
+    """Task 4.1 — the schema's review object must declare require_human_approval
+    (boolean, default-true via description) and automation_identities (array of strings)."""
+    review_props = schema["properties"]["review"]["properties"]
+
+    assert "require_human_approval" in review_props, (
+        "review must declare require_human_approval"
+    )
+    assert review_props["require_human_approval"]["type"] == "boolean"
+    # default-true semantics are documented in the description (the code reads it strict-default)
+    assert "default" in review_props["require_human_approval"]["description"].lower()
+
+    assert "automation_identities" in review_props, (
+        "review must declare automation_identities"
+    )
+    assert review_props["automation_identities"]["type"] == "array"
+    assert review_props["automation_identities"]["items"]["type"] == "string"
+
+
+def test_review_require_human_approval_validates(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"expects_copilot": False, "require_human_approval": True}
+    validator.validate(cfg)
+    cfg["review"] = {"require_human_approval": False}
+    validator.validate(cfg)
+
+
+def test_review_require_human_approval_must_be_bool(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"require_human_approval": "yes"}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_fleet_diff_balloon_factor_must_be_number(validator):
+    cfg = _complete_config()
+    cfg["fleet"] = {"diff_balloon_factor": "five"}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_review_automation_identities_validates(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"automation_identities": ["svc-ci", "release-bot"]}
+    validator.validate(cfg)
+
+
+def test_review_automation_identities_must_be_string_array(validator):
+    cfg = _complete_config()
+    cfg["review"] = {"automation_identities": [1, 2]}
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_config_without_fleet_still_validates(validator):
+    # backward compat: a config with no `fleet` subsection is valid
+    cfg = _complete_config()
+    assert "fleet" not in cfg
+    validator.validate(cfg)
+
+
+def test_this_repo_declares_require_human_approval(validator):
+    # This repo opts into the strict human-approval predicate explicitly.
+    repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
+    cfg = json.loads(repo_cfg_path.read_text())
+    validator.validate(cfg)
+    assert cfg.get("review", {}).get("require_human_approval") is True

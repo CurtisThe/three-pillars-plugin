@@ -630,7 +630,14 @@ def test_phase_implement_dispatch():
     """Task 6.2 — Form SERIAL (the committed form, selected by the P1 GATE
     VERDICT nested-FAIL: a worktree-isolated subagent cannot spawn nested task
     sub-subagents — decisions.md [orchestrator/probe] "nested verdict?
-    **nested-FAIL**", L41). The NESTED-OK form is omitted, not stubbed."""
+    **nested-FAIL**", L41). The NESTED-OK form is omitted, not stubbed.
+
+    Extended by phase-subagent-protocol Tasks 1.1, 1.2, 2.1, 2.2:
+    - I1: Mode-A0 top-line says per-phase worker (not "single worker Agent")
+    - I4: ### No mid-tier abort names "individual phase dispatch" as atomic unit
+    - Behavior 1: push precedes envelope synthesis; run_tier_3_5.py runs per phase
+    - Behavior 1 polish: candidate_id and "single" co-present in dispatch section
+    """
     body = _body()
 
     assert "\n## Phase-implement dispatch" in body, (
@@ -658,6 +665,57 @@ def test_phase_implement_dispatch():
     )
     assert "nested-FAIL" in section, (
         "the prose must name the nested-FAIL probe verdict it implements"
+    )
+
+    # Task 1.1 (I1): Mode-A0 top-line says per-phase worker, not "single worker Agent".
+    # Scope to the **Mode A0** inline-bold region (up to the next "\n## " heading).
+    mode_a0_split = body.split("**Mode A0", 1)
+    assert len(mode_a0_split) == 2, "**Mode A0 inline bold must exist in SKILL.md"
+    # Take text from **Mode A0 up to the next \n## heading boundary.
+    mode_a0_region = mode_a0_split[1].split("\n## ", 1)[0]
+    assert "single worker Agent" not in mode_a0_region, (
+        "Mode A0 top-line must not say 'single worker Agent' (I1 fix required)"
+    )
+    assert any(tok in mode_a0_region for tok in ("per plan phase", "per-phase")), (
+        "Mode A0 top-line must say 'per plan phase' or 'per-phase' (I1 fix)"
+    )
+
+    # Task 1.2 (I4): ### No mid-tier abort names "individual phase dispatch" as the
+    # atomic unit. This assertion lives here per binding advice (own-span, not overload).
+    assert "\n### No mid-tier abort" in body, (
+        "a ### No mid-tier abort subsection must exist"
+    )
+    no_abort_section = body.split("\n### No mid-tier abort", 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
+    assert "individual phase dispatch" in no_abort_section, (
+        "### No mid-tier abort must name 'individual phase dispatch' as the atomic unit (I4)"
+    )
+    assert "atomic unit" in no_abort_section, (
+        "### No mid-tier abort must name the atomic unit (I4)"
+    )
+
+    # Task 2.1 (Behavior 1): push appears before envelope synthesis in dispatch section;
+    # run_tier_3_5.py is named as running per phase.
+    assert "push" in section, (
+        "Phase-implement dispatch section must mention push ordering (Behavior 1)"
+    )
+    assert "synthes" in section.lower() or "candidate.v1" in section, (
+        "Phase-implement dispatch section must mention envelope synthesis (Behavior 1)"
+    )
+    if "push" in section and ("synthes" in section.lower() or "candidate.v1" in section):
+        synth_tok = "synthes" if "synthes" in section.lower() else "candidate.v1"
+        assert section.lower().index("push") < section.lower().index(synth_tok), (
+            "push must appear before envelope synthesis in dispatch section (Behavior 1)"
+        )
+    assert any(tok in section for tok in ("run_tier_3_5.py", "per phase", "each phase")), (
+        "Phase-implement dispatch must name run_tier_3_5.py running per phase (Behavior 1)"
+    )
+
+    # Task 2.2 (Behavior 1 polish): candidate_id and "single" co-present.
+    assert "candidate_id" in section, (
+        "Phase-implement dispatch section must name candidate_id (Behavior 1 polish)"
+    )
+    assert "single" in section, (
+        "Phase-implement dispatch section must name 'single' substitution (Behavior 1 polish)"
     )
 
 
@@ -730,6 +788,144 @@ def test_tier6_review_partition():
     assert "sole initial completion-PR review requester" in tier6_region, (
         "Tier 6 region must contain 'sole initial completion-PR review requester' "
         "(the single-source-of-truth sentence per the completion-pr-review-dedup design)"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# phase-subagent-protocol — new invariant tests (Tasks 1.3, 1.4, 2.3, 3.1, 4.1)
+# --------------------------------------------------------------------------- #
+def test_worker_counter_reset_per_phase():
+    """Task 1.3 (I3) — worker attempt counter resets per phase dispatch, not
+    per Tier 3 entry. Dedicated test scoped to ### Counter-reset rule span.
+    Does NOT overload test_retry_counter_reset (which pins ## Retry-with-advice counter)."""
+    body = _body()
+
+    # Navigate: ## Retry & max-attempts -> ### Counter-reset rule -> next boundary.
+    assert "\n## Retry & max-attempts" in body, (
+        "## Retry & max-attempts section must exist"
+    )
+    retry_section = body.split("\n## Retry & max-attempts", 1)[1].split("\n## ", 1)[0]
+    assert "\n### Counter-reset rule" in retry_section, (
+        "### Counter-reset rule subsection must exist under ## Retry & max-attempts"
+    )
+    span = retry_section.split("\n### Counter-reset rule", 1)[1]
+    # Take up to next ### or ## boundary.
+    for boundary in ("\n### ", "\n## "):
+        if boundary in span:
+            span = span.split(boundary, 1)[0]
+
+    # Positive: says "each phase dispatch" (I3 fix).
+    assert "each phase dispatch" in span, (
+        "### Counter-reset rule must say 'each phase dispatch' (I3 fix)"
+    )
+    # Negative: no longer says "each Tier 3 entry".
+    assert "each Tier 3 entry" not in span, (
+        "### Counter-reset rule must not say 'each Tier 3 entry' (I3 stale phrase)"
+    )
+    # The "never shared" companion sentence must remain.
+    assert "never shared" in span.lower(), (
+        "### Counter-reset rule must keep the 'never shared' sentence"
+    )
+
+
+def test_retry_loop_per_phase():
+    """Task 1.4 (I2) — retry loop pseudocode operates per phase (run_tier_3(phase=N))."""
+    body = _body()
+
+    assert "\n## Retry & max-attempts" in body
+    retry_section = body.split("\n## Retry & max-attempts", 1)[1].split("\n## ", 1)[0]
+    assert "\n### Retry loop" in retry_section, (
+        "### Retry loop subsection must exist under ## Retry & max-attempts"
+    )
+    span = retry_section.split("\n### Retry loop", 1)[1]
+    for boundary in ("\n### ", "\n## "):
+        if boundary in span:
+            span = span.split(boundary, 1)[0]
+
+    # Positive: phase parameter present in the pseudocode calls.
+    assert any(tok in span for tok in ("phase=N", "phase=", "per phase")), (
+        "### Retry loop pseudocode must be phase-parameterized (I2 fix)"
+    )
+    # The worker counter resets per phase entry — cross-ref comment present.
+    assert any(tok in span.lower() for tok in ("resets per phase", "reset per phase", "counter-reset rule")), (
+        "### Retry loop must note worker counter resets per phase entry (I2/I3 cross-ref)"
+    )
+
+
+def test_tier_3_5_per_phase():
+    """Task 2.3 (Behavior 2) — Tier 3.5 runs at the end of every phase dispatch,
+    not deferred to the last phase."""
+    body = _body()
+
+    assert "\n## Tier 3.5" in body, "a ## Tier 3.5 section must exist"
+    tier_3_5_section = body.split("\n## Tier 3.5", 1)[1].split("\n## ", 1)[0]
+
+    # Behavior 2: Tier 3.5 names per-phase timing.
+    assert any(tok in tier_3_5_section for tok in (
+        "end of every phase", "every phase dispatch", "each phase dispatch", "each phase"
+    )), (
+        "## Tier 3.5 must state it runs at the end of every phase dispatch (Behavior 2)"
+    )
+
+    # The rationale — malformed envelope caught at the producing phase.
+    assert any(tok in tier_3_5_section.lower() for tok in (
+        "malformed envelope", "caught at the phase", "producing phase"
+    )), (
+        "## Tier 3.5 must name why per-phase: malformed envelope caught at the producing phase"
+    )
+
+
+def test_retry_only_flagged_phase():
+    """Task 3.1 (Behavior 3) — impl-audit finding->phase mapping + ambiguity fallback.
+    The ### File-reference re-spawn section names the per-phase re-dispatch policy."""
+    body = _body()
+
+    assert "\n### File-reference re-spawn" in body, (
+        "a ### File-reference re-spawn subsection must exist"
+    )
+    span = body.split("\n### File-reference re-spawn", 1)[1]
+    for boundary in ("\n### ", "\n## "):
+        if boundary in span:
+            span = span.split(boundary, 1)[0]
+
+    # Finding-to-phase mapping: touched files / only those phase(s).
+    assert any(tok in span for tok in ("touched files", "git diff --name-only")), (
+        "### File-reference re-spawn must name the touched-files mapping source (Behavior 3)"
+    )
+    assert any(tok in span for tok in ("only those phase", "only the phase", "only those phases")), (
+        "### File-reference re-spawn must name 'only those phase(s)' re-dispatch scope (Behavior 3)"
+    )
+
+    # Ambiguity fallback: full re-run + decisions.md log.
+    assert any(tok in span.lower() for tok in ("full re-run", "ambiguity", "unmappable")), (
+        "### File-reference re-spawn must name the ambiguity fallback (full re-run) (Behavior 3)"
+    )
+
+
+def test_phase_implement_auto_serial_note():
+    """Task 4.1 — tp-phase-implement ## Auto Mode documents that under orchestrator
+    dispatch (Slot 7) the --auto invocation runs inside a subagent and cannot spawn
+    task sub-subagents (L23), so all tasks run serially."""
+    phase_md_path = SKILL_MD.parent.parent / "tp-phase-implement" / "SKILL.md"
+    assert phase_md_path.exists(), f"tp-phase-implement/SKILL.md must exist at {phase_md_path}"
+    phase_body = phase_md_path.read_text()
+
+    assert "\n## Auto Mode" in phase_body, "## Auto Mode section must exist in tp-phase-implement/SKILL.md"
+    auto_section = phase_body.split("\n## Auto Mode", 1)[1].split("\n## ", 1)[0]
+
+    # Serial constraint under orchestrator dispatch.
+    assert any(tok in auto_section.lower() for tok in ("serial", "serially")), (
+        "## Auto Mode must document that tasks run serially under orchestrator dispatch"
+    )
+
+    # Cannot spawn sub-subagents / L23.
+    assert any(tok in auto_section for tok in ("sub-subagent", "L23", "cannot spawn")), (
+        "## Auto Mode must name the sub-subagent constraint (L23 / cannot spawn)"
+    )
+
+    # Standalone behavior preserved.
+    assert any(tok in auto_section.lower() for tok in ("standalone", "human-invoked")), (
+        "## Auto Mode must note standalone (human-invoked) --auto is unaffected"
     )
 
 

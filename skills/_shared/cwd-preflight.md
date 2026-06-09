@@ -7,7 +7,7 @@ skill should refuse early with a one-line `cd` fix before any stray write occurs
 
 ## When to run this preflight
 
-Any skill that operates inside a worktree (tp-merge, tp-design-complete,
+Any skill that operates inside a worktree (tp-merge-from-main, tp-design-complete,
 tp-phase-implement, tp-spike-implement, and the worktree-management skill) must
 run this check near the top of its preflight sequence, after the first-run
 check and before the collaboration preflight.

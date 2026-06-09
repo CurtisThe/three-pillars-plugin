@@ -1,0 +1,227 @@
+"""run_round CLI wrapper — expose the pure run_round step to prose orchestrators.
+
+Invoked by the tp-pr-iterate orchestrator or the standalone /tp-pr-iterate path as
+``python3 skills/tp-pr-iterate/scripts/run_round.py`` with a JSON object on stdin.
+Emits a single-line JSON envelope on stdout and exits:
+
+    0 — ok     (run_round ran; envelope emitted; state written if state_path provided)
+    2 — escalate (any wrapper-internal failure)
+
+Exit 1 is NOT used — there is no schema-retry case here. run_round is pure decision
+logic, not artifact parsing.
+
+C1-clean: imports only stdlib + loop_driver / review_merge (no anthropic, no claude
+subprocess). All Agent() fan-out is performed by the caller; the caller passes merged
+codereview_findings as a value on stdin.
+
+stdin contract (JSON object):
+  state_path  str (optional)  — path to iterate-state.v1.json; if provided, read on
+                                entry and written back on exit. Mutually exclusive with
+                                inline 'state'.
+  state       dict (optional) — inline iterate-state object (test / dry-run mode).
+                                Mutually exclusive with 'state_path'.
+  head_sha    str             — current PR head SHA.
+  codereview_findings  list   — merged /code-review findings for this head (fan-out or
+                                cached value; never a bare [] — use merge_codereview_angles([])
+                                as the no-angles sentinel).
+  reviewed    bool|null       — copilot_reviewed_successfully(pr_url) result; null means
+                                unverifiable (fail-open: Copilot conjunct not satisfied
+                                but not a hard block when expects_copilot=false).
+  unresolved_actionable int|null — ground-truth unresolved-actionable count (re-fetched
+                                   by caller); null means unverifiable (fail-closed: the
+                                   two-stable terminal cannot fire).
+  ci_rollup   list            — statusCheckRollup from the most-recent _ci_settled_on_head
+                                call; used by _ci_all_success.
+  config      dict|null       — .three-pillars/config.json contents. If absent or null,
+                                the wrapper reads .three-pillars/config.json from the cwd
+                                (fail-open: if the file is missing or unreadable the
+                                wrapper falls back to config=None, which defaults both
+                                expects_copilot=true and expects_github_checks=true).
+                                IMPORTANT: on a repo with review.expects_copilot=false,
+                                the caller MUST pass the config explicitly (or ensure the
+                                cwd is the repo root) — omitting config silently defaults
+                                to expects_copilot=true, which prevents code-review-only
+                                convergence. (F-P1)
+  decisions_path str (optional) — path to decisions.md for terminal-line appends.
+  pr_url      str (optional)  — PR URL for label + decisions-line writes.
+
+See detailed-design.md §run_round CLI wrapper for the full stdin/stdout contract.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import loop_driver  # noqa: E402
+
+
+def _emit(envelope: dict, code: int) -> int:
+    """Print the envelope as a single line and return the exit code."""
+    sys.stdout.write(json.dumps(envelope) + "\n")
+    return code
+
+
+def _escalate(event_token: str, detail: str | None = None) -> dict:
+    return {"status": "escalate", "action": None, "terminal": None,
+            "converged": False, "head_sha": None, "state_written": False,
+            "event_token": event_token, "detail": detail}
+
+
+def _load_repo_config(cwd: Path) -> dict | None:
+    """Try to read .three-pillars/config.json from cwd (or parent). Fail-open."""
+    try:
+        cfg_path = cwd / ".three-pillars" / "config.json"
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+    except Exception:
+        pass
+    return None
+
+
+def main() -> int:
+    # Parse stdin — any failure escalates (exit 2 is the contract).
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):
+            raise TypeError(f"stdin must be a JSON object, got {type(payload).__name__}")
+    except (json.JSONDecodeError, TypeError) as exc:
+        return _emit(_escalate("stdin-invalid", f"{type(exc).__name__}: {exc}"), 2)
+
+    # Resolve state: either from state_path or inline state object.
+    state_path_raw = payload.get("state_path")
+    inline_state = payload.get("state")
+
+    if state_path_raw is None and inline_state is None:
+        return _emit(
+            _escalate("stdin-invalid",
+                      "payload must include either 'state_path' or inline 'state'"),
+            2,
+        )
+
+    state_path: Path | None = None
+    if state_path_raw is not None:
+        if not isinstance(state_path_raw, str):
+            return _emit(
+                _escalate("stdin-invalid",
+                          f"state_path must be a string, got {type(state_path_raw).__name__}"),
+                2,
+            )
+        state_path = Path(state_path_raw)
+        try:
+            with open(state_path, "r", encoding="utf-8") as fh:
+                state = json.load(fh)
+        except Exception as exc:
+            return _emit(
+                _escalate("state-read-failed",
+                          f"{type(exc).__name__}: {exc}"),
+                2,
+            )
+    else:
+        state = inline_state
+
+    if not isinstance(state, dict):
+        return _emit(
+            _escalate("stdin-invalid",
+                      f"state must be a JSON object, got {type(state).__name__}"),
+            2,
+        )
+
+    # Extract round inputs from payload.
+    head_sha = payload.get("head_sha")
+    codereview_findings = payload.get("codereview_findings", [])
+    reviewed = payload.get("reviewed")
+    unresolved_actionable = payload.get("unresolved_actionable")
+    ci_rollup = payload.get("ci_rollup") or []
+    decisions_path_raw = payload.get("decisions_path")
+    pr_url = payload.get("pr_url")
+
+    # F-P1: config resolution with safe fallback.
+    # If the caller passes 'config' (even null/None), use it.
+    # If 'config' is absent from the payload altogether, try to load from the
+    # repo's .three-pillars/config.json so that review.expects_copilot=false is
+    # respected even when the caller omits the field. Fail-open: a missing or
+    # unreadable config.json results in config=None, which defaults to
+    # expects_copilot=true and expects_github_checks=true (fail-closed).
+    if "config" in payload:
+        config = payload["config"]
+    else:
+        config = _load_repo_config(Path.cwd())
+
+    if not isinstance(codereview_findings, list):
+        return _emit(
+            _escalate("stdin-invalid",
+                      f"codereview_findings must be an array, got {type(codereview_findings).__name__}"),
+            2,
+        )
+    if not isinstance(ci_rollup, list):
+        ci_rollup = []
+
+    decisions_path = Path(decisions_path_raw) if isinstance(decisions_path_raw, str) else None
+
+    # Call run_round — any exception escalates.
+    try:
+        from datetime import datetime, timezone
+
+        now = datetime.now(tz=timezone.utc)
+        result = loop_driver.run_round(
+            state,
+            head_sha=head_sha,
+            codereview_findings=codereview_findings,
+            reviewed=reviewed,
+            unresolved_actionable=unresolved_actionable,
+            ci_rollup=ci_rollup,
+            config=config,
+            now=now,
+            decisions_path=decisions_path,
+            pr_url=pr_url,
+            label_fn=None,  # live label application (shells out gh)
+        )
+    except Exception as exc:
+        return _emit(
+            _escalate("run-round-failed", f"{type(exc).__name__}: {exc}"),
+            2,
+        )
+
+    updated_state = result["state"]
+    action = result["action"]
+    terminal = result["terminal"]
+
+    # Persist updated state back to state_path if provided.
+    state_written = False
+    if state_path is not None:
+        try:
+            with open(state_path, "w", encoding="utf-8") as fh:
+                json.dump(updated_state, fh, indent=2)
+            state_written = True
+        except Exception as exc:
+            return _emit(
+                _escalate("state-write-failed", f"{type(exc).__name__}: {exc}"),
+                2,
+            )
+
+    # Determine converged flag.
+    converged = terminal is not None and "two-stable" in str(terminal)
+
+    envelope: dict = {
+        "status": "ok",
+        "action": action,
+        "terminal": terminal,
+        "converged": converged,
+        "head_sha": head_sha,
+        "state_written": state_written,
+    }
+    # For inline-state test mode, echo the updated state.
+    if state_path is None:
+        envelope["state"] = updated_state
+
+    return _emit(envelope, 0)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

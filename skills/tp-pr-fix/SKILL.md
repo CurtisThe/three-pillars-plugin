@@ -40,8 +40,10 @@ Two callers:
   - `gh pr view <url> --json labels` — label idempotency check.
   - `gh pr view <url> --json headRefName` — resolve the PR head ref the commit
     must land on (F1; see ## Run sequence step 6).
-  - `gh pr edit <url> --add-label <label>` and `gh label create <label>` — label
-    application (delegated to `label_manager.ensure_pr_label`).
+  - `gh api repos/{owner}/{repo}/issues/{n}/labels` and `gh label create <label>` —
+    label application via REST (delegated to `label_manager.ensure_pr_label`; the
+    REST endpoint is used instead of `gh pr edit --add-label`, which fails on a
+    classic-Projects repo with a GraphQL `projectCards` deprecation error).
   - `gh api repos/{owner}/{repo}/collaborators/{user}` — identity gate (with a
     trusted-reviewer-bot short-circuit; see step 6).
   - `gh pr diff <url>` — diff context for the classifier.
@@ -178,6 +180,16 @@ What `run_round` does, in order:
   (read from `git config user.email`), so auditors can distinguish bot commits
   from the human author in `git log --format=%ce`.
 - Pushes the branch upstream.
+- **Auto-strips a now-stale human approval (D2, fail-OPEN).** The round-push just
+  advanced the PR head, so any prior `tp:human-approved` label was approving the OLD
+  head and is now stale. `run_round` calls `auto_strip_after_push(pr_url)` (which
+  resolves the post-push `git rev-parse HEAD` and invokes
+  `human_approval.strip_stale_approval(pr_url, new_head_oid)`), mirroring
+  `/tp-merge-from-main` step 7. This is **FAIL-OPEN**: any error is swallowed, so a
+  strip failure can NEVER block the round. The gate-time SHA-equality currency
+  re-check (`pred_human_approved` → `_approval_current_on_head`, `commit_id ==
+  headRefOid`) is the always-on fail-closed backstop, so a missed strip never defeats
+  correctness — the stale label is treated as absent at gate time.
 - Calls `label_manager.ensure_pr_label(pr_url, "tp:do-not-merge-yet")`. Idempotent
   by virtue of the `gh pr view --json labels` pre-check. Creates the label via
   `gh label create` if missing, then retries the add.

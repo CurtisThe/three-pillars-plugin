@@ -12,7 +12,7 @@ One detector, several surfaces (all read this same module):
   2. /tp-guide + /tp-session-restore — the SOFT, non-blocking closeout nudges
      (callers pass --exclude {current-design} so you aren't nagged about your
      own in-flight work).
-  3. /tp-merge — a pre-push closeout warning (warn, never block).
+  3. /tp-merge-from-main — a pre-push closeout warning (warn, never block).
 
 This module is a *reporter*, never a gate: `main()` ALWAYS exits 0, and every
 function fails open (any OS/IO error → empty result) so a hygiene check can never

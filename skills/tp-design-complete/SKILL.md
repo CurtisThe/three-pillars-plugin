@@ -36,6 +36,8 @@ Mark a finished design as complete, archive it out of the active designs directo
 
    b. **Create `three-pillars-docs/completed-tp-designs/`** directory if it doesn't exist.
 
+   b1. **Merge any spec delta before archiving**: If `three-pillars-docs/tp-designs/{design-name}/spec-delta.md` exists, run `/tp-spec merge {design-name}` to merge it into the domain base spec at `three-pillars-docs/specs/<domain>/spec.md`. **This step is a no-op skip when the design has no `spec-delta.md`** (e.g., designs not scaffolded via `/tp-spec add`, like `living-spec-layer` itself) — if `three-pillars-docs/tp-designs/{design-name}/spec-delta.md` does not exist, skip the merge sub-step (no-op) and proceed to the `git mv`. If the merge is blocked (conflict or parse error), surface the error and stop — do not proceed with archival until the delta is clean or deliberately removed.
+
    c. **Move the design directory** using `git mv three-pillars-docs/tp-designs/{design-name} three-pillars-docs/completed-tp-designs/{design-name}` to preserve git history.
 
    d. **Stamp the completion date on `design.md` at its new location**. Edit `three-pillars-docs/completed-tp-designs/{design-name}/design.md`. If it already has YAML frontmatter (starts with `---`), add a `completed: YYYY-MM-DD` field to the existing frontmatter. If it has no frontmatter, prepend a new frontmatter block:
@@ -65,6 +67,10 @@ Mark a finished design as complete, archive it out of the active designs directo
         git add three-pillars-docs/product_roadmap.md
         # cleanup-pending lock phase from the start of step 6f — MUST be in this commit
         git add three-pillars-docs/completed-tp-designs/{design-name}/lock.json
+        # Merged base spec from step b1 — the base spec lives OUTSIDE the design dir, so git mv
+        # does NOT pick it up; it must be staged explicitly or it silently misses the commit.
+        # If no spec-delta.md existed (the merge sub-step was a no-op), this line is a harmless no-op.
+        git add three-pillars-docs/specs/<domain>/spec.md 2>/dev/null || true
         # Sanity check before commit — design.md should appear as a rename WITH insertions (the frontmatter),
         # NOT a pure rename (0 insertions). If you see a pure rename, step 6d's edit didn't land in the
         # working tree at the new path; redo the frontmatter edit at the new path and re-add before committing.
@@ -80,7 +86,7 @@ Mark a finished design as complete, archive it out of the active designs directo
 
    g. **Offer to open a PR** back to the base branch:
       - The `phase = "cleanup-pending"` marker was set and committed as part of the archival commit in step 6f (do not re-stage it here). If you somehow reach this step with the lock still showing an earlier phase (e.g., 6f was hand-run without it), set it now and amend the archival commit (`git add .../lock.json && git commit --amend --no-edit`) **before** opening the PR — the marker must be on the branch the PR ships, or `/tp-post-merge`'s discovery gate can't find the design.
-        This phase marker is the **discovery signal** that tells `/tp-post-merge` (and `/tp-merge` step 8) the design is awaiting teardown — it is *not* the safety gate. The actual gate is `/tp-post-merge`'s own merge verification (`verify_merged.py`); `/tp-post-merge` is the sole skill that runs post-merge cleanup, and it tears down only on a verified merge regardless of this marker.
+        This phase marker is the **discovery signal** that tells `/tp-post-merge` (and `/tp-merge-from-main` step 8) the design is awaiting teardown — it is *not* the safety gate. The actual gate is `/tp-post-merge`'s own merge verification (`verify_merged.py`); `/tp-post-merge` is the sole skill that runs post-merge cleanup, and it tears down only on a verified merge regardless of this marker.
       - Resolve the *default* branch: try `git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null` and strip `origin/`; if that returns nothing, fall back to `main` (then `master`) if the remote has that ref (`git ls-remote --heads origin main` / `master`). Call this `{default}`.
       - **Parent-aware base resolution** — the current branch may have been cut from another in-flight design's branch rather than from `{default}`. The PR should target the parent in that case so the design's lineage is preserved through to merge.
         - Compute the repo root: `ROOT="$(git rev-parse --show-toplevel)"`.
@@ -121,13 +127,13 @@ Mark a finished design as complete, archive it out of the active designs directo
       - On **no**: leave the commit in place and remind the user how to push + open a PR when ready.
       - **Never merge the PR** from within the skill — review happens on the PR, not inside the skill.
       - **This skill ends at PR-open** — teardown is `/tp-post-merge`'s sole responsibility. After reporting the PR URL, tell the user:
-        > After the PR is merged, run `/tp-post-merge {design-name}` to delete the branch and worktree. If you use `/tp-merge` to merge, it will auto-chain `/tp-post-merge` automatically.
+        > After the PR is merged, run `/tp-post-merge {design-name}` to delete the branch and worktree. If you use `/tp-merge-from-main` to sync the base in, its step 8 will auto-chain `/tp-post-merge` automatically once the completion PR has landed.
 
    h. **Report success** with:
       - The archive location: `three-pillars-docs/completed-tp-designs/{design-name}/`
       - The commit SHA produced in step 6f (short form)
       - The PR URL if one was opened, or the branch name the user still needs to push/PR manually
-      - Next step: `/tp-post-merge {design-name}` after the PR is merged (or `/tp-merge` auto-chains it)
+      - Next step: `/tp-post-merge {design-name}` after the PR is merged (or `/tp-merge-from-main` step 8 auto-chains it)
 
 ## Rules
 - Use `git mv` for the move so history follows the files.
@@ -137,7 +143,7 @@ Mark a finished design as complete, archive it out of the active designs directo
 - The frontmatter block uses YAML between `---` delimiters. "Frontmatter" is metadata at the top of a markdown file — a convention from static site generators like Jekyll and Hugo. Many tools parse it automatically.
 - **Commit scope**: stage only the archival paths listed in step 6f. Never use `git add -A` / `git add .` — unrelated WIP must not be swept into the completion commit. If the working tree has unrelated changes, stop before committing and ask the user to handle them first.
 - **Commit message**: do not include a Co-Authored-By trailer. The completion commit is a mechanical archival step; the trailer is not appropriate here.
-- **Ends at PR-open — teardown is `/tp-post-merge`'s sole responsibility**: this skill opens the PR (or surfaces the compare URL) but never merges it and never deletes the `tp/{design-name}` branch. Post-merge teardown (branch delete, worktree remove, MRU clear) lives exclusively in `/tp-post-merge {design-name}`. `/tp-merge` step 8 auto-chains it after a successful merge. No merge, no branch delete inside this skill.
+- **Ends at PR-open — teardown is `/tp-post-merge`'s sole responsibility**: this skill opens the PR (or surfaces the compare URL) but never merges it and never deletes the `tp/{design-name}` branch. Post-merge teardown (branch delete, worktree remove, MRU clear) lives exclusively in `/tp-post-merge {design-name}`. `/tp-merge-from-main` step 8 auto-chains it after a successful completion-PR merge. No merge, no branch delete inside this skill.
 - **Never bypass hooks**: if `git commit` or `git push` is blocked by a hook, surface the output and stop — do not retry with `--no-verify`.
 
 ## Auto Mode
@@ -145,15 +151,15 @@ Mark a finished design as complete, archive it out of the active designs directo
 `--auto` is a **Shape B (Generator)** per `skills/_shared/auto-mode.md`. It exists so the autonomous orchestrator (`/tp-run-full-design` Tier 5.6) can archive a finished design unattended — the *archival* half of closeout-before-merge. It performs the mechanical archival and **nothing that needs a human or owns the PR surface**.
 
 In `--auto`:
-- **Run the archival half only**: step 6c `git mv` to `completed-tp-designs/`, step 6d frontmatter completion **stamp**, step 6e Current Focus / Design Inventory rewrite, step 6f `Complete design: {design-name}` **commit** (scoped `git add` of the archival paths, no Co-Authored-By), and set `phase = "cleanup-pending"` on the archived `lock.json`.
+- **Run the archival half only**: step 6b1 `/tp-spec merge {design-name}` (no-op if no `spec-delta.md` — see step 6b1 for the skip rule), step 6c `git mv` to `completed-tp-designs/`, step 6d frontmatter completion **stamp**, step 6e Current Focus / Design Inventory rewrite, step 6f `Complete design: {design-name}` **commit** (scoped `git add` of the archival paths including `three-pillars-docs/specs/<domain>/spec.md` if a delta was merged, no Co-Authored-By), and set `phase = "cleanup-pending"` on the archived `lock.json`.
 - **Skip step 5 (the confirmation prompt)** — proceed without asking.
 - **Skip step 6g (PR)** — `--auto` opens **no PR**, requests **no Copilot review**, and performs no cleanup/teardown of the worktree. PR-opening is always the **caller's** concern: in the orchestrator path, Tier 6 opens the single completion PR (`tp/{slug} → {default}`) *after* this archival commit lands; opening one here would double up. The step-6g Copilot review request rides inside the skipped step 6g — under `--auto` it is never invoked. **In the autonomous path, Tier 6 is the sole initial completion-PR review requester.** (See `tp-run-full-design/SKILL.md` ## Tier 6 § Step 2.) Log exactly one line to `three-pillars-docs/tp-designs/{design-name}/decisions.md` as a sanctioned `--auto` audit-trail write (same class as the BLOCKED-learn logged exception):
   ```
   [tp-design-complete] review-request-deferred-to-tier-6
   ```
-  Post-merge cleanup/teardown now lives exclusively in `/tp-post-merge` — setting `cleanup-pending` on the archived lock is what allows the orchestrator or `/tp-merge` step 8 to chain it automatically after the human merge.
+  Post-merge cleanup/teardown now lives exclusively in `/tp-post-merge` — setting `cleanup-pending` on the archived lock is what allows the orchestrator or `/tp-merge-from-main` step 8 to chain it automatically after the human merge.
 - **Honor the step-3 learn-ran hard-block, without prompting.** It is **auto-satisfied** when `/tp-design-learn` (or `/tp-spike-learn`) ran immediately prior in the same run (orchestrator Slot 9, the normal case). If it is *not* satisfied, **BLOCK**: append a `### [tp-design-complete] BLOCKED — learn-not-run` entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` and exit non-zero (the orchestrator escalates). Do **not** auto-pass via `--skip-learn` and do **not** prompt.
 - **The BLOCK `decisions.md` write is the sanctioned `--auto` audit-trail exception, not silent mutation.** `decisions.md` is the permanent, human-reviewed decision log that *is* the autonomous run's accountability record (see `auto-mode.md`); appending a BLOCKED entry is logging, not the "silent mutation of docs/designs/code without the human merge gate" the vision non-goal forbids. The archival commit itself still lands inside the human-gated completion PR — never auto-merged.
 - **Lock**: the directory move carries `lock.json` with it (per `skills/_shared/collaboration.md`), exactly as in interactive mode. The `cleanup-pending` phase is set on the archived lock so `/tp-post-merge` can find and tear down the design after the human merge.
 
-**Contract: in `--auto`, this skill archives + stamps + rewrites Current Focus + commits + sets cleanup-pending, opens no PR, removes no worktree, never prompts, and BLOCKs (logging to `decisions.md`) rather than completing a design whose learn step has not run.**
+**Contract: in `--auto`, this skill merges any spec delta (no-op if absent) + archives + stamps + rewrites Current Focus + commits (staging the merged base spec if a delta was merged) + sets cleanup-pending, opens no PR, removes no worktree, never prompts, and BLOCKs (logging to `decisions.md`) rather than completing a design whose learn step has not run.**

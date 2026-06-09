@@ -22,7 +22,9 @@
         "awaiting-human-review",
         "cap-exhausted",
         "convergence-failure",
-        "errored"
+        "errored",
+        "awaiting-copilot",
+        "blocked-no-independent-review"
       ]
     },
     "iteration": {
@@ -41,7 +43,10 @@
       "type": "string"
     },
     "last_verdict": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "enum": [
         null,
         "structural-present",
@@ -55,11 +60,24 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["phase", "at"],
+        "required": [
+          "phase",
+          "at"
+        ],
         "properties": {
-          "phase": {"type": "string"},
-          "at": {"type": "string"},
-          "note": {"type": ["string", "object", "null"]}
+          "phase": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "object",
+              "null"
+            ]
+          }
         }
       }
     },
@@ -68,7 +86,10 @@
       "minimum": 0
     },
     "original_diff_lines": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0
     },
     "consecutive_structural_rounds": {
@@ -76,21 +97,34 @@
       "minimum": 0
     },
     "last_loop_sha": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "last_comment_seen_at": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "resolved_thread_ids": {
       "type": "array",
-      "items": {"type": "string"}
+      "items": {
+        "type": "string"
+      }
     },
     "seen_thread_ids": {
       "type": "array",
-      "items": {"type": "string"}
+      "items": {
+        "type": "string"
+      }
     },
     "termination_reason": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "enum": [
         null,
         "classifier-flip",
@@ -98,6 +132,21 @@
         "idle-timeout",
         "human-push",
         "all-conflicting"
+      ]
+    },
+    "reviewed_head_shas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "last_codereview_findings": {
+      "type": "array"
+    },
+    "last_codereview_head_sha": {
+      "type": [
+        "string",
+        "null"
       ]
     }
   }

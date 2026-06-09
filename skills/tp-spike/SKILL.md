@@ -19,6 +19,9 @@ Create a spike design through conversation with the user. Spikes are time-boxed 
 1. **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 2. **Resolve the design directory**: `three-pillars-docs/tp-designs/{spike-name}/`. Create it if it doesn't exist.
 3. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "design"`. This verifies the branch and acquires or refreshes the lock for this spike. Honor `--force-takeover` if passed.
+
+   **Seat-context note**: if the collaboration preflight notes that you are on the base branch (`{base}` / `master`), treat that as an affirmation — being on `{base}` **in the resolved seat** (the base checkout / worktree host) is the correct coordination point for spinning up a new spike worktree. It is not a reason to pause or seek an alternative checkout. See `skills/_shared/topology.md` for the canonical seat and worktree layout; the collaboration preflight's branch-check prose is unchanged.
+
 3b. **Update `.claude/last-design` MRU** — now that the lock/branch are claimed, run the MRU snippet at the bottom of `skills/_shared/validate-name.md` (the bash that prepends the spike name, dedupes, caps at 10). This is the moment a subsequent `/clear` + `/tp-session-restore` (no argument) needs to resolve to *this* spike, not whatever was active before. The snippet handles the `.gitignore` append; do not `git add` the file.
 4. **Check for existing `design.md`**. If it exists, read it and ask the user whether they want to revise it or start fresh.
 5. **If `--parent` is given**, verify `three-pillars-docs/tp-designs/{design-name}/design.md` exists. Read it so you understand the parent context.

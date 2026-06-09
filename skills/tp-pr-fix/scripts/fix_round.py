@@ -33,9 +33,16 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from label_manager import ensure_pr_label  # noqa: E402  (sibling module)
+
+# ---- sys.path: ensure _shared/ is importable so the auto-strip hook resolves ----
+# fix_round.py lives at skills/tp-pr-fix/scripts/; _shared/ is skills/_shared/.
+_SHARED_DIR = Path(__file__).resolve().parent.parent.parent / "_shared"
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
 
 
 _FIX_LABEL = "tp:do-not-merge-yet"
@@ -236,6 +243,31 @@ def _ensure_on_head_ref(head_ref: str, loop_mode: bool) -> None:
 # ---------- public API ----------
 
 
+def _auto_strip_after_push(pr_url: str) -> bool:
+    """Strip a now-stale `tp:human-approved` after the round-push advanced the head.
+
+    FAIL-OPEN by contract: resolves the post-push head OID (`git rev-parse HEAD`) and
+    calls `human_approval.strip_stale_approval(pr_url, new_head_oid)`. ANY error — git
+    failure, import failure, gh DELETE failure — is swallowed and False is returned, so
+    the strip can NEVER block a fix round. Correctness is guaranteed independently by
+    the gate-time SHA-equality currency re-check, not by this convenience strip. Mirrors
+    `skills/tp-merge-from-main/scripts/auto_strip_hook.run`.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        new_head_oid = result.stdout.strip()
+        if result.returncode != 0 or not new_head_oid:
+            return False
+        from human_approval import strip_stale_approval  # noqa: E402 (lazy, _shared/)
+
+        return strip_stale_approval(pr_url, new_head_oid)
+    except Exception:
+        return False
+
+
 def run_round(
     design: str,
     pr_url: str,
@@ -311,6 +343,14 @@ def run_round(
 
     # 4. Push.
     subprocess.run(["git", "push"], check=True)
+
+    # 4.5. Auto-strip a now-stale human approval (D2, fail-OPEN). The round-push just
+    #      advanced the PR head, so any prior `tp:human-approved` label was approving
+    #      the OLD head and is stale. Mirror /tp-merge-from-main step 7: call the strip
+    #      hook with the post-push head OID. FAIL-OPEN — a strip failure must NEVER
+    #      block the round (the gate-time SHA-equality re-check is the fail-closed
+    #      backstop). See skills/_shared/human_approval.strip_stale_approval.
+    _auto_strip_after_push(pr_url)
 
     # 5. Label.
     ensure_pr_label(pr_url, _FIX_LABEL)

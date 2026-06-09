@@ -9,6 +9,9 @@ Enforces:
   - refuse-on-unverified verb present
   - no-arg scan form present
   - ## Auto Mode section shape
+  - candidate branch teardown documented (5f local + 5g remote)
+  - candidate branch deletion in report
+  - ## Backfill sweep section present
 
 (The Phase-1 `cleanup-pending` enum assertion lives in its own self-contained
 file, `test_collaboration_phase_enum.py` — it pins `collaboration.md`, not this
@@ -156,4 +159,59 @@ def test_auto_mode_section_shape_b() -> None:
     )
     assert "decisions.md" in block, (
         "## Auto Mode section must reference decisions.md"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 2.1: candidate branch teardown (5f local + 5g remote)
+# ---------------------------------------------------------------------------
+
+def test_candidate_branch_teardown_present() -> None:
+    """SKILL.md must document both local and remote candidate branch deletion."""
+    text = _read()
+    assert "candidate/{name}/single" in text, (
+        "SKILL.md must reference the candidate branch shape `candidate/{name}/single`"
+    )
+    assert re.search(r"git branch -D candidate/", text), (
+        "SKILL.md must include `git branch -D candidate/` for local force-delete"
+    )
+    assert re.search(r"git push origin --delete candidate/", text), (
+        "SKILL.md must include `git push origin --delete candidate/` for remote delete"
+    )
+
+
+def test_candidate_in_report() -> None:
+    """Report section must mention candidate-branch deletion (local + remote)."""
+    text = _read()
+    # Find the step 6 Report section
+    report_match = re.search(
+        r"^6\.\s+\*\*Report\*\*.*?(?=^[0-9]+\.|^##|\Z)", text, re.DOTALL | re.MULTILINE
+    )
+    assert report_match, "Step 6 Report section not found"
+    report_block = report_match.group(0)
+    assert re.search(r"[Cc]andidate.*branch.*delete|[Cc]andidate.*branch.*deleted", report_block), (
+        "Step 6 Report must mention candidate branch deletion"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: ## Backfill sweep section
+# ---------------------------------------------------------------------------
+
+def test_backfill_sweep_section_present() -> None:
+    """SKILL.md must have a ## Backfill sweep section referencing sweep_candidates.py."""
+    text = _read()
+    assert "## Backfill sweep" in text, (
+        "SKILL.md must have a `## Backfill sweep` heading"
+    )
+    assert "sweep_candidates.py" in text, (
+        "## Backfill sweep section must reference `sweep_candidates.py`"
+    )
+    # Should describe the interactive checklist for archived/orphaned
+    assert re.search(r"orphaned|archived|checklist", text, re.IGNORECASE), (
+        "## Backfill sweep section must describe orphaned/archived branches and checklist"
+    )
+    # Should describe --auto delete behavior
+    assert re.search(r"--auto.*delete|delete.*--auto|auto.*archived|archived.*auto", text, re.IGNORECASE), (
+        "## Backfill sweep section must document --auto delete-all-archived behavior"
     )
