@@ -15,7 +15,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars
 ```
 
-Restart Claude Code. That's it — 30 skills and 18 council agents are live.
+Restart Claude Code. That's it — 38 skills and 18 council agents are live.
 
 **Verify** by typing `/tp-guide` in any project. If the skill runs, you're set.
 
@@ -72,7 +72,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 Three layers, one source of truth:
 
 - **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
-- **The Claude Code reference implementation** — `skills/` (30 `tp-*` skills) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Claude Code reference implementation** — `skills/` (37 `tp-*` skills + `/council`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
 - **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
 
 ## What's coming (monthly cadence)
@@ -133,7 +133,7 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## What's included
 
-**30 skills** organized into pipelines:
+**38 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|

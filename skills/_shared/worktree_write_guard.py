@@ -41,6 +41,7 @@ _LIVING_DOCS = frozenset({
     "architecture.md",
     "product_roadmap.md",
     "known_issues.md",
+    "known_issues_resolved.md",  # append-only RESOLVED archive (same governance class)
     "RELEASING.md",
 })
 

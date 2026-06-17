@@ -29,7 +29,7 @@ Fresh project setup follows a deliberate order — **why** before **how**, **how
 2. **`/tp-docs-init`** — Scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` from codebase analysis. Uses `vision.md` as context.
 3. **`/tp-test-setup`** — Configures test infrastructure (test runner, layout, permissions, starter test). Runs *after* architecture so test-runner and layout choices are informed by the documented structure, not guessed at before.
 
-- **`/tp-guide [intent]`** — Read project docs and recommend the highest-impact next step. Accepts optional freeform intent (e.g., `/tp-guide auth feels fragile`). Helps choose the right approach: just do it, spike, or full design. Weighs recommendations against `three-pillars-docs/vision.md`.
+- **`/tp-guide [intent]`** — Read project docs and recommend the highest-impact next step. Accepts optional freeform intent (e.g., `/tp-guide auth feels fragile`). Helps choose the right weight class on the design depth axis: `just-do-it`, `light`, `spike`, or `full` (see `skills/_shared/weight-class.md`). Weighs recommendations against `three-pillars-docs/vision.md`.
 
 ## First-Run Preflight
 
@@ -137,6 +137,8 @@ When multiple developers share a project, two conventions prevent stepping on ea
 Lock-enforcing skills (`/tp-design`, `/tp-spike`, `/tp-design-detail`, `/tp-plan`, `/tp-spike-plan`, `/tp-phase-implement`, `/tp-spike-implement`) run a preflight that:
 - Warns if you're on `main`/`master` and offers to create `tp/{design-name}`.
 - Refuses to proceed if another developer holds the lock. Pass `--force-takeover` to claim it (the prior holder is recorded in `previous_owners[]`).
+
+> **Worktree hygiene.** The base checkout (the seat) is the worktree host; design/spike work runs in a dedicated worktree at `../<repo>-wt/{name}`, never in-place on the seat. When a lock-enforcing skill detects you are on the default branch in the seat, it offers to provision the worktree (`git worktree add ../<repo>-wt/{name} tp/{name}`) and instructs you to `cd` into it before re-running. Under `--auto`/fleet the skill refuses-with-instruction and the caller owns provisioning. The worktree-isolation guard backstops at commit time.
 
 Graceful handoff: run `/tp-design-release {name}` to step away cleanly — `owner` goes to `null` and the next person claims the design without needing `--force-takeover`.
 

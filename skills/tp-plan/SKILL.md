@@ -27,7 +27,7 @@ Turn a detailed design into a concrete, executable task list.
    - **Small enough** to implement in a single red-green-refactor cycle (typically one function or one class method)
    - **Independently testable** — completing the task means tests pass
    - **Ordered** — later tasks can depend on earlier ones, but not vice versa
-6. **Write `three-pillars-docs/tp-designs/{design-name}/plan.md`** using this exact format:
+6. **Write `three-pillars-docs/tp-designs/{design-name}/plan.md`** using this exact format. If design.md carries a `weight-class` frontmatter block, stamp the same class onto plan.md (via `weight_class.py`'s `write_class` or the `---\nweight-class: <class>\n---` block directly at the top — the class propagates from design.md to every generated artifact):
 
 ```markdown
 # <Design Name> — Implementation Plan
@@ -62,6 +62,7 @@ Turn a detailed design into a concrete, executable task list.
 - **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this design.
 - Every task MUST have a test. No "write boilerplate" or "create empty file" tasks.
+- **Cap per-file test size at planning time** (caps: `CLAUDE.md` §File Size Limits): a task whose test additions would push a test file past the soft-warn names a split — tests distributed across files by unit/scenario. The plan emits split files, never monoliths.
 - Tasks within a phase can run in parallel (no interdependencies). Tasks across phases are sequential.
 - Keep task count realistic — a phase of 3-7 tasks is healthy. More than 10 suggests the phase should split.
 - Each phase header carries a `(~Nk)` budget annotation and should stay under the **200k** per-phase cap — the `phase-implement` slot budget from tp-run-full-design's static budget table. Split any phase whose estimate exceeds it.

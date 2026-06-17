@@ -324,7 +324,7 @@ existing flag and STEP 0–9 step runs exactly as before.
 CLI:
 
 ```
-/council --orchestrator --round {1|2} --members name1,name2,... --artifacts path1,path2[,...] [--round1 path-to-round1-bundle.json]
+/council --orchestrator --round {1|2} --members name1,name2,... --artifacts path1,path2[,...] [--code-input base=<ref>,candidate=<ref>,files=<p1>;<p2>;…] [--round1 path-to-round1-bundle.json]
 ```
 
 - `--orchestrator` — selects this mode. Absent ⇒ the standalone Coordinator
@@ -335,6 +335,17 @@ CLI:
 - `--artifacts path1,path2[,...]` — comma-separated file **paths** the personas
   read themselves. **Never inline file contents** (mirrors `tp-plan-audit`'s "do
   NOT paste file contents" rule) — pass paths only, preserving context isolation.
+- `--code-input base=<ref>,candidate=<ref>,files=<p1>;<p2>;…` — **Slot-8-only**
+  (`impl-audit`) additive code addition, distinct from `--artifacts`. It is NOT a
+  path: a candidate diff is a git **ref-pair** the member reproduces with its own
+  `git`, not a file on disk. `base`/`candidate` are the three-dot
+  `tp/{slug}` / `origin/candidate/{slug}/single` refs (the `origin/` prefix on the
+  candidate ref); `files` is the diff's name-only touched-file list. Each member
+  runs three-dot `git diff {base}...{candidate}` and `git show {candidate}:<file>`
+  itself and judges the candidate **code against** the `--artifacts`
+  (`design.md` + `plan.md`) — reusing the same "Never inline file contents"
+  framing (refs + paths, never the diff body). **Additive**: absent `--code-input`
+  (every Slot-4/6 dispatch) ORCHESTRATOR MODE is **byte-identical to today**.
 - `--round1 path-to-round1-bundle.json` — (Round 2 only) the **full Round-1
   round-bundle file** from Round 1, so each persona sees every peer's complete
   Round-1 envelope.
@@ -343,11 +354,29 @@ CLI:
 
 Dispatch the N named members **IN PARALLEL** as top-level `council-{name}`
 subagents — the orchestrator is the caller, so this is a legal single-level
-fan-out. Each member is **blind to its peers** (sees only the artifact paths and
-the deliberation question). Each returns a **Round-1 verdict envelope**
+fan-out. Each member is **blind to its peers** (sees only the artifact paths, the
+deliberation question, and — **for the `impl-audit` slot, when `--code-input` is
+present** — the `--code-input` refs it reads via its own read-only git). Each
+returns a **Round-1 verdict envelope**
 (`tp-run-full-design/council-round1/v1`): `{schema, member, verdict, confidence,
 findings[], argument_summary}`, where each `findings[]` item carries its own
 per-finding `confidence` (mirroring `audit-return.v1`'s finding shape).
+
+**Code-input instruction (`impl-audit` slot only, when `--code-input` is
+present):** the member does NOT receive the diff body — it **reads the candidate
+code itself** via its own read-only git, in addition to the `--artifacts` paths
+and the deliberation question. Concretely, with the `base`/`candidate` three-dot
+refs from `--code-input` (the `origin/` prefix on the candidate), the member runs:
+
+```
+git diff tp/{slug}...origin/candidate/{slug}/single        # three-dot candidate diff
+git show origin/candidate/{slug}/single:<path>             # full file as needed
+```
+
+and judges the candidate **code against** the `--artifacts` (`design.md` +
+`plan.md`). This is what makes the impl-audit members code-aware rather than
+artifact-only. **design-audit / plan-audit members never receive `--code-input`
+and stay artifact-only** — they read only the `--artifacts` paths.
 
 ### Round 2 dispatch contract (`--round 2`)
 
@@ -361,6 +390,15 @@ returns a **Round-2 rebuttal envelope** (`tp-run-full-design/council-round2/v1`)
 `findings[]`). Round 2 deliberately does **not** re-emit findings — Round-1
 findings stay authoritative; Round 2 is index-anchored cross-examination the
 synthesizer weighs.
+
+**Code-input in Round 2 (`impl-audit` slot only, when `--code-input` is
+present):** the same `--code-input` ref-pair is passed through, and each member
+may re-read the candidate code via its own read-only git (the same three-dot
+`git diff tp/{slug}...origin/candidate/{slug}/single` + `git show
+origin/candidate/{slug}/single:<path>` it ran in Round 1) to ground its
+cross-examination of a peer's code-level finding in the actual diff rather than
+the artifacts alone. design-audit / plan-audit Round-2 members remain
+artifact-only.
 
 ### Return shape — the round-bundle
 

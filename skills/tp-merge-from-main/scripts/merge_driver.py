@@ -33,6 +33,7 @@ from verify import verify  # noqa: E402
 
 DEFAULT_LIVING_DOCS = (
     "three-pillars-docs/known_issues.md",
+    "three-pillars-docs/known_issues_resolved.md",  # append-only RESOLVED archive (same conflict class)
     "three-pillars-docs/product_roadmap.md",
     "three-pillars-docs/architecture.md",
     "three-pillars-docs/vision.md",

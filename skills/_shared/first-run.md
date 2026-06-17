@@ -13,10 +13,25 @@ Before any other check, run the cheap-path probe:
 3. `branch_protection.applied_at` must be non-null OR `branch_protection.declined` must be true OR no `origin` remote is configured.
 4. **Aider-install is settled** — invoke `aider_install_check.aider_on_path()`; if it returns True, this condition is satisfied (the user already has aider, no offer needed). Otherwise invoke `aider_install_check.cheap_check()` and accept either `skip-decided` (user accepted/declined — sticky) or `skip-remind-pending` (remind-later target hasn't elapsed) as satisfying.
 5. **Seat is a confirmed-healthy coordination point** — invoke `seat_resolve.sh --am-i-seat --repo .`. **Exit 0 satisfies the condition** (path-shape says seat AND the bare-bit is false → not the footgun, not a design worktree masquerading as the seat). This adds one constant-time subprocess (`git rev-parse --is-bare-repository` + a path-string test — no `worktree list`, no network) to the hot path. **Exit 1 (uncertain) does NOT early-exit** — it falls through to the `## Seat-state detection` section below, which runs the full `--detect`.
+6. **Worktree immunization is settled** — read `worktree_immunization` from the already-loaded config. Condition is satisfied if `worktree_immunization.applied_at` is non-null OR `worktree_immunization.declined` is true. This is a single config-read condition (no network, no subprocess) that rides the config read from condition 1. Cost: zero additional I/O on the hot path.
 
-If **all five** conditions hold, **return immediately**. The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), no network.
+If **all six** conditions hold, **return immediately**. The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), no network.
 
-If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section.
+If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state → worktree-immunization). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section; condition 6 failing routes to the `## Worktree-immunization offer` section below.
+
+## Worktree-immunization offer
+
+Runs when condition 6 fails (i.e., `bootstrap_immunization.cheap_check(repo)` returns `needs-prompt`). The offer installs `extensions.worktreeConfig=true` and the `heal-core-bare` hook to prevent the harness `core.bare` bleed (see M16 in `three-pillars-docs/known_issues.md`).
+
+Invoke `python3 "$TP_ROOT"/skills/_shared/bootstrap_immunization.py` status, then offer:
+
+> "Seat immunization protects your repo from the harness `core.bare` bleed (M16). Apply now? [yes/no]"
+
+- **yes**: call `bootstrap_immunization.apply(repo)` then `mark_applied(repo)`. Confirm success in one line.
+- **no**: call `mark_declined(repo)`. Never re-asks (declined is sticky per config record).
+- **`--auto`**: skip the prompt; append a `[first-run]` entry to `decisions.md` (same format as branch-protection auto-skip). Never mutate.
+
+The offer fires at most once per repo (the `worktree_immunization.applied_at` / `declined` fields suppress repeats). It never fires on a second invocation if the user already answered.
 
 There is no release detection: releasing the three-pillars plugin itself is a dev-only flow documented in `three-pillars-docs/RELEASING.md`, not a per-repo concern for installed projects.
 
@@ -106,3 +121,51 @@ The `decisions.md` lives in the design directory the skill is operating on (`thr
 tp-design-complete, and the worktree-management skill) additionally run the cwd preflight after this preflight.
 See the "Inline worktree-driving is unsupported" section of `collaboration.md` for the two controls
 (fail-closed commit guard + fail-open cwd preflight) and the one-line fix.
+
+## Resolve-root preamble
+
+Every `tp-*` SKILL.md already reads this file as its first step, making this the single canonical home for the resolve-root snippet. Agents resolve `TP_ROOT` once per session and cache it; every helper invocation is then prefixed with `python3 "$TP_ROOT"/skills/…` or `bash "$TP_ROOT"/skills/…`.
+
+### Bootstrap
+
+```bash
+TP_ROOT="$(bash <skill-dir>/../../skills/_shared/resolve_root.sh --skill-dir <skill-dir>)"
+```
+
+Replace `<skill-dir>` with the directory of the SKILL.md the agent loaded (the agent always knows this path). This uses probe 2 (skill-dir grandparent) as the bootstrap path — the agent always has it. Subsequent helper calls use the cached `$TP_ROOT`.
+
+Example invocation after bootstrap:
+
+```bash
+python3 "$TP_ROOT"/skills/_shared/deterministic_gate.py "$PR_URL"
+```
+
+### Probe chain
+
+`resolve_root.sh` tries four probes in order, first hit wins:
+
+1. `$CLAUDE_PLUGIN_ROOT` — set by Claude Code for plugin skills; sentinel-checked.
+2. `--skill-dir` grandparent (`<dir>/../..`) — agent-supplied; sentinel-checked.
+3. Plugin-cache glob: `$HOME/.claude/plugins/cache/*/three-pillars*` — newest mtime wins among qualifying entries.
+4. Dev-checkout fallback: `git rev-parse --show-toplevel` of the cwd — sentinel-checked (covers running inside the framework repo itself).
+
+Sentinel: a candidate qualifies iff `<cand>/skills/_shared/first-run.md` exists.
+
+On failure (all probes miss), the script prints one loud line to stderr and exits 1:
+
+```
+three-pillars: cannot locate the framework root — probed $CLAUDE_PLUGIN_ROOT, the skill directory, ~/.claude/plugins/cache/*/three-pillars*, and the current repo. Set CLAUDE_PLUGIN_ROOT to the plugin install root and re-run.
+```
+
+### Failure split (behavior 9)
+
+When `TP_ROOT` cannot be resolved, the helper's failure class determines what to do:
+
+- **Enforcement-path helpers** (`deterministic_gate.py`, `diff_balloon_guard.py`, `validate_design_floor.py`, file-size and worktree guards): **stop and surface the failure line**. These are blocking gates; running without a valid root would silently skip enforcement.
+- **Fail-open convenience helpers** (`cwd_preflight.py`, `detect_unarchived.py`, registry print commands): emit exactly one loud skip line and continue:
+
+  ```
+  three-pillars: skipping <helper> (framework root not found) — fail-open
+  ```
+
+No helper's failure class flips — enforcement helpers stay blocking, convenience helpers stay fail-open. Only the skip line changes (silent skip → loud skip).

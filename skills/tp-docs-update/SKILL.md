@@ -39,7 +39,7 @@ Propose targeted updates to one or more of the four project docs based on recent
    - Update the `*Last updated: YYYY-MM-DD*` marker on line 2–3 of the doc to today's date.
    - Append one dated line at the **top** of the `## History` section (newest-first): `- YYYY-MM-DD — one-sentence summary.` Keep it under 800 non-ws chars.
    Do **not** expand the `*Last updated:*` line with a prose summary — the summary goes in `## History`.
-8. **Commit the doc updates** per `skills/_shared/commit-after-work.md`. Artifact paths to stage: only the doc files actually modified in step 7 — any of `three-pillars-docs/vision.md`, `three-pillars-docs/architecture.md`, `three-pillars-docs/product_roadmap.md`, `three-pillars-docs/known_issues.md`.
+8. **Commit the doc updates** per `skills/_shared/commit-after-work.md`. Artifact paths to stage: only the doc files actually modified in step 7 — any of `three-pillars-docs/vision.md`, `three-pillars-docs/architecture.md`, `three-pillars-docs/product_roadmap.md`, `three-pillars-docs/known_issues.md`, `three-pillars-docs/known_issues_resolved.md` (when an update resolves an issue, **move** its entry verbatim to the resolved archive — never mark it resolved in place).
 
    Commit message: `Docs: update {files}` where `{files}` is a comma-separated list of the modified basenames without the `.md` suffix and without the `three-pillars-docs/` prefix (e.g., `Docs: update vision,roadmap`). If only one doc was modified, the message is simply `Docs: update {file}` (e.g., `Docs: update architecture`).
 

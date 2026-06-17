@@ -18,7 +18,7 @@ Read the project's current state and recommend the highest-impact next step.
 2. **Scan active designs**: Check `three-pillars-docs/tp-designs/` for in-flight work. For each, read `design.md` (first 20 lines) and `handoff.md` (if present) to understand phase and status. While scanning, note whether each design's Problem/Vision alignment section is consistent with the current `three-pillars-docs/vision.md` — a design that drifted from the vision is a candidate for either reshaping or dropping.
 3. **Check completed designs**: Scan `three-pillars-docs/completed-tp-designs/` to understand what's already been built.
 4. **Read the first line of `.claude/last-design`** if it exists, to know what the user was last working on. This file is an MRU stack — one design per line, most recent first.
-4.5. **Closeout nudge (read-only, fail-open)**: run `python3 skills/_shared/detect_unarchived.py --repo . --exclude {mru-top-design} --slugs-only` (exclude the MRU-top design from step 4 — that's the user's own active work, not drift). Any slugs returned are designs whose `three-pillars-docs/tp-designs/{slug}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has not been archived to `completed-tp-designs/` — i.e. **closeout pending**. Surface each in the recommendation as "closeout pending — run `/tp-design-learn {slug}` (or `/tp-spike-learn`) then `/tp-design-complete {slug}`", since an unarchived merged design hard-fails `framework-check` invariant **#27** on `{default}` (known-issue M10). **Non-blocking, fail-open** — the helper always exits 0; a detector error yields no nudge, never an error. One detector, two surfaces: this soft nudge shares `detect_unarchived.py` with the hard CI invariant #27.
+4.5. **Closeout nudge (read-only, fail-open)**: run `python3 "$TP_ROOT"/skills/_shared/detect_unarchived.py --repo . --exclude {mru-top-design} --slugs-only` (exclude the MRU-top design from step 4 — that's the user's own active work, not drift). Any slugs returned are designs whose `three-pillars-docs/tp-designs/{slug}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has not been archived to `completed-tp-designs/` — i.e. **closeout pending**. Surface each in the recommendation as "closeout pending — run `/tp-design-learn {slug}` (or `/tp-spike-learn`) then `/tp-design-complete {slug}`", since an unarchived merged design hard-fails `framework-check` invariant **#27** on `{default}` (known-issue M10, archived in `known_issues_resolved.md`). **Non-blocking, fail-open** — the helper always exits 0; a detector error yields no nudge, never an error. One detector, two surfaces: this soft nudge shares `detect_unarchived.py` with the hard CI invariant #27.
 5. **If an intent was provided**, filter your analysis through that lens. For example:
    - `"auth feels fragile"` → focus on auth-related known issues, architecture gaps, and whether a design or spike is warranted
    - `"ready to ship"` → focus on blocking issues, incomplete designs, and release readiness
@@ -27,20 +27,21 @@ Read the project's current state and recommend the highest-impact next step.
    - **High alignment**: directly advances the vision's Problem, serves its Users, or fixes a break that blocks a Success signal. These go to the top.
    - **Low alignment**: solves a real technical problem but isn't load-bearing for the stated why. These get deprioritized even if they're interesting. Call out the deprioritization explicitly so the user can override it.
    - **Conflict**: the work pushes the project toward a stated non-goal. Recommend *against* it and suggest updating the vision via `/tp-docs-update` if the user thinks the non-goal has moved.
-7. **Choose the right weight of approach**. Not everything needs a design or a spike. Match the approach to the complexity:
+7. **Choose the weight class**. Not everything needs the full pipeline. Score the four rubric axes — **risk, blast radius, reversibility, novelty** (each low/medium/high; see `skills/_shared/weight-class.md`, or shell `python3 "$TP_ROOT"/skills/_shared/weight_class.py recommend`) — and match the class to the complexity:
 
-   | Approach | When to use | Example |
+   | Weight class | When to use | Example |
    |---|---|---|
-   | **Just do it** | Small, well-understood change. One conversation, no ambiguity. | Fix a bug, add a config option, rename a module |
-   | **Spike** (`/tp-spike`) | Unclear if an approach works. Need to validate before committing. | New integration, unfamiliar API, performance experiment |
-   | **Full design** (`/tp-design`) | Known approach, multi-phase work, needs quality gates. | New subsystem, major refactor, cross-cutting feature |
+   | **Just do it** (`just-do-it`) | All axes minimal. Small, well-understood, reversible. Mini design.md, no plan. | Fix a bug, add a config option, rename a module |
+   | **Light** (`light`) | At most one axis medium, none high. Real work, small surface. Collapsed design.md + thin plan.md in one sitting. | Contained feature, focused refactor, one-module change |
+   | **Spike** (`/tp-spike`) | Novelty high — unclear if an approach works. Validate before committing. | New integration, unfamiliar API, performance experiment |
+   | **Full design** (`/tp-design`) | Any axis high or several medium. Multi-phase work, needs the full quality gates. | New subsystem, major refactor, cross-cutting feature |
 
-   Default to the lightest approach that fits. A spike that proves an approach works can always feed into a full design later. Don't recommend `/tp-design` for something that can be built in 20 minutes.
+   Default to the lightest class that fits — but ties and ambiguity resolve heavier. A spike that proves an approach works can always feed into a full design later. Don't recommend `/tp-design` at full weight for something that can be built in 20 minutes.
 
 8. **Synthesize a recommendation**. Present:
    - **Current state** (1-2 sentences): what's active, what's blocked, what recently completed
    - **Vision fit** (1 sentence): which part of `three-pillars-docs/vision.md` the recommendation serves (problem / principle / user / success signal). Skip if vision is missing.
-   - **Recommendation**: the single highest-impact next action, with approach and rationale
+   - **Recommendation**: the single highest-impact next action, with the recommended weight class and a one-line justification naming the deciding rubric axis
    - **Alternatives**: 1-2 other reasonable next steps if the user wants to go a different direction
    - **Suggested command**: the specific command to run next — either a `/tp-*` command or just "describe the change and I'll build it" for simple tasks
 
@@ -84,4 +85,4 @@ their worktree plugin's own tail/kill commands if they want to.
 - If no intent is given and there's an active design with a handoff, recommend continuing that work — but still sanity-check that it's still aligned with the current vision.
 - Don't start doing the recommended work — just propose it and let the user decide.
 - This skill's argument is freeform intent text, not a `[a-z0-9-]+` design-name interpolated into file paths.
-- Bias toward the lightest approach. Most work doesn't need a formal design.
+- Bias toward the lightest weight class that fits (ties resolve heavier). Most work doesn't need a full design.

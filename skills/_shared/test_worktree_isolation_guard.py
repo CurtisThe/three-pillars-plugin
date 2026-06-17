@@ -6,15 +6,18 @@ Tests drive the predicate via override flags (--cwd, --worktree-porcelain,
 Run with: python -m pytest skills/_shared/test_worktree_isolation_guard.py -q
 
 Design refs:
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/detailed-design.md
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/plan.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/plan.md
 """
 
 from __future__ import annotations
 
 import io
+import subprocess
+import sys
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -26,6 +29,7 @@ from worktree_isolation_guard import (
     forbid_checkout_in_shared,
     head_drift,
     main,
+    orchestration_only_staged,
 )
 
 
@@ -977,9 +981,10 @@ def test_framework_check_inv32_wired():
     fcs_path = here.parent.parent / "framework-check.sh"
     content = fcs_path.read_text()
 
-    # (1) Footer bumped to 33 (orchestration-master-seat added #33)
-    assert "framework-check: all 33 invariants passed" in content, (
-        "footer must read 'all 33 invariants passed'"
+    # (1) Footer is DERIVED from active_count (invariant-citation-coherence added
+    #     inv #38, which made the banner runtime-derived rather than a literal).
+    assert "framework-check: all ${_INV_N} invariants passed" in content, (
+        "footer must read the derived 'all ${_INV_N} invariants passed' banner"
     )
 
     # (2) The #32 gate block delegates to worktree_isolation_guard.py
@@ -1018,3 +1023,759 @@ def test_assert_own_live_mode_short_circuits():
     ])
     assert rc == 0, "empty-live short-circuit must exit 0"
     assert not stderr
+
+
+# ---------------------------------------------------------------------------
+# seat-aware-collaboration-protocol: orchestration paper-trail carve-out tests
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Task 1.1: orchestration_only_staged() helper (design test-matrix rows 1-3)
+# ---------------------------------------------------------------------------
+
+
+def test_orchestration_only_staged_all_under_prefix():
+    """Row 1: a staged set whose every path is under the orchestration prefix → True."""
+    assert orchestration_only_staged([
+        "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        "three-pillars-docs/tp-designs/orchestration/campaign.md",
+    ]) is True
+
+
+def test_orchestration_only_staged_mixed_empty_none_false():
+    """Row 2: mixed set (one outside path) → False; empty [] → False; None → False."""
+    # mixed: one skills/foo.py among orchestration paths
+    assert orchestration_only_staged([
+        "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        "skills/foo.py",
+    ]) is False
+    # empty list
+    assert orchestration_only_staged([]) is False
+    # None
+    assert orchestration_only_staged(None) is False
+
+
+def test_orchestration_only_staged_backslash_normalized():
+    """Row 3: a backslash-separated path under the prefix → False (strict match).
+
+    orchestration_only_staged() is strict: backslash is a legal POSIX filename
+    character, and a file literally named with backslash separators (OUTSIDE the
+    orchestration slot) must NOT match the prefix. Backslash leniency lives only
+    in the CLI --staged-file arm, not here.
+    """
+    assert orchestration_only_staged([
+        "three-pillars-docs\\tp-designs\\orchestration\\handoff.md",
+    ]) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 1.2: assert_own_worktree staged_paths kwarg + Case-2 carve-out
+# (design test-matrix rows 4-10)
+# ---------------------------------------------------------------------------
+
+# Reusable porcelain: master root + one healthy live tp/* worktree
+_PORCELAIN_MASTER_ROOT_WITH_TP = """\
+worktree /home/user/repo
+HEAD abc123
+branch refs/heads/master
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/tp/a
+
+"""
+
+# Bare-root seat + one healthy live tp/* worktree
+_PORCELAIN_BARE_ROOT_WITH_TP = """\
+worktree /home/user/repo
+HEAD abc123
+bare
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/tp/a
+
+"""
+
+# Drifted tp worktree (Case-3 scenario for row 9)
+_PORCELAIN_DRIFTED_TP_A = """\
+worktree /home/user/repo
+HEAD abc123
+branch refs/heads/master
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/candidate/some-design/single
+
+"""
+
+_ORCHESTRATION_ONLY_STAGED = [
+    "three-pillars-docs/tp-designs/orchestration/handoff.md",
+]
+
+_MIXED_STAGED = [
+    "three-pillars-docs/tp-designs/orchestration/handoff.md",
+    "skills/foo.py",
+]
+
+_CODE_STAGED = ["skills/worktree_isolation_guard.py"]
+
+
+def test_assert_own_seat_orchestration_only_staged_passes():
+    """Row 4: master-root cwd, tp/* live, staged = orchestration-only → PASS."""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_MASTER_ROOT_WITH_TP,
+        current_branch="master",
+        staged_paths=_ORCHESTRATION_ONLY_STAGED,
+    )
+    assert ok is True
+    assert msg == ""
+
+
+def test_assert_own_seat_mixed_staging_blocks_with_corruption_message():
+    """Row 5: master-root cwd, tp/* live, staged = orchestration + one outside path
+    → BLOCK; message contains 'shared-worktree corruption class' text (byte-identity).
+    """
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_MASTER_ROOT_WITH_TP,
+        current_branch="master",
+        staged_paths=_MIXED_STAGED,
+    )
+    assert ok is False
+    assert "shared-worktree corruption class" in msg
+
+
+def test_assert_own_seat_single_code_file_blocks():
+    """Row 6: master-root cwd, tp/* live, staged = single code file → BLOCK."""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_MASTER_ROOT_WITH_TP,
+        current_branch="master",
+        staged_paths=_CODE_STAGED,
+    )
+    assert ok is False
+    assert msg
+
+
+def test_assert_own_seat_staged_none_blocks():
+    """Row 7: master-root cwd, tp/* live, staged_paths=None → BLOCK (fail-closed;
+    legacy-caller compatibility).
+    """
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_MASTER_ROOT_WITH_TP,
+        current_branch="master",
+        staged_paths=None,
+    )
+    assert ok is False
+    assert msg
+
+
+def test_assert_own_bare_root_orchestration_only_staged_passes():
+    """Row 8: bare-root seat (porcelain 'bare', no branch line), tp/* live,
+    orchestration-only staged → PASS (carve-out on the documented bare-base topology).
+    """
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_BARE_ROOT_WITH_TP,
+        current_branch="",
+        staged_paths=_ORCHESTRATION_ONLY_STAGED,
+    )
+    assert ok is True
+    assert msg == ""
+
+
+def test_assert_own_drifted_tp_orchestration_only_staged_blocks():
+    """Row 9: Case-3 drift (cwd in -wt/<slug>, foreign HEAD), orchestration-only
+    staged → BLOCK (carve-out is Case-2 only, not Case-3).
+    """
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo-wt/a",
+        worktree_porcelain=_PORCELAIN_DRIFTED_TP_A,
+        current_branch="candidate/some-design/single",
+        staged_paths=_ORCHESTRATION_ONLY_STAGED,
+    )
+    assert ok is False
+    assert msg
+
+
+def test_assert_own_worker_own_worktree_any_staged_passes():
+    """Row 10: worker in own tp worktree, any staged set → PASS (non-Case-2 unaffected)."""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo-wt/a",
+        worktree_porcelain=_PORCELAIN_MASTER_ROOT_WITH_TP,
+        current_branch="tp/a",
+        staged_paths=_CODE_STAGED,
+    )
+    assert ok is True
+    assert msg == ""
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3: CLI staged-path resolution (design test-matrix rows 11-12)
+# ---------------------------------------------------------------------------
+
+
+def test_main_assert_own_staged_file_orchestration_passes():
+    """Row 11: --assert-own-worktree --cwd <master-root> --worktree-porcelain <tp-live>
+    --staged-file three-pillars-docs/tp-designs/orchestration/handoff.md → exit 0.
+    """
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--cwd", "/home/user/repo",
+        "--worktree-porcelain", _PORCELAIN_MASTER_ROOT_WITH_TP,
+        "--branch", "master",
+        "--staged-file", "three-pillars-docs/tp-designs/orchestration/handoff.md",
+    ])
+    assert rc == 0, f"orchestration-only staged on seat should exit 0; stderr={stderr!r}"
+    assert not stderr
+
+
+def test_main_assert_own_no_staged_and_mixed_block():
+    """Row 12: --no-staged on a seat with live tp/* → exit 1;
+    mixed --staged-file (orchestration + code path) → exit 1.
+    """
+    # --no-staged: hermetic empty set — carve-out can't fire → BLOCK
+    rc_no_staged, stderr_no_staged = _run_main([
+        "--assert-own-worktree",
+        "--cwd", "/home/user/repo",
+        "--worktree-porcelain", _PORCELAIN_MASTER_ROOT_WITH_TP,
+        "--branch", "master",
+        "--no-staged",
+    ])
+    assert rc_no_staged == 1, f"--no-staged on seat must block; stderr={stderr_no_staged!r}"
+    assert stderr_no_staged
+
+    # mixed --staged-file: orchestration + code path → BLOCK
+    rc_mixed, stderr_mixed = _run_main([
+        "--assert-own-worktree",
+        "--cwd", "/home/user/repo",
+        "--worktree-porcelain", _PORCELAIN_MASTER_ROOT_WITH_TP,
+        "--branch", "master",
+        "--staged-file", "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        "--staged-file", "skills/foo.py",
+    ])
+    assert rc_mixed == 1, f"mixed staged-file on seat must block; stderr={stderr_mixed!r}"
+    assert stderr_mixed
+
+
+# ---------------------------------------------------------------------------
+# Adversarial boundary: orchestration_only_staged() directory-boundary pins
+# ada #1 normpath fix + ada #2 behavioral pins
+# ---------------------------------------------------------------------------
+
+
+def test_orchestration_only_staged_sibling_dir_trap():
+    """Sibling directory whose name starts with 'orchestration-' must NOT match.
+
+    e.g. three-pillars-docs/tp-designs/orchestration-evil/x.md → False
+    The prefix check is for 'orchestration/' (with trailing slash); a sibling
+    like 'orchestration-evil/' must never be confused with the real carve-out slot.
+    """
+    assert orchestration_only_staged([
+        "three-pillars-docs/tp-designs/orchestration-evil/x.md",
+    ]) is False
+
+
+def test_orchestration_only_staged_nested_prefix_trap():
+    """A path that has the orchestration prefix as a non-root segment → False.
+
+    e.g. a/three-pillars-docs/tp-designs/orchestration/x.md → False
+    The carve-out only applies to paths rooted at the repo root; a leading
+    directory segment must not cause a false positive.
+    """
+    assert orchestration_only_staged([
+        "a/three-pillars-docs/tp-designs/orchestration/x.md",
+    ]) is False
+
+
+def test_orchestration_only_staged_bare_dir_without_trailing_slash():
+    """Bare directory path without trailing slash → False (not a file under the slot).
+
+    e.g. three-pillars-docs/tp-designs/orchestration → False
+    The prefix includes a trailing slash so the bare directory name itself
+    does not qualify.
+    """
+    assert orchestration_only_staged([
+        "three-pillars-docs/tp-designs/orchestration",
+    ]) is False
+
+
+def test_orchestration_only_staged_dotdot_traversal_is_false():
+    """A ..‑traversal path that resolves outside the orchestration slot → False.
+
+    e.g. three-pillars-docs/tp-designs/orchestration/../../../skills/evil.py
+    After normpath this is 'skills/evil.py', which does NOT start with the
+    orchestration prefix — the carve-out must not fire.
+    This pins the normpath fix introduced for audit finding ada #1.
+    """
+    assert orchestration_only_staged([
+        "three-pillars-docs/tp-designs/orchestration/../../../skills/evil.py",
+    ]) is False
+
+
+# ---------------------------------------------------------------------------
+# PR-fix-r1: production staged-source arm coverage
+# Pins (a) default git-read arm, (b) --no-renames rename detection,
+# (c) git-error → None → BLOCK, (d) drifted-seat-HEAD gate
+# ---------------------------------------------------------------------------
+
+
+def _make_git_repo(tmp_path: Path) -> Path:
+    """Create a minimal git repo with an initial commit for seam testing."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-b", "master"], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo,
+                   check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo,
+                   check=True, capture_output=True)
+    # Pin diff.renames=true so the rename-blocks test kills the drop-`--no-renames`
+    # mutant regardless of runner gitconfig (some CIs default to false/0).
+    subprocess.run(["git", "config", "diff.renames", "true"], cwd=repo,
+                   check=True, capture_output=True)
+    # Pin core.quotePath=true so the non-ASCII test kills the drop-`-z` mutant
+    # regardless of runner gitconfig (quotePath=false emits raw names that a
+    # newline-split parse would also accept).
+    subprocess.run(["git", "config", "core.quotePath", "true"], cwd=repo,
+                   check=True, capture_output=True)
+    # Create and commit an initial file so HEAD exists
+    (repo / "README.md").write_text("init")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True,
+                   capture_output=True)
+    return repo
+
+
+def test_cli_default_staged_arm_orchestration_only_passes(tmp_path):
+    """(a) Default git-read arm: staged orchestration-only file + dirty-unstaged
+    code file → carve-out PASS.
+
+    The CLI reads the STAGED set (git diff --cached), not the working tree. A
+    dirty code file that is NOT staged must NOT contribute to the staged set,
+    so the carve-out fires correctly.
+    """
+    repo = _make_git_repo(tmp_path)
+
+    # Set up: orchestration slot directory
+    orch_dir = repo / "three-pillars-docs" / "tp-designs" / "orchestration"
+    orch_dir.mkdir(parents=True)
+
+    # Stage only the orchestration file
+    handoff = orch_dir / "handoff.md"
+    handoff.write_text("orchestration handoff")
+    subprocess.run(["git", "add", str(handoff)], cwd=repo, check=True,
+                   capture_output=True)
+
+    # Dirty (unstaged) code file — must NOT appear in staged set
+    code = repo / "skills" / "foo.py"
+    code.parent.mkdir(parents=True, exist_ok=True)
+    code.write_text("# dirty code")
+    # Deliberately NOT staged
+
+    # Build a porcelain that looks like the seat (master + tp/* live)
+    porcelain_seat_tp = (
+        f"worktree {repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(repo),
+        "--cwd", str(repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+        # No --staged-file / --no-staged: CLI reads from git (the default arm)
+    ])
+    assert rc == 0, (
+        f"staged orchestration-only file + dirty-unstaged code → should PASS "
+        f"(carve-out); stderr={stderr!r}"
+    )
+    assert not stderr
+
+
+def test_cli_default_staged_arm_code_staged_blocks(tmp_path):
+    """(a) Default git-read arm: staged code file + dirty-unstaged orchestration
+    file → BLOCK.
+
+    The staged set contains a code file, so the carve-out must not fire even
+    though an orchestration file exists in the working tree (unstaged).
+    """
+    repo = _make_git_repo(tmp_path)
+
+    # Stage only a code file
+    code = repo / "skills" / "foo.py"
+    code.parent.mkdir(parents=True, exist_ok=True)
+    code.write_text("# staged code")
+    subprocess.run(["git", "add", str(code)], cwd=repo, check=True,
+                   capture_output=True)
+
+    # Dirty (unstaged) orchestration file — must NOT satisfy the carve-out
+    orch_dir = repo / "three-pillars-docs" / "tp-designs" / "orchestration"
+    orch_dir.mkdir(parents=True)
+    (orch_dir / "handoff.md").write_text("dirty")
+    # Deliberately NOT staged
+
+    porcelain_seat_tp = (
+        f"worktree {repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(repo),
+        "--cwd", str(repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+    ])
+    assert rc == 1, (
+        f"staged code file + dirty-unstaged orchestration → should BLOCK; "
+        f"stderr={stderr!r}"
+    )
+    assert stderr
+
+
+def test_cli_default_staged_arm_rename_from_outside_blocks(tmp_path):
+    """(b) --no-renames pin: a staged rename whose SOURCE is outside the
+    orchestration slot produces BLOCK.
+
+    With --no-renames both rename sides appear in the output; without it only
+    the destination would appear (rename detection), which could smuggle a
+    non-orchestration file past the carve-out. The staged-source resolution
+    must use --no-renames so mixed-staging detection fires.
+    """
+    repo = _make_git_repo(tmp_path)
+
+    # Create a code file and commit it (so git can detect a rename from it)
+    code = repo / "skills" / "important.py"
+    code.parent.mkdir(parents=True, exist_ok=True)
+    code.write_text("# code file to be renamed")
+    subprocess.run(["git", "add", str(code)], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "commit", "-m", "add code file"], cwd=repo,
+                   check=True, capture_output=True)
+
+    # Stage a rename: skills/important.py → three-pillars-docs/tp-designs/orchestration/renamed.py
+    orch_dir = repo / "three-pillars-docs" / "tp-designs" / "orchestration"
+    orch_dir.mkdir(parents=True)
+    dest = orch_dir / "renamed.py"
+    subprocess.run(["git", "mv", str(code), str(dest)], cwd=repo, check=True,
+                   capture_output=True)
+    # At this point the rename is staged: source (skills/important.py) was outside
+    # the allowlist, destination is inside. With --no-renames both sides appear.
+
+    porcelain_seat_tp = (
+        f"worktree {repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(repo),
+        "--cwd", str(repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+    ])
+    assert rc == 1, (
+        f"staged rename from outside-allowlist source → must BLOCK (--no-renames "
+        f"exposes both sides); stderr={stderr!r}"
+    )
+    assert stderr
+
+
+def test_cli_git_error_staged_arm_blocks(tmp_path):
+    """(c) git-error → staged_paths=None → BLOCK (fail-closed).
+
+    When the git diff --cached invocation fails (e.g. not a git repo, git
+    unavailable), staged_paths is set to None — the carve-out can't fire and
+    the guard must BLOCK fail-closed.
+    """
+    # A non-repo directory — git will fail with a fatal error
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()
+
+    porcelain_seat_tp = (
+        f"worktree {not_a_repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(not_a_repo),
+        "--cwd", str(not_a_repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+    ])
+    assert rc == 1, (
+        f"git-error in staged-source arm → staged_paths=None → must BLOCK "
+        f"(fail-closed); stderr={stderr!r}"
+    )
+    assert stderr
+
+
+def test_assert_own_drifted_seat_head_orchestration_staged_blocks():
+    """(d) Drifted-seat-HEAD gate: when the seat's HEAD is on a named non-default
+    branch (e.g. tp/b), an orchestration-only staged commit must BLOCK.
+
+    _is_default_branch_root() classifies the main-checkout path shape as the
+    seat via the path-shape fallback even when its branch is a non-default named
+    branch (e.g. tp/b). Without the drifted-seat-HEAD gate, orchestration-only
+    staging would PASS — landing the paper-trail commit on tp/b where it is lost
+    to the orchestration slot.
+
+    The gate requires effective_branch to be empty or in _DEFAULT_BRANCHES
+    before consulting the carve-out; a drifted named branch must BLOCK.
+    """
+    # Porcelain: master checkout has drifted to tp/b in-place; tp/a is live
+    porcelain_drifted_seat = """\
+worktree /home/user/repo
+HEAD abc123
+branch refs/heads/tp/b
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/tp/a
+
+"""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=porcelain_drifted_seat,
+        current_branch="tp/b",
+        staged_paths=[
+            "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        ],
+    )
+    assert ok is False, (
+        "drifted seat (HEAD on tp/b) + orchestration-only staged → must BLOCK "
+        "(carve-out must not fire on a non-default-branch seat)"
+    )
+    assert msg
+
+
+def test_assert_own_drifted_seat_feature_branch_blocks():
+    """(d) Drifted-seat-HEAD gate: feature/* branch on seat → BLOCK even with
+    orchestration-only staging.
+
+    Complements the tp/b case: any non-default named branch on the seat
+    (including feature/*) must take the BLOCK path.
+    """
+    porcelain_feature_seat = """\
+worktree /home/user/repo
+HEAD abc123
+branch refs/heads/feature/x
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/tp/a
+
+"""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=porcelain_feature_seat,
+        current_branch="feature/x",
+        staged_paths=[
+            "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        ],
+    )
+    assert ok is False, (
+        "drifted seat (HEAD on feature/x) + orchestration-only staged → must BLOCK"
+    )
+    assert msg
+
+
+def test_assert_own_bare_seat_orchestration_staged_passes_gate():
+    """(d) Drifted-seat-HEAD gate: bare/branchless seat (effective_branch="")
+    still PASSes the gate — the carve-out must fire for the legitimate bare topology.
+
+    effective_branch="" is the bare-base-checkout case; it must not be conflated
+    with a drifted named branch.
+    """
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=_PORCELAIN_BARE_ROOT_WITH_TP,
+        current_branch="",
+        staged_paths=[
+            "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        ],
+    )
+    assert ok is True, (
+        "bare seat (effective_branch='') + orchestration-only staged → must PASS "
+        "(bare topology is a legitimate default-branch root)"
+    )
+    assert msg == ""
+
+
+# ---------------------------------------------------------------------------
+# PR-fix-r2: backslash-named-file smuggling + bare-vs-detached gate +
+# -z non-ASCII pin
+# ---------------------------------------------------------------------------
+
+
+def test_main_staged_file_backslash_cli_arm_passes():
+    """CLI --staged-file arm: Windows-style backslash separators → PASS.
+
+    The CLI --staged-file arm normalizes backslashes before calling
+    orchestration_only_staged(), so a human typing Windows-style separators
+    is treated leniently. This is the ONLY place the leniency lives.
+    """
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--cwd", "/home/user/repo",
+        "--worktree-porcelain", _PORCELAIN_MASTER_ROOT_WITH_TP,
+        "--branch", "master",
+        "--staged-file",
+        "three-pillars-docs\\tp-designs\\orchestration\\handoff.md",
+    ])
+    assert rc == 0, (
+        f"--staged-file with backslash separators must PASS (CLI leniency arm); "
+        f"stderr={stderr!r}"
+    )
+    assert not stderr
+
+
+def test_cli_default_arm_backslash_filename_blocks(tmp_path):
+    """Default arm (live git read): a file whose POSIX name literally contains
+    backslashes (outside the orchestration slot) must BLOCK — the backslash
+    normalisation must NOT smuggle it past the prefix check.
+
+    This pins the structural fix: orchestration_only_staged() is strict;
+    backslash leniency is only in the --staged-file CLI arm.
+    """
+    import os as _os
+    repo = _make_git_repo(tmp_path)
+
+    # Create and stage a file whose name literally contains backslashes.
+    # The name looks like a nested path under the orchestration prefix when
+    # backslashes are naively normalised, but POSIX treats the whole thing as
+    # a single flat filename in the repo root — it is OUTSIDE the slot.
+    evil_name = "three-pillars-docs\\tp-designs\\orchestration\\evil.md"
+    evil_file = repo / evil_name
+    evil_file.write_text("smuggled content")
+    subprocess.run(["git", "add", "--", evil_name], cwd=repo,
+                   check=True, capture_output=True)
+
+    porcelain_seat_tp = (
+        f"worktree {repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(repo),
+        "--cwd", str(repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+        # No --staged-file / --no-staged: CLI reads from git (the default arm)
+    ])
+    assert rc == 1, (
+        f"backslash-named file outside slot must BLOCK (no smuggling); "
+        f"stderr={stderr!r}"
+    )
+    assert stderr
+
+
+def test_assert_own_detached_non_bare_seat_orchestration_staged_blocks():
+    """BLOCK: detached non-bare seat (porcelain 'detached', empty branch) with
+    orchestration-only staged must NOT get the carve-out.
+
+    A detached HEAD is not a known-safe branchless topology (it is not the
+    bare-base-checkout seat). The seat_on_default gate now requires
+    owner_is_bare for the empty-branch arm; a non-bare detached seat must BLOCK.
+    """
+    # Porcelain: a non-bare worktree with a detached HEAD (no branch line) +
+    # a live tp/* worktree.
+    porcelain_detached_seat = """\
+worktree /home/user/repo
+HEAD abc123
+detached
+
+worktree /home/user/repo-wt/a
+HEAD def456
+branch refs/heads/tp/a
+
+"""
+    ok, msg = assert_own_worktree(
+        cwd="/home/user/repo",
+        worktree_porcelain=porcelain_detached_seat,
+        current_branch="",   # detached HEAD → porcelain has no branch → ""
+        staged_paths=[
+            "three-pillars-docs/tp-designs/orchestration/handoff.md",
+        ],
+    )
+    assert ok is False, (
+        "detached non-bare seat + orchestration-only staged → must BLOCK "
+        "(carve-out must not fire on a non-bare branchless seat)"
+    )
+    assert msg
+
+
+def test_cli_default_arm_non_ascii_orchestration_passes(tmp_path):
+    """Non-ASCII filename pin for the -z arm: stage an orchestration file with
+    a non-ASCII name (e.g. händoff.md) and assert the carve-out PASSes.
+
+    This pins the -z flag: git diff --cached --name-only -z emits raw NUL-
+    separated unquoted bytes, so non-ASCII filenames are transmitted verbatim
+    without C-escaping. A drop-`-z` mutant would C-escape the name and the
+    NUL-split would fail or produce garbage, causing a BLOCK instead of PASS.
+    """
+    repo = _make_git_repo(tmp_path)
+
+    orch_dir = repo / "three-pillars-docs" / "tp-designs" / "orchestration"
+    orch_dir.mkdir(parents=True)
+
+    # Non-ASCII filename in the orchestration slot
+    handoff = orch_dir / "händoff.md"
+    handoff.write_text("non-ascii orchestration handoff", encoding="utf-8")
+    subprocess.run(["git", "add", str(handoff)], cwd=repo, check=True,
+                   capture_output=True)
+
+    porcelain_seat_tp = (
+        f"worktree {repo}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/master\n"
+        "\n"
+        f"worktree {tmp_path}/repo-wt/a\n"
+        "HEAD def456\n"
+        "branch refs/heads/tp/a\n"
+        "\n"
+    )
+    rc, stderr = _run_main([
+        "--assert-own-worktree",
+        "--repo", str(repo),
+        "--cwd", str(repo),
+        "--worktree-porcelain", porcelain_seat_tp,
+        "--branch", "master",
+    ])
+    assert rc == 0, (
+        f"non-ASCII orchestration filename + -z arm → must PASS (carve-out); "
+        f"stderr={stderr!r}"
+    )

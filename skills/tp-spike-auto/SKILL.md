@@ -60,8 +60,7 @@ Follow the instructions in `skills/tp-spike-plan/SKILL.md` with `--auto` flag:
 ### Step 3: Audit the plan
 
 Follow the instructions in `skills/tp-plan-audit/SKILL.md` with `--spike --auto` flags:
-- Run the deterministic script: `python3 skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" --spike`
-  - If the skill is installed at `~/.claude/skills/`, use that path instead.
+- Run the deterministic script: `python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" --spike`
 - Spawn the council (torvalds, ada, feynman) using the **spike mode prompts**
 - Run Round 1 (parallel) and Round 2 (sequential)
 - Collate findings from script + council

@@ -47,11 +47,21 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    > `three-pillars-docs/tp-designs/<slug>/seed.md` (a rich seed with a
    > `## Open questions` section) before promoting.
 
+4b. **Read the weight class from the seed**: parse `seed.md`'s leading
+   frontmatter block for `weight-class` (via
+   `python3 "$TP_ROOT"/skills/_shared/weight_class.py`; protocol:
+   `skills/_shared/weight-class.md`). If present and valid, carry it to
+   Step 7's draft. If absent, fold **one** class question into Step 5's
+   batched confirm — rubric-assisted: present the four axes (risk, blast
+   radius, reversibility, novelty) with the `weight_class.py recommend`
+   output as the inferred default the operator can accept or override.
+
 5. **Derive the batched confirm**: parse `seed.md` for `## Open questions` (and
    any explicit judgment calls in `## Sketch` or `## Problem`). Map each open
    question to one numbered confirm line. Where the seed already states a
    preference or answer, present the drafter's inferred default so the operator
-   can accept it wholesale. Produce a single numbered prompt block — the entire
+   can accept it wholesale. Include the Step 4b weight-class question when the
+   seed lacks a class. Produce a single numbered prompt block — the entire
    set of questions at once, not one at a time.
 
    Example layout (adapt to the actual questions):
@@ -67,7 +77,37 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    batched confirm). Wait for the operator's answers before proceeding. Do NOT
    ask individual follow-up questions — collect the full block in one round.
 
-7. **Draft `design.md`** from `seed.md` + operator answers. Populate every
+   **HTML briefing (when a display is available):** the confirm block is
+   rendered as a self-contained HTML page (no CDN / no external resources)
+   and opened via `xdg-open`. The page's "Assemble answers" button produces
+   a compact answer string for the operator to paste back.
+
+   **Canonical compact paste grammar** (HTML page output and terminal fallback
+   both accept this format):
+
+   - `defaults` — accept every drafter default with no changes.
+   - Otherwise, one override per line (**newline-separated, never comma**);
+     unmentioned questions keep their default:
+     - Single-select: `2b` — question 2, option b.
+     - Multi-select: `4a c` — question 4, options a and c (space-separated
+       letters within the question).
+     - Free-text: `3: my answer, commas are fine` — question 3; everything
+       after the `: ` to end-of-line is the answer (commas in the body are safe
+       because questions are newline-delimited, not comma-delimited).
+   - Example mixed override (two questions overridden):
+     ```
+     3: use the blue variant, it's faster
+     5b
+     ```
+
+   **Headless / SSH fallback:** when `DISPLAY` is not set or `xdg-open` is
+   absent, the HTML file is still written beside `decisions.md` (auditable
+   artifact) and the path is printed; the operator answers the terminal
+   confirm using the same grammar above.
+
+7. **Draft `design.md`** from `seed.md` + operator answers. Stamp the Step 4b
+   class as the file's leading frontmatter block (`weight-class: <class>`) —
+   the seed-time declaration carries to the promoted design. Populate every
    section that `validate_design_floor.py` marks REQUIRED:
    - `## Problem` — what the design solves (from seed `## Problem` + answers)
    - `## Vision alignment` — how it fits the project vision
@@ -83,12 +123,13 @@ seed's `## Open questions`. After the operator answers, this skill drafts
 
 8. **Validate the floor**: run:
    ```
-   python3 skills/_shared/validate_design_floor.py three-pillars-docs/tp-designs/<slug>
+   python3 "$TP_ROOT"/skills/_shared/validate_design_floor.py three-pillars-docs/tp-designs/<slug>
    ```
    - **Exit 0 (PASS)**: proceed to commit.
    - **Exit 1 (BLOCKED)**: surface the JSON verdict on stderr, do NOT commit.
      Tell the operator which sections are missing/empty and ask them to fill
      the named sections. Only retry after the operator updates `design.md`.
+   - Any other exit or failure to launch → BLOCKED with Cause: floor-validator-crash, Details: captured stderr (truncated to 500 chars). Never treat a non-0/1 exit as PASS.
 
 9. **Log to `decisions.md`** (append, using the `[tp-promote]` prefix per
    `skills/_shared/auto-mode.md` decisions.md format):

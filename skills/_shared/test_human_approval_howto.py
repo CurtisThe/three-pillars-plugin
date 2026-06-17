@@ -103,13 +103,23 @@ def test_howto_documents_single_account_rejection_and_remedy() -> None:
     )
 
 
-def test_howto_binds_currency_to_head_oid_not_timestamp() -> None:
-    """Currency is SHA-equality on the immutable head OID (wave2 must-fix #1), NOT a
-    forgeable committer timestamp. The howto must describe it as such."""
+def test_howto_binds_currency_to_head_sha_tag_not_timestamp() -> None:
+    """Currency is SHA-prefix-equality on the immutable head OID carried in the label
+    NAME tag, NOT a forgeable committer timestamp and NOT the always-null commit_id.
+    The howto must document the tagged label and the head-SHA prefix binding."""
     text = _read()
-    assert re.search(r"commit_id|head OID|head SHA", text), (
+    # The tagged label family is documented.
+    assert "tp:human-approved:" in text, (
+        "must document the SHA-tagged label name tp:human-approved:<sha>"
+    )
+    # Currency is a head-SHA binding, described as a hex-prefix match.
+    assert re.search(r"head OID|head SHA|headRefOid", text), (
         "must describe currency as a head-OID/SHA binding"
     )
-    assert re.search(r"SHA.equal|equal .*head|match.* current head", text, re.IGNORECASE), (
-        "must describe the binding as SHA-equality with the current head"
+    assert re.search(r"prefix", text, re.IGNORECASE), (
+        "must describe the binding as a hex-prefix match against the current head SHA"
+    )
+    # How to obtain the head SHA for the tag.
+    assert "headRefOid" in text, (
+        "must show how to get the head SHA (gh pr view --json headRefOid) for the tag"
     )

@@ -19,13 +19,13 @@ Move a repo from the legacy `docs/tdd-*` layout to the current `three-pillars-do
 
 0. **Run first-run preflight** per skills/_shared/first-run.md. **Exception**: this skill is the explicit exception to first-run's old-layout-detected refusal — the refusal does NOT apply when the calling skill is `tp-migrate`, since the whole point of this skill is to migrate. Branch-protection and release checks still apply normally.
 
-1. **Show the plan**: run `python3 skills/_shared/migrate.py --dry-run --repo {repo}` and print its output verbatim.
+1. **Show the plan**: run `python3 "$TP_ROOT"/skills/_shared/migrate.py --dry-run --repo {repo}` and print its output verbatim.
 2. **Branch on the dry-run output**:
    - If the output says the repo is already migrated: report and stop. No work needed.
    - If the output says the repo is already on the current layout: report and stop. No work needed.
    - Otherwise, the output is a list of moves and rewrites. Continue.
 3. **Confirm with the user**: ask `"Apply this migration plan? (yes/no)"`. Stop on `no`.
-4. **Apply the migration**: run `python3 skills/_shared/migrate.py --apply --repo {repo}`. This delegates everything to migrate.py — moves, rewrites, the new commit, and the config stamp. This skill itself must not stamp the migration field; ownership of that field belongs to migrate.py alone.
+4. **Apply the migration**: run `python3 "$TP_ROOT"/skills/_shared/migrate.py --apply --repo {repo}`. This delegates everything to migrate.py — moves, rewrites, the new commit, and the config stamp. This skill itself must not stamp the migration field; ownership of that field belongs to migrate.py alone.
 5. **Read back and report**:
    - Read `.three-pillars/config.json` and confirm `migration.completed_at` is non-null and `migration.from_layout` is `"docs+tdd"`.
    - Print the MEMORY.md advisory that migrate.py emitted, plus a one-line summary: `"Migrated repo in commit {sha}. Run /tp-guide to see what's next."`

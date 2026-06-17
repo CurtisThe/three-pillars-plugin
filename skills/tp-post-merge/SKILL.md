@@ -21,7 +21,7 @@ This skill takes no `--force-takeover` flag: it is **lock-aware, not lock-enforc
 When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaiting teardown:
 
 1. Walk `three-pillars-docs/completed-tp-designs/*/lock.json` for entries where `phase == "cleanup-pending"`. (`/tp-design-complete` `git mv`s the design directory — `lock.json` included — into `completed-tp-designs/` *before* it sets `phase = "cleanup-pending"`, so the pending-teardown locks live under the **completed** tree, not `tp-designs/`.)
-2. **Skip already-torn-down designs**: for each candidate, run `git ls-remote --heads origin tp/{name}` and check **both its exit status and output**. Only when the command **succeeds (exit 0)** *and* returns **empty** output is the branch confirmed absent (teardown already ran) — drop it from the list. If the command **fails** (offline, auth error, network) its stdout is also empty, but that is *not* proof of absence — **do not drop** on a non-zero exit; keep the design and let the step-4 merge gate decide (fail-safe: a transient `ls-remote` error must never silently drop an actionable design). This guard is load-bearing: `phase == "cleanup-pending"` is *not* cleared after teardown (this skill performs no commit, by design — see `## Auto Mode`), so a *confirmed*-absent branch is the durable "done" signal. Without it every completed design would re-surface in the scan forever.
+2. **Skip already-torn-down designs**: for each candidate, run `git ls-remote --heads origin tp/{name}` and check **both its exit status and output**. Only when the command **succeeds (exit 0)** *and* returns **empty** output is the branch confirmed absent (teardown already ran) — drop it from the list. If the command **fails** (offline, auth error, network) its stdout is also empty, but that is *not* proof of absence — **do not drop** on a non-zero exit; keep the design and let the step-4 merge gate decide (fail-safe: a transient `ls-remote` error must never silently drop an actionable design). This guard is load-bearing: `phase == "cleanup-pending"` is *not* cleared after teardown (this skill performs **no commit of design artifacts**; the step-6 doc-reconcile commit on `{base}` is the sole, scoped exception — see `## Auto Mode`), so a *confirmed*-absent branch is the durable "done" signal. Without it every completed design would re-surface in the scan forever.
 3. For each remaining design, run `verify_merged.py` and **partition** by the result: `merged == true` ⇒ *actionable*; `merged == false` ⇒ *pending* (kept for the listing in step 5, never torn down).
 4. Present an interactive checklist of the **actionable** (verified-merged) designs. On confirmation, run the teardown sequence (step 5 of `## Steps`) for each selected design.
 5. List the **pending** (unverified) designs separately as "pending merge — not actionable" — they are never torn down without explicit verification.
@@ -43,7 +43,7 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
 
 4. **Verify merge** via `verify_merged.py`:
    ```bash
-   python3 skills/tp-post-merge/scripts/verify_merged.py \
+   python3 "$TP_ROOT"/skills/tp-post-merge/scripts/verify_merged.py \
      --repo . --design {name} --base {base} --json
    ```
    Parse the JSON output. If `merged == false`: **Refuse** with no teardown:
@@ -78,7 +78,71 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
 
    h. **Clear MRU** — if `.claude/last-design` exists and contains `{name}` (first line or any line), remove that line. If the file becomes empty, delete it. **Never `git add`** this file (it is gitignored).
 
-6. **Report** success or partial success:
+   i. **GC residue rider (fail-open)** — run the worktree-gc sweep scoped to this design to remove any stale design worktree (gc matches `tp/{name}` exactly; candidate worktrees are out of scope here):
+      ```bash
+      gc --design {name} --apply
+      ```
+      Agent-driven form: `gc_candidates(apply=True, base={base}, design={name})` (no repo argument — root resolved via `Path.cwd()`). **Fail-open**: log any error and continue; today's gc predicates (clean AND merged-on-origin) are unchanged — only worktrees safe to remove are swept.
+
+6. **Doc-reconcile (fail-open)** — only on `merged == true`, after step 5b's pull so `{base}`'s tree carries the archived design. Run from the resolved seat:
+   ```bash
+   python3 "$TP_ROOT"/skills/_shared/reconcile_docs.py --slug {name} --apply --json
+   ```
+   (Pass `--pr {number}` when the caller already knows the PR number, e.g. `/tp-merge-from-main` step 8; otherwise PR number is self-resolved via `gh pr list`.)
+
+   If the JSON output lists applied edits: append one dated History line to each touched living doc per `skills/_shared/living-doc-format.md`, then commit on `{base}`:
+   ```bash
+   # Stage ONLY the exact paths from the --json payload (living-doc paths + code paths).
+   # Do NOT use a glob like three-pillars-docs/*.md — that would sweep in unrelated
+   # dirty living-doc edits already on {base}, violating scoped-add discipline.
+   git add <living-doc paths from edits[].path> <code paths from edits[].path>
+   git commit -m "docs(reconcile): {name} merged — flip status, re-point archived cites"
+   ```
+
+   **Fail-open, loud**: script error, zero edits, or a refused commit (hooks, invariant #32 live-worktree guard) **never aborts teardown** — report the leftover working-tree edits plus the exact commit command, and continue to the report. See `skills/_shared/reconcile-protocol.md` for the amendment obligation when the script's report flags stale cites or status rows. Auto mode runs this step per verified design without prompting; verdicts ride the caller's run log.
+
+   **#32-refusal deferral (no dirty seat state)**: when the commit is refused specifically by the live-worktree guard (invariant #32 — other `tp/*` worktrees still active, the usual mid-fleet case), do not park uncommitted living-doc edits on the seat (the "stale uncommitted seat state" incident class). Instead revert the applied edits (`git checkout -- <paths from edits[].path>`), keep the JSON report in the step-7 output, and re-run this step after the design worktrees are removed — `reconcile_docs.py` is idempotent, so the deferred re-run applies the same edits cleanly.
+
+6.5. **Post-merge tripwires (advisory)** — only on `merged == true`; runs from the resolved seat on pulled `{base}` (teardown already complete, reconcile already committed). Never blocks; the report (step 7) still runs regardless of outcome.
+
+   **Resolve the landing:**
+   - `MERGE_SHA` — from `gh pr view {number} --json mergeCommit --jq '.mergeCommit.oid'` (when the PR number is known), else fall back to:
+     `git log --merges --first-parent -1 --format=%H origin/{base}`
+   - Record `MERGED_AT` (from `gh pr view` `mergedAt` field, or current timestamp as fallback) for the time-since-merge readout.
+
+   **T1 — smoke test:**
+   ```bash
+   python3 -m pytest "$TP_ROOT"/skills/_shared/ -q
+   ```
+
+   **T2 — diff-balloon guard at the landed geometry** (pure reuse of the M13 CLI, zero detector edits):
+   ```bash
+   python3 "$TP_ROOT"/skills/_shared/diff_balloon_guard.py \
+     --repo . \
+     --base-ref "{MERGE_SHA}^1" \
+     --head-ref "{MERGE_SHA}^2" \
+     --factor {N}
+   ```
+   `{N}` is read from `.three-pillars/config.json` key `fleet.diff_balloon_factor` (JSON load; default-5 fallback when the key or file is absent). T2 is **NOT a replay of the pre-merge gate check**: it differs when `master` advanced between gate evaluation and `gh pr merge` (the gate measures `origin/{base}` at fetch time; no re-evaluation occurs at the merge moment), and when a landing bypassed the gate entirely — T2 is the authoritative measurement of the actual landed geometry (`^1` = mainline-before-merge, `^2` = feature tip; guaranteed two-parent by `gh pr merge`).
+
+   **T3 — framework integrity** (if `./framework-check.sh` exists at the seat root
+   (framework repo); otherwise record `skipped (consumer install)` in the report row):
+   ```bash
+   ./framework-check.sh
+   ```
+
+   If any wire returns FAIL or INDETERMINATE, print the **advisory** banner below. This is **advisory** and never blocks post-merge teardown or the report step:
+
+   ```
+   ════════ POST-MERGE TRIPWIRE FIRED — {wire}: {detail} ════════
+   The clean-revert window is OPEN (newest landing — probe depth 0):
+   a clean revert is available NOW and stops being clean at the next merge
+   ({elapsed} since merge — the budget is "before your next merge gesture").
+     → /tp-revert {pr-number-or-merge-sha}
+   ═══════════════════════════════════════════════════════════════
+   ```
+
+7. **Report** success or partial success:
    - Base branch checked out: `{base}`
    - Worktree removed: `<path>` / none found / failed (manual step shown)
    - Local branch deleted: yes / no (reason)
@@ -86,6 +150,9 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
    - Candidate branch deleted (local): yes / not present / failed
    - Candidate branch deleted (remote): yes / not present / failed
    - MRU cleared: yes / not present
+   - Docs reconciled: `committed <sha>` / `left-in-tree (reason)` / `no-op` / `failed (reason)`
+   - GC rider: swept {n} | none | failed (reason)
+   - Tripwires: pass | FIRED ({wires}) | skipped ({reason})
 
 ## Rules
 
@@ -103,9 +170,10 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
 - **No-arg scan**: walk `three-pillars-docs/completed-tp-designs/*/lock.json` for `phase == "cleanup-pending"` (the archived location, per the No-arg scan form above), then **drop any whose `tp/{name}` branch is confirmed gone from origin** — `git ls-remote --heads origin tp/{name}` must **exit 0 with empty output** to count as absent (already torn down). On a **non-zero exit** (offline/auth/network) do *not* drop — empty stdout from a failed command is not proof of absence; keep the design (the merge gate still governs). `cleanup-pending` is not cleared, so a confirmed-absent branch is the durable done-signal.
 - **Verified-only teardown**: run `verify_merged.py` for each remaining design. Tear down only designs where `merged == true`. Unverified designs are **skipped** with a reason (`merged=false — not actionable`). This is not a block; the teardown simply does not run for them.
 - **No confirmation prompt** — proceed without asking in auto mode.
-- **Logging is the caller's, not this skill's**: by design, `/tp-post-merge` runs *after* `/tp-design-complete` archived the design to `completed-tp-designs/{name}/` and is in the middle of deleting the branch — there is no live `tp-designs/{name}/decisions.md` to own, and this skill performs **no commit** (see Rules). So in auto mode it **does not write or commit a `decisions.md`** of its own (which would dirty the working tree, possibly on the default branch, with no commit/discard path). Instead it returns the per-design verdict + steps to its caller; the orchestrator (`/tp-run-full-design`) or `/tp-merge-from-main` records them in the run log it already owns and commits. This keeps the skill consistent with `skills/_shared/auto-mode.md`'s rule that `decisions.md` is a *committed* audit trail — the owning caller does the committing.
+- **Logging is the caller's, not this skill's**: by design, `/tp-post-merge` runs *after* `/tp-design-complete` archived the design to `completed-tp-designs/{name}/` and is in the middle of deleting the branch — there is no live `tp-designs/{name}/decisions.md` to own, and this skill performs **no commit of design artifacts** (the step-6 doc-reconcile commit on `{base}` is the sole, scoped exception — see Rules and step 6). So in auto mode it **does not write or commit a `decisions.md`** of its own (which would dirty the working tree, possibly on the default branch, with no commit/discard path). Instead it returns the per-design verdict + steps to its caller; the orchestrator (`/tp-run-full-design`) or `/tp-merge-from-main` records them in the run log it already owns and commits. This keeps the skill consistent with `skills/_shared/auto-mode.md`'s rule that `decisions.md` is a *committed* audit trail — the owning caller does the committing.
 - **The merge gate is still absolute** in auto mode — an unverified design is never torn down, only reported as pending.
 - **Candidate branch cleanup**: teardown also removes `candidate/{name}/single` (local and remote, steps 5f/5g) for each verified design — these are orchestrator-created branches and are absent on human-run designs (fail-open no-op in that case).
+- **Tripwires and gc rider run per verified design without prompting** — verdicts ride the caller's run log (this skill writes no decisions.md of its own — existing stance unchanged). Tripwire FIRED verdicts are surfaced in the report and returned to the caller for logging.
 
 Auto mode is the path used by `/tp-run-full-design` after an orchestrated completion PR merge and by `/tp-merge-from-main` step 8 — each owns its own audit log and commits the teardown verdicts this skill returns.
 
@@ -115,7 +183,7 @@ For repos where candidate branches accumulated before this teardown was wired up
 
 **How it works**:
 
-1. Run `python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . [--remote]` to enumerate and classify all `candidate/*` branches.
+1. Run `python3 "$TP_ROOT"/skills/tp-post-merge/scripts/sweep_candidates.py --repo . [--remote]` to enumerate and classify all `candidate/*` branches.
 2. The script uses `is_archived` to check whether each branch's slug has a completed-design archive in `three-pillars-docs/completed-tp-designs/{slug}/design.md`.
 3. Results are split into:
    - **orphaned** — slug is archived (design is done; branch is safe to delete).
@@ -128,10 +196,10 @@ For repos where candidate branches accumulated before this teardown was wired up
 
 To run the sweep for local branches:
 ```bash
-python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . --json
+python3 "$TP_ROOT"/skills/tp-post-merge/scripts/sweep_candidates.py --repo . --json
 ```
 
 To include remote (origin) branches:
 ```bash
-python3 skills/tp-post-merge/scripts/sweep_candidates.py --repo . --remote --json
+python3 "$TP_ROOT"/skills/tp-post-merge/scripts/sweep_candidates.py --repo . --remote --json
 ```

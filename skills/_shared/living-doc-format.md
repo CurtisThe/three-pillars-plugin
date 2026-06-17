@@ -5,10 +5,14 @@
 
 ## Rule: keep lines under 800 non-whitespace characters
 
-`framework-check.sh` invariant #28 scans tracked `three-pillars-docs/*.md` files
-(non-recursive, outside code fences) and emits an advisory `WARN:` for any line
-exceeding 800 non-whitespace characters. It never fails the check — but WARNs
-accumulate and hide regressions.
+`framework-check.sh` invariant #30 scans tracked `three-pillars-docs/*.md` files
+(non-recursive, outside code fences) for lines exceeding 800 non-whitespace
+characters. Since the `file-size-limits` design (2026-06-10) it is **fail-on-new**:
+a violating line in a doc NOT listed in `.three-pillars/file-size-grandfather.txt`
+**fails the check** (and the pre-commit hook blocks the commit); grandfathered docs
+get an advisory `WARN:` only. A writer can no longer assume long lines merely warn —
+an edit that pushes a line over the limit in a non-grandfathered doc hard-fails its
+own commit.
 
 **Every skill that writes to living docs must stay within this limit.**
 

@@ -14,11 +14,14 @@ from pathlib import Path
 
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
+COUNCIL_MD = SKILL_MD.parent.parent / "council" / "SKILL.md"
 
 # Repo root = skills/tp-run-full-design/scripts/ -> up 3.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 OOS_DIR = REPO_ROOT / "three-pillars-docs" / "completed-tp-designs" / "orchestrator-of-subagents"
 KNOWN_ISSUES = REPO_ROOT / "three-pillars-docs" / "known_issues.md"
+# RESOLVED entries MOVE to the archive (file-size-limits split, 2026-06-11).
+KNOWN_ISSUES_RESOLVED = REPO_ROOT / "three-pillars-docs" / "known_issues_resolved.md"
 ACF_DESIGN = (
     REPO_ROOT
     / "three-pillars-docs"
@@ -234,6 +237,138 @@ def test_dispatch_loop_construct_untouched_by_fanout():
         assert literal in dispatch_section, (
             f"the generic dispatch loop must still contain {literal!r}"
         )
+
+
+def test_impl_audit_code_input():
+    """impl-audit-code-access Task 2.1 / 2.4 — the ## Audit fan-out section carries
+    a Slot-8-only code-input addendum: three-dot refs + --code-input +
+    audit-by-dimension at the 1500-line threshold (logged), scoped to impl-audit
+    only with Slots 4/6 stated artifact-only. Task 2.3 — council/SKILL.md
+    ORCHESTRATOR MODE documents --code-input as the Slot-8-only additive flag."""
+    body = _body()
+
+    assert "\n## Audit fan-out (Slots 4/6/8)" in body, (
+        "a ## Audit fan-out (Slots 4/6/8) section must exist"
+    )
+    section = body.split("\n## Audit fan-out (Slots 4/6/8)", 1)[1].split("\n## ", 1)[0]
+
+    # (1) three-dot refs — the exact tp/{slug}...origin/candidate/{slug}/single form.
+    assert "tp/{slug}...origin/candidate/{slug}/single" in section, (
+        "the addendum must name the three-dot tp/{slug}...origin/candidate/{slug}/single ref form"
+    )
+    # (2) the --code-input flag must co-occur with the Round-1 dispatch line —
+    # not merely appear somewhere in the section. A bare presence check passed
+    # even when the canonical `--round 1 … --artifacts` dispatch template omitted
+    # --code-input (the F1 wiring gap); this binds the flag to the member round so
+    # the dispatch template provably routes the code to the council members.
+    assert "--code-input" in section, (
+        "the addendum must route refs to the council members via --code-input"
+    )
+    round1_anchor = section.find("--round 1")
+    assert round1_anchor != -1, (
+        "the section must show the Round-1 dispatch line (--round 1 … --artifacts)"
+    )
+    # Bounded span around the Round-1 dispatch line (the `--round 1 --members …
+    # --artifacts {paths} (+ --code-input …)` template plus its annotation).
+    round1_span = section[round1_anchor : round1_anchor + 400]
+    assert "--artifacts" in round1_span, (
+        "the bounded Round-1 span must contain the --artifacts flag"
+    )
+    assert "--code-input" in round1_span, (
+        "the Round-1 dispatch line must SHOW --code-input for the Slot-8 case — "
+        "narrating it elsewhere is not enough (the F1 wiring gap)"
+    )
+    # (3) audit-by-dimension escape hatch.
+    assert "audit-by-dimension" in section, (
+        "the large-diff gate must engage audit-by-dimension"
+    )
+    # (4) the 1500-line threshold.
+    assert "1500" in section, (
+        "the large-diff gate must fire at the 1500 changed-line threshold"
+    )
+    # (5) the decisions.md log token for the cap.
+    assert "[tp-run-full-design/tier-5] impl-audit-large-diff" in section, (
+        "the cap must log a [tp-run-full-design/tier-5] impl-audit-large-diff decisions entry"
+    )
+    # (6) the 4-arg -> 5-arg synth-call reconcile naming code_input for Slot 8.
+    assert "code_input" in section, (
+        "the addendum must name the 5th synth-call arg code_input for impl-audit (Slot 8)"
+    )
+
+    # Scoped to impl-audit only: names impl-audit / Slot 8, states Slots 4/6 stay
+    # artifact-only.
+    assert "impl-audit" in section and "Slot 8" in section, (
+        "the addendum must scope itself to impl-audit / Slot 8"
+    )
+    assert "Slots 4/6" in section and "artifact-only" in section.lower(), (
+        "the addendum must state Slots 4/6 stay artifact-only"
+    )
+
+    # Task 2.3 (cross-file) — council ORCHESTRATOR MODE documents --code-input as a
+    # Slot-8-only additive flag alongside --artifacts.
+    council = COUNCIL_MD.read_text()
+    assert "\n## ORCHESTRATOR MODE" in council, (
+        "council/SKILL.md must have an ## ORCHESTRATOR MODE section"
+    )
+    orch = council.split("\n## ORCHESTRATOR MODE", 1)[1]
+    assert "--code-input" in orch, (
+        "council ORCHESTRATOR MODE must document the --code-input flag"
+    )
+    assert "--artifacts" in orch, (
+        "--code-input must sit alongside the existing --artifacts flag"
+    )
+    assert "Slot 8" in orch or "Slot-8" in orch, (
+        "--code-input must be documented as Slot-8-only"
+    )
+    assert "additive" in orch.lower(), (
+        "--code-input must be stated as additive (absent it, byte-identical)"
+    )
+
+    # PR review round 1 (F-HIGH) — the Round-1 member-dispatch contract must not
+    # merely MENTION --code-input; it must instruct the impl-audit member to READ
+    # the candidate code itself via its own read-only git. Guard the wire gap from
+    # regression: assert both the three-dot diff invocation and the git show ref
+    # appear in the Round-1 dispatch-contract section.
+    assert "### Round 1 dispatch contract" in orch, (
+        "council ORCHESTRATOR MODE must have a Round 1 dispatch contract section"
+    )
+    round1 = orch.split("### Round 1 dispatch contract", 1)[1].split("\n### ", 1)[0]
+    assert "git diff tp/{slug}...origin/candidate/{slug}/single" in round1, (
+        "the Round-1 dispatch contract must instruct the impl-audit member to read "
+        "the candidate via its own three-dot git diff (F-HIGH: USE --code-input, "
+        "not merely mention it)"
+    )
+    assert "git show origin/candidate/{slug}/single:" in round1, (
+        "the Round-1 dispatch contract must instruct the impl-audit member to "
+        "git show candidate files via its own read-only git (F-HIGH)"
+    )
+
+
+def test_tier5_step2_council_codeaudit():
+    """impl-audit-code-access Task 2.2 / 2.5 — Tier 5 Step 2 names the council
+    code-audit fan-out (council + fan-out + code) and the stale single-subagent
+    '/tp-implementation-audit {slug} --auto inline ... Shape C' phrasing is gone
+    from the Step-2 region."""
+    body = _body()
+
+    assert "\n## Tier 5" in body, "a ## Tier 5 section must exist"
+    tier5 = body.split("\n## Tier 5", 1)[1].split("\n## ", 1)[0]
+    assert "\n### Step 2" in tier5, "Tier 5 must have a ### Step 2 subsection"
+    step2 = tier5.split("\n### Step 2", 1)[1].split("\n### ", 1)[0]
+
+    # Positive: Step 2 names the council code-audit fan-out.
+    assert "council" in step2.lower(), "Step 2 must name the council fan-out"
+    assert "fan-out" in step2.lower(), "Step 2 must name the fan-out"
+    assert "code" in step2.lower(), "Step 2 must name the candidate code audit"
+
+    # Negative (scoped to Step 2): the stale single Shape-C subagent wording is gone.
+    assert "runs `/tp-implementation-audit {slug} --auto` inline" not in step2, (
+        "the stale single-subagent '/tp-implementation-audit {slug} --auto inline' "
+        "phrasing must be removed from Step 2 (reconciled to the council fan-out)"
+    )
+    assert "Shape C" not in step2, (
+        "the stale Shape-C single-dispatch framing must be gone from Step 2"
+    )
 
 
 def test_budget_table():
@@ -724,9 +859,10 @@ def test_tier_3_5_uses_wrapper():
 
     # (1) Tier 3.5 section invokes the wrapper subprocess via python3
     # (matching the repo convention used by tp-design, tp-spike-auto,
-    # tp-migrate — avoids Python 2 ambiguity).
-    assert "python3 skills/tp-run-full-design/scripts/run_tier_3_5.py" in body, (
-        "Tier 3.5 must invoke the wrapper subprocess literally with python3"
+    # tp-migrate — avoids Python 2 ambiguity). Prefixed with "$TP_ROOT"/ per
+    # the resolve-root preamble (portable-enforcement-layer Phase 3 sweep).
+    assert 'python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/run_tier_3_5.py' in body, (
+        "Tier 3.5 must invoke the wrapper subprocess with python3 and $TP_ROOT prefix"
     )
     # The legacy inline sys.path.insert(0, str(SCRIPTS_DIR)) Python block is
     # gone — the wrapper owns the helper composition now.
@@ -949,8 +1085,9 @@ def test_inline_council_superseded():
 def test_m8_resolved():
     """Task 5.2 — the council fan-out known-issue (originally M8, renumbered to M9
     after scoped-subagent-types added a new M8) is marked RESOLVED with a reference
-    to audit-council-fanout."""
-    text = KNOWN_ISSUES.read_text()
+    to audit-council-fanout. (Entry lives in known_issues_resolved.md since the
+    file-size-limits split — resolved entries MOVE to the archive.)"""
+    text = KNOWN_ISSUES_RESOLVED.read_text()
     # The issue was renumbered M8 -> M9 when scoped-subagent-types added fleet atomicity as M8.
     m9 = text.split("\n### M9", 1)
     assert len(m9) == 2, "M9 entry (council fan-out) must exist"
@@ -976,3 +1113,74 @@ def test_design_dispatch_counts_superseded():
     assert "8/38/5 per detailed-design §5" in text, (
         "design.md must cite the corrected 8/38/5 per detailed-design §5"
     )
+
+
+# ── Weight-class consumption (design-depth-axis Task 5.1) ───────────────────
+
+
+def test_weight_class_tier1() -> None:
+    """Tier 1 reads the weight class and routes by it (F7: exact entry formats)."""
+    body = _body()
+    # Direct design.md frontmatter read via the shared helper; the
+    # pickup-contract v1 envelope is unchanged — the class never rides it.
+    assert "weight_class.py read" in body, (
+        "Tier 1 must read the class via `weight_class.py read`"
+    )
+    assert "never rides" in body, (
+        "the pickup-contract v1 envelope must be declared unchanged "
+        "(the class never rides it — audit finding m1)"
+    )
+    # just-do-it escalates to light; the transition is named (F7).
+    assert "weight-class escalation: just-do-it → light" in body, (
+        "the escalation decisions.md entry must name the class transition"
+    )
+    # spike is a BLOCKED refusal with /tp-spike-auto guidance (audit M1).
+    assert "BLOCKED — spike" in body, (
+        "spike must be refused with a BLOCKED escalation, not converted"
+    )
+    assert "/tp-spike-auto" in body
+    assert "interactive" in body
+    # De-escalation below the declared class is refused.
+    assert "de-escalat" in body.lower(), (
+        "the escalate-only rule must be stated (never de-escalate)"
+    )
+    # F7: the exact decisions.md entry formats are specified — the auto-mode
+    # Decision Entry template for the escalation, the BLOCKED template for
+    # the refusal — not just "an entry is written".
+    escalation = body.split("weight-class escalation: just-do-it → light")[1]
+    for field in ("**Question**", "**Decided**", "**Reasoning**", "**Confidence**"):
+        assert field in escalation.split("```")[0], (
+            f"escalation entry template must carry {field} inside the fenced block"
+        )
+    refusal = body.split("BLOCKED — spike")[1]
+    assert "**Cause**" in refusal and "**Details**" in refusal, (
+        "spike-refusal entry must follow the BLOCKED template (Cause/Details)"
+    )
+
+
+def test_weight_class_light_slots() -> None:
+    """design-depth-axis Task 5.2 — light slot mapping + budget light column."""
+    body = _body()
+    assert "Light slot mapping" in body, "the light slot mapping must be documented"
+    block = body.split("Light slot mapping")[1].split("\n## ")[0]
+    # Slot 2 emits design.md + plan.md in one dispatch.
+    assert "design.md + plan.md" in block
+    # Slots 3 and 5 are skipped.
+    assert "skipped" in block
+    assert re.search(r"Slots? 3 .*(?:and|\+) ?5", block), "Slots 3 and 5 named as skipped"
+    # Slots 4 + 6 merge into one fan-out using the --light prompts.
+    assert "--light" in block
+    assert "merge" in block.lower()
+    # Slot 8 = regression check + single fidelity auditor via auto_verdict.
+    assert "regression check" in block
+    assert "fidelity" in block
+    assert "auto_verdict" in block
+    # Budget table gains a light column; hard ceiling unchanged.
+    budget = body.split("\n## Per-slot budget table\n")[1].split("\n## ")[0]
+    assert "light" in budget.lower(), "budget table must gain a light column"
+    assert re.search(r"`design`[^\n]*100k", budget), "light design budget is 100k"
+    assert "150k" in budget, "merged audit budget is 150k"
+    assert re.search(r"80k[^\n]*fidelity|fidelity[^\n]*80k", budget), (
+        "fidelity audit budget is 80k"
+    )
+    assert "500k" in budget, "hard ceiling unchanged"

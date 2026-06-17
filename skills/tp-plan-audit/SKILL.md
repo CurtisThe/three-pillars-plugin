@@ -1,7 +1,7 @@
 ---
 name: tp-plan-audit
 description: "Plan Audit — verify plan.md is consistent with design.md and detailed-design.md. Runs deterministic scripts then convenes an engineering council for judgment calls."
-argument-hint: "{design-name} [--spike] [--auto] [--force-takeover]"
+argument-hint: "{design-name} [--spike] [--light] [--auto] [--force-takeover]"
 ---
 
 # Plan Audit
@@ -17,12 +17,13 @@ Three-layer verification that plan.md is consistent with its upstream design doc
 **Arguments**:
 - `{design-name}` (required) — must match an existing directory under `three-pillars-docs/tp-designs/`.
 - `--spike` (optional) — spike mode. Expects Hypothesis/Try/Evaluate task format instead of File/Test/Red/Green. Skips detailed-design.md requirement. Adjusts council prompts for experiment quality review.
+- `--light` (optional) — light weight-class mode (see `skills/_shared/weight-class.md`). Audits a collapsed design.md + thin plan.md pair: detailed-design.md is not required, the council runs **one merged conceptual+plan pass** instead of the design-audit + plan-audit pair, and divergent `weight-class` frontmatter is a hard ERROR. Task fields stay File/Test/Red/Green (light is production work).
 - `--auto` (optional) — autonomous mode. Auto-resolves findings by accepting council recommendations, applies plan.md fixes without user confirmation, logs each resolution to `decisions.md`. See `skills/_shared/auto-mode.md` for convention. Composable with `--spike`.
 
 ## Prerequisites
 - `three-pillars-docs/tp-designs/{design-name}/plan.md` must exist.
 - `three-pillars-docs/tp-designs/{design-name}/design.md` must exist.
-- `three-pillars-docs/tp-designs/{design-name}/detailed-design.md` must exist — **unless `--spike` is set**, in which case it is not required.
+- `three-pillars-docs/tp-designs/{design-name}/detailed-design.md` must exist — **unless `--spike` or `--light` is set**, in which case it is not required (under `--light` the prerequisites are design.md + plan.md only).
 
 ## Steps
 
@@ -47,10 +48,10 @@ Read project docs per `skills/_shared/read-project-docs.md`. Council members sho
 
 Locate the script via the skill's install path — it lives alongside this SKILL.md:
 ```bash
-python3 ~/.claude/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" [--spike]
+python3 ~/.claude/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" [--spike|--light]
 ```
 If the skill is project-installed, use `.claude/skills/tp-plan-audit/scripts/audit_plan.py` instead.
-Pass `--spike` if the `--spike` flag was given to the skill.
+Pass `--spike` or `--light` matching the flag given to the skill.
 
 Capture the full output. This checks:
 - Task field completeness (File, Test, Red, Green, Done when)
@@ -67,7 +68,7 @@ Spawn three council member agents **in parallel**. Each agent reads the design f
 
 **CRITICAL**: Do NOT paste file contents into the agent prompts. Give them file paths — they read the files themselves. This preserves context isolation.
 
-**In `--spike` mode**, use the spike-flavored prompts below. **In standard mode**, use the standard prompts.
+**In `--spike` mode**, use the spike-flavored prompts below. **In `--light` mode**, use the merged light-mode prompts below. **In standard mode**, use the standard prompts.
 
 #### Standard mode prompts
 
@@ -190,13 +191,40 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
+#### Light mode prompts (`--light`)
+
+The light weight class merges the conceptual-design review and the plan review into **one council pass**: the **same triad** (`council-torvalds`, `council-ada`, `council-feynman`) runs in parallel, each member receiving the same merged prompt below, and the audit runs a **single round** — Step 4's Round 2 is skipped entirely, reusing the Round-2 **short-circuit** rule's mechanics (treat the Round-1 outputs as the authoritative council product; in `--auto`, append the same `round-2-short-circuit` line to `decisions.md` with `converged_topic=light-single-round`).
+
+Each member's merged prompt (spawn all three in parallel with their usual `subagent_type`):
+
+```
+You are reviewing a LIGHT-class design: a collapsed design.md (design + detail merged) and a thin plan.md. One merged pass covers both the conceptual design and the plan. Answer BOTH question groups separately.
+
+Read these two files in full before answering:
+1. {DESIGN_DIR}/design.md — collapsed design (problem, vision alignment, scope, entities, behaviors, constraints)
+2. {DESIGN_DIR}/plan.md — thin implementation plan with Red/Green/Refactor specs
+
+Conceptual-design questions:
+C1. Vision fit: does the design advance `three-pillars-docs/vision.md`'s problem or principles? Does anything touch a stated non-goal?
+C2. Scope soundness: is the In/Out-of-scope split coherent? Is anything in scope that the light class can't carry (high risk, wide blast radius)?
+C3. Entity/behavior soundness: are the entities and behaviors complete and consistent — would they survive a detailed-design pass, given that none will run?
+
+Plan questions:
+P1. Coverage: does every in-scope behavior from design.md have a corresponding task? Anything in the plan NOT in the design (scope creep)?
+P2. Ordering: are tasks sequenced so prerequisites land before dependents?
+P3. Buildability: are the Red/Green specs concrete enough to write code from, and are "Done when" criteria verifiable?
+
+For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or MISALIGNMENT (conflicts with `three-pillars-docs/vision.md`), and tag it [C] or [P] for which question group surfaced it.
+Limit: 400 words.
+```
+
 ### Step 3.5: Round-2 short-circuit (`--auto` only)
 
 Before spawning Round 2, `--auto` runs a cheap convergence check: if all three Round-1 outputs flag the same highest-severity finding (Jaccard ≥ 0.5 on `(category + first 6 stop-word-filtered tokens)` bags, tokenized as `[A-Za-z0-9_.-]+` per the canonical regex), Round 2 cross-examination is unlikely to add new information.
 
 This short-circuit fires **only** under `--auto`; interactive mode always runs Round 2 — the human-deliberation product is part of what `/tp-plan-audit` delivers when a human is in the loop, and Round 2 cross-examination remains visible to the operator regardless of unanimity.
 
-In `--auto`, invoke `skills/tp-plan-audit/scripts/round2_short_circuit.py`'s pure function `round2_short_circuit.should_short_circuit`:
+In `--auto`, invoke `"$TP_ROOT"/skills/tp-plan-audit/scripts/round2_short_circuit.py`'s pure function `round2_short_circuit.should_short_circuit`. Alternatively, drive it as a CLI: `python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/round2_short_circuit.py <file1> <file2> [<file3>...]` — exits 0 with the verdict dict as JSON on stdout, or 2 on usage/read error.
 
 ```python
 from round2_short_circuit import should_short_circuit
@@ -282,6 +310,7 @@ In both modes:
 - **Respect the lock** per `skills/_shared/collaboration.md` — plan-audit edits `plan.md` and must not proceed if another developer holds the design.
 - The design documents (design.md, and detailed-design.md when present) are authoritative. The plan serves them, not the other way around.
 - In `--spike` mode, design.md is the sole authority — there is no detailed-design.md.
+- In `--light` mode, the collapsed design.md is the sole authority; the merged council pass runs a single round (no Round 2), and `weight-class` frontmatter divergence between design.md and its siblings is a hard ERROR from the script layer.
 - If the design is ambiguous and the plan makes a reasonable interpretation, that's fine — only flag clear contradictions.
 - Don't flag stylistic differences (different wording for the same concept).
 - DO flag missing test coverage, wrong parameter types, or dependency violations.

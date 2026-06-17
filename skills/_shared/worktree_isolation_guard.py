@@ -4,7 +4,7 @@ Guards against shared-worktree corruption (known-issues M13/M14): a worker
 committing while its cwd is the shared orchestrator worktree rather than its
 own dedicated worktree.
 
-The load-bearing mechanical enforcement is invariant #31 in framework-check.sh
+The load-bearing mechanical enforcement is invariant #32 in framework-check.sh
 which calls this module with --assert-own-worktree before every commit.
 
 Two advisory boundary helpers are also exposed:
@@ -12,14 +12,15 @@ Two advisory boundary helpers are also exposed:
   - head_drift: pure comparator detecting orchestrator HEAD drift
 
 Design refs:
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/detailed-design.md
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/plan.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/plan.md
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import posixpath
 import subprocess
 import sys
 
@@ -102,6 +103,33 @@ def live_tp_worktrees(worktree_porcelain: str) -> list[tuple[str, str]]:
 # Default-branch names that mark the shared orchestrator / master checkout.
 _DEFAULT_BRANCHES = ("master", "main")
 
+# ---------------------------------------------------------------------------
+# Orchestration paper-trail carve-out
+# ---------------------------------------------------------------------------
+
+_ORCHESTRATION_PREFIX = "three-pillars-docs/tp-designs/orchestration/"
+
+
+def orchestration_only_staged(staged_paths):
+    """True iff the staged set is KNOWN, NON-EMPTY, and every path is under
+    the orchestration slot. None (unprovable) and [] (no commit) → False —
+    the carve-out never fires on an unprovable staged set (fail-closed).
+
+    Paths are matched STRICTLY (forward-slash literals, no backslash
+    normalization). A file literally named with backslash separators (a legal
+    POSIX filename) is NOT in the orchestration slot. Backslash leniency
+    lives ONLY in the CLI --staged-file override arm, where a human may have
+    typed Windows-style separators on purpose; it is applied there before
+    calling this function, never here.
+    """
+    if not staged_paths:
+        return False
+    for path in staged_paths:
+        normalized = posixpath.normpath(path)
+        if not normalized.startswith(_ORCHESTRATION_PREFIX):
+            return False
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Task 1.2: is_shared_with_orchestrator + _realpath_within helper
@@ -136,7 +164,7 @@ def is_shared_with_orchestrator(*, cwd: str, worktree_toplevel: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Task 1.3: assert_own_worktree — the invariant-#31 predicate
+# Task 1.3: assert_own_worktree — the invariant-#32 predicate
 # ---------------------------------------------------------------------------
 
 
@@ -195,9 +223,10 @@ def _is_default_branch_root(toplevel: str, branch: str, is_bare: bool) -> bool:
 
 
 def assert_own_worktree(
-    *, cwd: str, worktree_porcelain: str, current_branch: str = ""
+    *, cwd: str, worktree_porcelain: str, current_branch: str = "",
+    staged_paths: list[str] | None = None
 ) -> tuple[bool, str]:
-    """The load-bearing isolation predicate for framework-check invariant #31.
+    """The load-bearing isolation predicate for framework-check invariant #32.
 
     Returns (ok, guidance_message). When ok=True, msg is empty.
 
@@ -297,13 +326,37 @@ def assert_own_worktree(
     # as the seat via the `bare` flag (and the path-shape fallback for the main
     # worktree), closing the M14 bare-root hole that previously failed OPEN.
     if _is_default_branch_root(owner_toplevel, owner_branch, owner_is_bare):
+        # The orchestration carve-out applies ONLY when the seat's HEAD is
+        # genuinely on a default branch (master/main) or is branchless AND the
+        # worktree is actually bare (bare / branch not reported). A seat that has
+        # been checked out in-place onto a named non-default branch (e.g. tp/b,
+        # feature/x) has drifted — the carve-out must NOT fire there, because the
+        # paper-trail commit would land on that design branch, not the
+        # orchestration slot. A drifted named branch must take the BLOCK path
+        # (same as pre-PR behaviour).
+        # effective_branch="" covers the bare/unreported-branch topology ONLY when
+        # the owning worktree is actually bare (owner_is_bare). A DETACHED non-bare
+        # seat also produces effective_branch="" but must NOT get the carve-out —
+        # it is not a known-safe branchless topology; it must BLOCK to prevent a
+        # commit from landing in an unknown location.
+        seat_on_default = (
+            effective_branch in _DEFAULT_BRANCHES
+            or (not effective_branch and owner_is_bare)
+        )
+        # Boundary honesty: exclusivity is proven for the staged set at check
+        # time. git commit -a, a pathspec, or --amend can still add content at
+        # commit time; that risk is mitigated by the framework's scoped-git-add
+        # protocol (commit-after-work.md), documented here not hidden.
+        if seat_on_default and orchestration_only_staged(staged_paths):
+            return True, ""   # orchestration paper-trail carve-out (path-exclusive)
         root_label = owner_branch or ("bare" if owner_is_bare else "main checkout")
         prov_str = ", ".join(f"{b or '(detached)'} ({p})" for p, b in provisioned)
         msg = (
             f"FAIL: refusing commit — cwd '{cwd}' (HEAD on '{effective_branch or '?'}') is the "
             f"shared default-branch ({root_label}) orchestrator worktree '{owner_toplevel}', "
             f"but {len(live)} live and {len(provisioned)} provisioned tp/<slug> worktree(s) exist.\n"
-            f"  This is the shared-worktree corruption class (known-issues M13/M14):\n"
+            f"  This is the shared-worktree corruption class (known-issue M13; M14\n"
+            f"  is archived in three-pillars-docs/known_issues_resolved.md):\n"
             f"  committing from the shared master/orchestrator checkout while dedicated\n"
             f"  tp/* worktrees exist risks orphaning/cross-contaminating their commits.\n"
             f"  Live tp/* worktree(s): {live_str}\n"
@@ -326,7 +379,8 @@ def assert_own_worktree(
             f"FAIL: refusing commit — cwd '{cwd}'{branch_info} is inside the "
             f"tp-provisioned worktree '{owner_toplevel}' (expected branch '{expected}'), "
             f"but HEAD is NOT on that worktree's tp/<slug> branch.\n"
-            f"  This is the shared-worktree corruption class (known-issues M13/M14):\n"
+            f"  This is the shared-worktree corruption class (known-issue M13; M14\n"
+            f"  is archived in three-pillars-docs/known_issues_resolved.md):\n"
             f"  a worker has checked out a foreign/candidate branch inside an\n"
             f"  orchestrator tp/* worktree (HEAD drift), risking commit orphaning.\n"
             f"  Live tp/* worktree(s): {live_str}\n"
@@ -439,7 +493,7 @@ def main(argv=None) -> int:
     """CLI for worktree isolation guard.
 
     Subcommands:
-      --assert-own-worktree   (flag form, used by invariant #31)
+      --assert-own-worktree   (flag form, used by invariant #32)
       assert-own              (equivalent subcommand form)
       forbid-checkout         (advisory checkout boundary check)
       head-drift              (pure SHA comparator)
@@ -450,6 +504,8 @@ def main(argv=None) -> int:
       --worktree-porcelain    override porcelain output (literal string)
       --dispatch-sha          dispatch-time HEAD SHA (for head-drift)
       --return-sha            return-time HEAD SHA (for head-drift)
+      --staged-file           override staged files (repeatable; assert-own only)
+      --no-staged             hermetic empty staged set (assert-own only)
 
     Exit 0 = pass/allow, 1 = block/refuse (guidance on stderr).
     Fail-closed on parse success.
@@ -458,7 +514,7 @@ def main(argv=None) -> int:
         description="Worktree isolation guard: ensure worker operates in its own worktree.",
         add_help=True,
     )
-    # Subcommand via positional OR flag (--assert-own-worktree is the form #31 uses)
+    # Subcommand via positional OR flag (--assert-own-worktree is the form #32 uses)
     parser.add_argument(
         "subcommand",
         nargs="?",
@@ -470,7 +526,7 @@ def main(argv=None) -> int:
         action="store_true",
         dest="assert_own_flag",
         default=False,
-        help="flag form of 'assert-own' (used by framework-check invariant #31)",
+        help="flag form of 'assert-own' (used by framework-check invariant #32)",
     )
     parser.add_argument("--repo", default=".", help="repo root (default: .)")
     parser.add_argument("--cwd", default=None, help="override cwd (default: os.getcwd())")
@@ -497,6 +553,24 @@ def main(argv=None) -> int:
         default=None,
         dest="branch",
         help="override current branch name (for assert-own; default: read from git)",
+    )
+    # Staged-path overrides for assert-own (mirrors worktree_write_guard.py idiom).
+    # Mutually exclusive: --staged-file (repeatable) / --no-staged (hermetic empty).
+    staged_group = parser.add_mutually_exclusive_group()
+    staged_group.add_argument(
+        "--staged-file",
+        action="append",
+        dest="staged_files",
+        default=None,
+        metavar="PATH",
+        help="override staged files for assert-own (repeatable); absent = read from git",
+    )
+    staged_group.add_argument(
+        "--no-staged",
+        action="store_true",
+        dest="no_staged",
+        default=False,
+        help="assert-own: hermetic empty staged set (carve-out can't fire)",
     )
     args = parser.parse_args(argv)
 
@@ -536,10 +610,41 @@ def main(argv=None) -> int:
                     current_branch = _run_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
                 except Exception:
                     current_branch = ""
+
+            # Resolve staged paths for the carve-out consult (assert-own only).
+            # Mirrors worktree_write_guard.py's override idiom:
+            #   --no-staged    → [] (hermetic empty; carve-out can't fire)
+            #   --staged-file  → that list
+            #   neither        → git diff --cached --name-only (live)
+            #   git error      → None (unknown; carve-out can't fire — fail-closed)
+            if args.no_staged:
+                staged_paths: list[str] | None = []
+            elif args.staged_files is not None:
+                # Apply backslash leniency here (trusted human CLI input may use
+                # Windows-style separators) — NOT inside orchestration_only_staged(),
+                # where strictness is required to block backslash-named POSIX files.
+                staged_paths = [
+                    p.replace("\\", "/") for p in args.staged_files
+                ]
+            else:
+                try:
+                    raw = _run_git(
+                        repo,
+                        ["diff", "--cached", "--name-only", "--no-renames", "-z"],
+                    )
+                    # -z produces NUL-separated, unquoted paths (no C-quoting).
+                    # --no-renames ensures both the source and destination of a
+                    # staged rename appear separately, so mixed-staging detection
+                    # fires correctly when one side is outside the allowlist.
+                    staged_paths = [p for p in raw.split("\x00") if p]
+                except Exception:
+                    staged_paths = None  # unknown → carve-out can't fire
+
             ok, msg = assert_own_worktree(
                 cwd=cwd,
                 worktree_porcelain=porcelain,
                 current_branch=current_branch,
+                staged_paths=staged_paths,
             )
         else:
             ok, msg = forbid_checkout_in_shared(cwd=cwd, worktree_porcelain=porcelain)

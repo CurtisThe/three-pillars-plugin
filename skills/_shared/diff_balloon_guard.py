@@ -11,8 +11,8 @@ Hermetic testing: inject sizes=(candidate_lines, baseline_lines) to bypass
 the live git measurement path. CLI: --candidate-size / --baseline-size.
 
 Design refs:
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/detailed-design.md
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/plan.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/plan.md
 """
 
 from __future__ import annotations
@@ -169,6 +169,44 @@ def pred_diff_not_ballooned(
             verdict=GateVerdict.INDETERMINATE,
             detail=f"could not measure diff balloon: {e}",
         )
+
+
+# ---------------------------------------------------------------------------
+# derive_base_ref — resolve base branch name from a PR URL via gh CLI
+# ---------------------------------------------------------------------------
+
+
+def derive_base_ref(pr_url: str, runner=None) -> "str | None":
+    """Resolve the base branch name for a PR URL via the gh CLI.
+
+    Args:
+        pr_url: The pull request URL (e.g. https://github.com/o/r/pull/1).
+        runner: Optional injection seam for hermetic tests. When provided,
+                called as runner(cmd_list) -> str (stdout). When None, runs
+                the real gh CLI via subprocess.
+
+    Returns:
+        The base ref name string, or None on any error (gh not found,
+        non-zero exit, bad JSON, empty value, exception).
+    """
+    import json as _json
+
+    cmd = ["gh", "pr", "view", pr_url, "--json", "baseRefName"]
+    try:
+        if runner is not None:
+            output = runner(cmd)
+        else:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False,
+            )
+            if result.returncode != 0:
+                return None
+            output = result.stdout
+        data = _json.loads(output)
+        base = data.get("baseRefName", "")
+        return base if base else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

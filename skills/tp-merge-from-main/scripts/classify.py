@@ -6,7 +6,7 @@ labels each hunk by *structure alone* (regex on line shape) — no prose underst
 Validated by the worktree-merge-conflict-flow spike: 0 misclassifications across 12 real-fixture
 hunks, and crucially 0 semantic-misclassified-as-mechanical (the only dangerous error).
 
-Hunk classes (see three-pillars-docs/tp-designs/worktree-merge-conflict-flow/demos/taxonomy.md):
+Hunk classes (see three-pillars-docs/completed-tp-designs/worktree-merge-conflict-flow/demos/taxonomy.md):
     id-renumber-collision          both sides introduce `### L<n>:` / `### D<n>:` headings
     design-inventory-row-merge     conflict over `| D<n> | ... |` / `| S<n> | ... |` table rows
     current-focus-reprioritization conflict over Current-Focus priority rows `| <int> | <design> |`

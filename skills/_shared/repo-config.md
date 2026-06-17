@@ -10,10 +10,11 @@ The file is created lazily by the first skill that needs to write to it. A repo 
 
 ## Schema
 
-The shape and constraints are defined by [`repo-config.schema.json`](repo-config.schema.json) (JSON Schema draft-2020-12). Two subsections under a top-level `schema_version: 1`:
+The shape and constraints are defined by [`repo-config.schema.json`](repo-config.schema.json) (JSON Schema draft-2020-12). Subsections under a top-level `schema_version: 1`:
 
 - `migration` — `completed_at` (ISO-8601 UTC | null), `from_layout` (enum: `"docs+tdd"` | null). Sole writer of `completed_at` is `migrate.py --apply`; SKILL.md wrappers must never set this independently.
 - `branch_protection` — `offered_at`, `applied_at` (ISO | null), `declined` (bool, default false), `profile` (enum: `"team-pr-1approval-noforce"` | null).
+- `worktree_immunization` — `offered_at`, `applied_at` (ISO | null), `declined` (bool, default false). Tracks whether the `heal-core-bare` hook + `extensions.worktreeConfig=true` have been offered, applied, or declined. Mirrors the `branch_protection` block shape; `first-run.md`'s cheap-path condition reads it in one config-read. Written by `skills/_shared/bootstrap_immunization.py` (`mark_applied()` / `mark_declined()` / `mark_offered()`). Never re-asked after a recorded `declined=true` or non-null `applied_at`.
 
 `additionalProperties: false` at every level. Unknown keys are a hard validation error — a typo in a write path fails closed rather than silently storing junk.
 

@@ -110,3 +110,24 @@ def test_promote_skill_prose():
         "SKILL.md must include the --skip-design flag in the handoff step "
         "('/tp-run-full-design <slug> --skip-design')"
     )
+
+
+def test_weight_class_carry():
+    """design-depth-axis Task 2.3 — seed-class carry into the promoted design."""
+    body = _body()
+    # Read the class from seed frontmatter.
+    assert "weight-class" in body, (
+        "SKILL.md must instruct reading `weight-class` from seed.md frontmatter"
+    )
+    assert "frontmatter" in body.lower()
+    # If absent, fold ONE class question (rubric-assisted) into the batched confirm.
+    assert "batched confirm" in body.lower()
+    assert "rubric" in body.lower() or "recommend" in body.lower(), (
+        "the folded class question must be rubric-assisted "
+        "(weight_class.py recommend / weight-class.md rubric)"
+    )
+    assert "weight_class.py" in body or "weight-class.md" in body
+    # Stamp the drafted design.md with the class.
+    assert "stamp" in body.lower(), (
+        "SKILL.md must instruct stamping the drafted design.md with the class"
+    )

@@ -2,6 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python -m pytest:*)"
+    ],
+    "deny": [
+      "Bash(git commit --no-verify:*)",
+      "Bash(git commit -n:*)"
     ]
   },
   "statusLine": {

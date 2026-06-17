@@ -87,7 +87,7 @@
         },
         "require_human_approval": {
           "type": "boolean",
-          "description": "Whether the deterministic merge gate requires a current human-approval (`tp:human-approved` on the PR head) as its fifth predicate. Default (absent) is true — the gate folds pred_human_approved strictly, so the autonomous path can never cross the irreversible `gh pr merge` boundary without an explicit, out-of-band human approval that is current on the head SHA. Set false only to OPT OUT of the human-approval predicate (the other four predicates still gate); the predicate is then OMITTED from evaluate_gate and the pre-change four-predicate fold is unchanged. The predicate is read by deterministic_gate.evaluate_gate via human_approval._require_human_approval."
+          "description": "Whether the deterministic merge gate requires a current human-approval (`tp:human-approved` on the PR head) as its fifth predicate. Default (absent) is true — the gate folds pred_human_approved strictly, so the autonomous path can never cross the irreversible `gh pr merge` boundary without an explicit, out-of-band human approval that is current on the head SHA. Set false only to OPT OUT of the human-approval predicate (the other four predicates still gate); the predicate is then OMITTED from evaluate_gate and the pre-change four-predicate fold is unchanged. IMPORTANT: setting false opts out of the gate predicate, but land.py still hard-refuses unattended landing at the land boundary — the opt-out never crosses the irreversible boundary without a human approving at HEAD. The flag is read from committed HEAD only (via `git show HEAD:`), so an uncommitted edit cannot change this value. The predicate is read by deterministic_gate.evaluate_gate via human_approval._require_human_approval. Deny-rule residual: the permissions.deny rule Bash(git commit --no-verify:*) uses a prefix match and cannot block '--no-verify' appearing after other arguments; prose prohibitions (CLAUDE.md, commit-after-work.md) and reviewer inspection remain the backstop for those forms."
         },
         "automation_identities": {
           "type": "array",
@@ -152,6 +152,32 @@
           "type": "number",
           "minimum": 1,
           "description": "Multiplier vs. base diff size at which the diff-balloon guard fires and rejects the candidate. Default 5."
+        }
+      }
+    },
+    "worktree_immunization": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Seat immunization state: tracks whether the heal-core-bare hook + extensions.worktreeConfig have been offered, applied, or declined. Mirrors the branch_protection block shape so the first-run preflight can check it with a single config-read condition.",
+      "properties": {
+        "offered_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO-8601 UTC timestamp when the immunization offer was last shown to the operator."
+        },
+        "applied_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO-8601 UTC timestamp when immunization was successfully applied (heal hooks installed + extensions.worktreeConfig=true set). Null if not yet applied."
+        },
+        "declined": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if the operator explicitly declined immunization. Permanently suppresses the offer so first-run never re-asks."
         }
       }
     }

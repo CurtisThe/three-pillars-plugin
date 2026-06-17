@@ -6,8 +6,8 @@ units + one temp-repo git integration for the --range CLI path.
 Run with: python -m pytest skills/_shared/test_verify_learn.py -q
 
 Design refs:
-  - three-pillars-docs/tp-designs/merged-design-closeout/detailed-design.md
-  - three-pillars-docs/tp-designs/merged-design-closeout/plan.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/plan.md
 """
 
 from pathlib import Path
@@ -205,3 +205,142 @@ def test_cli_always_exit_zero(tmp_path, capsys, monkeypatch):
     # And empty stdin → exit 0.
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
     assert main(["--repo", str(tmp_path)]) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Task 5.1 — stale_invariant_cites(repo_root, touched_paths): advisory, exit-0
+# --------------------------------------------------------------------------- #
+
+
+def _make_temp_framework_check(tmp_path: Path) -> Path:
+    """Write a minimal framework-check.sh with a few invariant headers."""
+    fc = tmp_path / "framework-check.sh"
+    fc.write_text(
+        "#!/usr/bin/env bash\n"
+        "# 1. First invariant\n"
+        "# 2. Second invariant\n"
+        "# 3. Third invariant\n"
+        "echo 'done'\n"
+    )
+    return fc
+
+
+def test_stale_invariant_cites_returns_refs(tmp_path):
+    """stale_invariant_cites returns StaleRef for out-of-range cites in touched paths."""
+    _make_temp_framework_check(tmp_path)
+    # A skill markdown with an out-of-range cite (invariant #99 — not in headers 1..3)
+    skill_dir = tmp_path / "skills" / "_shared"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "my-skill.md"
+    skill_md.write_text("# My Skill\n\nSee invariant #99 for details.\n")
+
+    touched = [str(skill_md.relative_to(tmp_path))]
+    refs = verify_learn.stale_invariant_cites(tmp_path, touched)
+    assert len(refs) >= 1
+    ref = refs[0]
+    assert isinstance(ref, verify_learn.StaleRef)
+    assert "99" in ref.identifier
+    assert ref.line >= 1
+
+
+def test_stale_invariant_cites_no_refs_for_valid(tmp_path):
+    """stale_invariant_cites returns empty list when all cites are valid."""
+    _make_temp_framework_check(tmp_path)
+    skill_dir = tmp_path / "skills" / "_shared"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "my-skill.md"
+    skill_md.write_text("# My Skill\n\nSee invariant #2 for details.\n")
+
+    touched = [str(skill_md.relative_to(tmp_path))]
+    refs = verify_learn.stale_invariant_cites(tmp_path, touched)
+    assert refs == []
+
+
+def test_stale_invariant_cites_empty_touched(tmp_path):
+    """stale_invariant_cites with empty touched_paths returns empty list."""
+    _make_temp_framework_check(tmp_path)
+    refs = verify_learn.stale_invariant_cites(tmp_path, [])
+    assert refs == []
+
+
+def test_stale_invariant_cites_main_stays_exit_zero(tmp_path, capsys, monkeypatch):
+    """main() stays exit-0 even when stale invariant cites are found (advisory, not a gate)."""
+    _make_temp_framework_check(tmp_path)
+    skill_dir = tmp_path / "skills" / "_shared"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "my-skill.md"
+    skill_md.write_text("# My Skill\n\nSee invariant #99 for details.\n")
+
+    touched = [str(skill_md.relative_to(tmp_path))]
+    # Call stale_invariant_cites directly and confirm refs are surfaced
+    refs = verify_learn.stale_invariant_cites(tmp_path, touched)
+    assert len(refs) >= 1  # refs are returned
+
+    # But main() always exits 0 (advisory, never a gate)
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    rc = main(["--repo", str(tmp_path)])
+    assert rc == 0
+
+
+def test_stale_invariant_cites_advisory_repair_prompts(tmp_path, capsys):
+    """stale_invariant_cites surfaces stale cites as advisory repair prompts."""
+    _make_temp_framework_check(tmp_path)
+    skill_dir = tmp_path / "skills" / "_shared"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "my-skill.md"
+    skill_md.write_text("# My Skill\n\nSee invariant #99 for details.\n")
+
+    touched = [str(skill_md.relative_to(tmp_path))]
+    refs = verify_learn.stale_invariant_cites(tmp_path, touched)
+    # Refs should be non-empty (stale cite found)
+    assert refs, "Expected at least one StaleRef for invariant #99 in a 3-invariant map"
+    # Ref should name the path and line number
+    assert refs[0].doc is not None
+    assert refs[0].line > 0
+
+
+# --------------------------------------------------------------------------- #
+# Task 5.2 — main() wires stale_invariant_cites: integration test
+# --------------------------------------------------------------------------- #
+
+
+def test_main_surfaces_stale_invariant_cite_via_range(tmp_path, capsys):
+    """main() with --range surfaces stale invariant-cite advisory and still exits 0.
+
+    Build a temp git repo: baseline framework-check.sh (3 invariants), then add
+    a skills SKILL.md containing 'invariant #99' (out-of-range → stale). Confirm
+    main() exit==0 and JSON output contains the stale-cite ref for that file.
+    """
+    _git(["init", "-q", "-b", "master"], tmp_path)
+    _git(["config", "user.email", "t@e.com"], tmp_path)
+    _git(["config", "user.name", "T"], tmp_path)
+    _git(["config", "commit.gpgsign", "false"], tmp_path)
+    # Baseline commit: framework-check.sh with 3 known invariant headers
+    fc = tmp_path / "framework-check.sh"
+    fc.write_text(
+        "#!/usr/bin/env bash\n"
+        "# 1. First invariant\n"
+        "# 2. Second invariant\n"
+        "# 3. Third invariant\n"
+        "echo done\n"
+    )
+    _git(["add", "framework-check.sh"], tmp_path)
+    _git(["commit", "-q", "-m", "seed: framework-check"], tmp_path)
+    # Second commit: add a skill doc that cites a stale invariant number
+    skill_dir = tmp_path / "skills" / "tp-foo"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "SKILL.md"
+    skill_md.write_text(
+        "# Foo Skill\n\n"
+        "This skill enforces a check (see framework-check invariant #99 for context).\n"
+    )
+    _git(["add", "skills/tp-foo/SKILL.md"], tmp_path)
+    _git(["commit", "-q", "-m", "add tp-foo skill with stale cite"], tmp_path)
+
+    rc = main(["--repo", str(tmp_path), "--range", "HEAD~1...HEAD", "--json"])
+    assert rc == 0, "main() must always exit 0 (advisory, never a gate)"
+    payload = json.loads(capsys.readouterr().out)
+    assert any(
+        "99" in r["identifier"] and "stale" in r["identifier"]
+        for r in payload
+    ), f"Expected a stale-cite ref for invariant #99 in JSON output; got: {payload}"

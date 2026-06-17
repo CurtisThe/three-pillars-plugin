@@ -9,16 +9,24 @@ Verifies:
   4. Phase alignment: plan phases match detailed-design phases
   5. File existence: modified files exist, new file parents exist
 
-Usage: python3 audit_plan.py <design-dir> [--spike]
+Usage: python3 audit_plan.py <design-dir> [--spike|--light]
   --spike: Spike mode — expects Hypothesis/Try/Evaluate fields instead of
            File/Test/Red/Green. Skips detailed-design.md checks entirely.
+  --light: Light mode — detailed-design.md not required (module/interface
+           coverage and phase alignment skipped), but the standard
+           File/Test/Red/Green field completeness and budget annotations
+           are still enforced. Divergent weight-class frontmatter between
+           design.md and its siblings is reported as ERROR.
 Exit code: 0 = pass, 1 = issues found, 2 = bad input
 """
 
 import sys
 import re
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, namedtuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
+from weight_class import check_consistency as weight_class_consistency  # noqa: E402
 
 
 def read_file(path):
@@ -68,6 +76,19 @@ def extract_bold_names(text):
 STANDARD_FIELDS = ("File", "Test", "Red", "Green", "Refactor", "Done when", "Status")
 SPIKE_FIELDS = ("Hypothesis", "Try", "Evaluate", "Status")
 
+# Mode enum (audit finding M2): each audit mode derives the three decisions
+# the old `spike_mode` boolean coupled — whether detailed-design.md is
+# loaded/required, whether the structural-coverage checks (module/interface
+# coverage + phase alignment) run, and which task field set the plan uses.
+# `light` is production work, not experiments: it drops the detailed-design
+# requirement like spike but keeps the standard File/Test/Red/Green fields.
+ModeConfig = namedtuple("ModeConfig", "load_detailed check_coverage field_set")
+MODES = {
+    "standard": ModeConfig(load_detailed=True, check_coverage=True, field_set=STANDARD_FIELDS),
+    "spike": ModeConfig(load_detailed=False, check_coverage=False, field_set=SPIKE_FIELDS),
+    "light": ModeConfig(load_detailed=False, check_coverage=False, field_set=STANDARD_FIELDS),
+}
+
 # Per-phase token-budget cap (in thousands). Each plan.md phase is dispatched
 # under one `phase-implement` slot by /tp-run-full-design, whose soft budget is
 # 200k in that orchestrator's static budget table (skills/tp-run-full-design/
@@ -83,12 +104,16 @@ PER_PHASE_BUDGET_CAP_K = 200
 _FIELD_BOUNDARY_RE = re.compile(r"^(?:\*\*[A-Za-z ]+\*\*:|### Task |## )")
 
 
-def extract_tasks(plan_text, spike_mode=False):
-    """Extract tasks from plan.md."""
+def extract_tasks(plan_text, spike_mode=False, fields=None):
+    """Extract tasks from plan.md.
+
+    ``fields`` (a MODES field_set) takes precedence; the ``spike_mode``
+    boolean is kept for callers/tests that predate the mode enum.
+    """
     tasks = []
     current_task = None
     current_phase = None
-    fields_to_check = SPIKE_FIELDS if spike_mode else STANDARD_FIELDS
+    fields_to_check = fields or (SPIKE_FIELDS if spike_mode else STANDARD_FIELDS)
 
     lines = plan_text.split("\n")
     i = 0
@@ -216,9 +241,15 @@ def extract_design_phases(detailed):
 # ── Checks ────────────────────────────────────────────────
 
 
-def check_completeness(tasks, spike_mode=False):
-    """Every task must have required fields with non-empty values."""
-    required = ("Hypothesis", "Try", "Evaluate") if spike_mode else ("File", "Test", "Red", "Green", "Done when")
+def check_completeness(tasks, spike_mode=False, fields=None):
+    """Every task must have required fields with non-empty values.
+
+    ``fields`` (a MODES field_set) takes precedence; Refactor/Status are
+    optional and excluded from the required subset. The ``spike_mode``
+    boolean is kept for callers/tests that predate the mode enum.
+    """
+    field_set = fields or (SPIKE_FIELDS if spike_mode else STANDARD_FIELDS)
+    required = tuple(f for f in field_set if f not in ("Refactor", "Status"))
     issues = []
     for t in tasks:
         missing = [f for f in required if f not in t["fields"]]
@@ -396,13 +427,40 @@ def check_file_existence(tasks):
 # ── Main ──────────────────────────────────────────────────
 
 
+_MODE_LABELS = {"standard": "", "spike": " (SPIKE MODE)", "light": " (LIGHT MODE)"}
+
+
+def check_spike_deliverables(tasks, plan):
+    """Each spike phase must carry a **Deliverable** line."""
+    issues = []
+    phase_deliverables = set()
+    current = 0  # deliverables seen before any phase header bucket under 0
+    for line in plan.split("\n"):
+        pm = _PHASE_NUM_RE.match(line)
+        if pm:
+            current = int(pm.group(1))
+        if re.match(r"^\*\*Deliverable\*\*:", line):
+            phase_deliverables.add(current)
+    phases_in_plan = set(t["phase"] for t in tasks if t["phase"])
+    for p in phases_in_plan:
+        if p not in phase_deliverables:
+            issues.append(("INCOMPLETE", f"Phase {p}", "Missing **Deliverable** line"))
+    return issues
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = [a for a in sys.argv[1:] if a.startswith("--")]
-    spike_mode = "--spike" in flags
+    if "--spike" in flags:
+        mode = "spike"
+    elif "--light" in flags:
+        mode = "light"
+    else:
+        mode = "standard"
+    cfg = MODES[mode]
 
     if len(args) != 1:
-        print(f"Usage: {sys.argv[0]} <design-dir> [--spike]", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} <design-dir> [--spike|--light]", file=sys.stderr)
         sys.exit(2)
 
     d = Path(args[0])
@@ -410,11 +468,10 @@ def main():
     plan = read_file(d / "plan.md")
 
     required_files = [("design.md", design), ("plan.md", plan)]
-    if not spike_mode:
+    detailed = None
+    if cfg.load_detailed:
         detailed = read_file(d / "detailed-design.md")
         required_files.append(("detailed-design.md", detailed))
-    else:
-        detailed = None
 
     for name, content in required_files:
         if not content:
@@ -422,71 +479,60 @@ def main():
             sys.exit(2)
 
     # Extract structural elements
-    tasks = extract_tasks(plan, spike_mode=spike_mode)
+    tasks = extract_tasks(plan, fields=cfg.field_set)
 
     print("=" * 60)
-    print(f"PLAN AUDIT — DETERMINISTIC CHECKS{' (SPIKE MODE)' if spike_mode else ''}")
+    print(f"PLAN AUDIT — DETERMINISTIC CHECKS{_MODE_LABELS[mode]}")
     print("=" * 60)
     print()
 
-    if spike_mode:
-        # Spike mode: check design.md for hypothesis/experiments coverage
+    # Mode-specific summary header
+    plan_phase_count = len(set(t["phase"] for t in tasks if t["phase"]))
+    if mode == "spike":
         hypothesis = extract_section(design, r"Hypothesis")
         experiments = extract_section(design, r"Experiments")
         success = extract_section(design, r"Success Criteria")
-        plan_phase_count = len(set(t["phase"] for t in tasks if t["phase"]))
         print(f"Design:   hypothesis={'yes' if hypothesis.strip() else 'MISSING'}, "
               f"experiments={'yes' if experiments.strip() else 'MISSING'}, "
               f"success criteria={'yes' if success.strip() else 'MISSING'}")
-        print(f"Plan:     {len(tasks)} tasks across {plan_phase_count} phases")
-        print()
-
-        # Spike checks: completeness + deliverable presence
-        all_issues = check_completeness(tasks, spike_mode=True)
-
-        # Check each phase has a Deliverable line
-        phase_deliverables = set()
-        current = 0  # deliverables seen before any phase header bucket under 0
-        for line in plan.split("\n"):
-            pm = _PHASE_NUM_RE.match(line)
-            if pm:
-                current = int(pm.group(1))
-            if re.match(r"^\*\*Deliverable\*\*:", line):
-                phase_deliverables.add(current)
-        phases_in_plan = set(t["phase"] for t in tasks if t["phase"])
-        for p in phases_in_plan:
-            if p not in phase_deliverables:
-                all_issues.append(("INCOMPLETE", f"Phase {p}", "Missing **Deliverable** line"))
-
     else:
-        modules = extract_module_files(detailed)
-        interfaces = extract_interface_names(detailed)
-        d_phases = extract_design_phases(detailed)
         in_scope = extract_bullets(extract_section(design, r"In scope", 3))
         entities = extract_bold_names(extract_section(design, r"Entities"))
         behaviors = extract_bold_names(extract_section(design, r"Behaviors"))
-
         print(
             f"Design:   {len(in_scope)} in-scope, "
             f"{len(entities)} entities, {len(behaviors)} behaviors"
         )
-        print(
-            f"Detailed: {len(modules)} modules, "
-            f"{len(interfaces)} interfaces, {len(d_phases)} phases"
-        )
-        plan_phase_count = len(set(t["phase"] for t in tasks if t["phase"]))
-        print(f"Plan:     {len(tasks)} tasks across {plan_phase_count} phases")
-        print()
+        if cfg.load_detailed:
+            print(
+                f"Detailed: {len(extract_module_files(detailed))} modules, "
+                f"{len(extract_interface_names(detailed))} interfaces, "
+                f"{len(extract_design_phases(detailed))} phases"
+            )
+    print(f"Plan:     {len(tasks)} tasks across {plan_phase_count} phases")
+    print()
 
-        # Run all standard checks
-        all_issues = (
-            check_completeness(tasks)
-            + check_module_coverage(tasks, modules)
-            + check_interface_coverage(tasks, interfaces)
-            + check_phase_alignment(tasks, d_phases)
-            + check_file_existence(tasks)
-            + check_budget_annotations(plan)
+    # Single check-assembly path: completeness always; the rest derived
+    # from the mode config.
+    all_issues = check_completeness(tasks, fields=cfg.field_set)
+    if mode == "spike":
+        all_issues += check_spike_deliverables(tasks, plan)
+    if cfg.check_coverage:
+        all_issues += (
+            check_module_coverage(tasks, extract_module_files(detailed))
+            + check_interface_coverage(tasks, extract_interface_names(detailed))
+            + check_phase_alignment(tasks, extract_design_phases(detailed))
         )
+    if mode != "spike":
+        all_issues += check_file_existence(tasks) + check_budget_annotations(plan)
+    # All modes: divergent/missing weight-class stamps are hard failures
+    # (the declared class drives which ceremony this very audit runs).
+    # Legacy frontmatter-free dirs pass vacuously — the helper gates on
+    # design.md's class coming from frontmatter (plan-audit F3/F5).
+    all_issues += [
+        ("ERROR", None, f"weight-class consistency: {finding}")
+        for finding in weight_class_consistency(d)
+    ]
 
     if not all_issues:
         print("RESULT: ALL CHECKS PASSED")
@@ -499,7 +545,7 @@ def main():
     for typ, ctx, msg in all_issues:
         cats[typ].append((ctx, msg))
 
-    for cat in ("MISSING", "INCONSISTENT", "INCOMPLETE", "WARN"):
+    for cat in ("ERROR", "MISSING", "INCONSISTENT", "INCOMPLETE", "WARN"):
         if cat in cats:
             print(f"--- {cat} ({len(cats[cat])}) ---")
             for ctx, msg in cats[cat]:
@@ -512,7 +558,7 @@ def main():
     summary = ", ".join(f"{len(v)} {k}" for k, v in cats.items())
     print(f"TOTAL: {total} issues ({summary})")
 
-    return 1 if any(t in ("MISSING", "INCONSISTENT") for t, _, _ in all_issues) else 0
+    return 1 if any(t in ("ERROR", "MISSING", "INCONSISTENT") for t, _, _ in all_issues) else 0
 
 
 if __name__ == "__main__":

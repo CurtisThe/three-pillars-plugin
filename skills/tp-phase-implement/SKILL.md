@@ -17,7 +17,7 @@ Execute one or more phases from the implementation plan.
 
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
-0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
+0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
 
 1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "implement"`. This is the highest-risk skill — verifying the branch and lock before writing code is essential. Honor `--force-takeover` if passed.
 2. **Read `plan.md`** from the design directory.
@@ -45,6 +45,7 @@ Execute one or more phases from the implementation plan.
    RULES:
    - Never write implementation before the test.
    - Follow the project's conventions for imports, module structure, and dependency management.
+   - **File-size caps are enforced** (`CLAUDE.md` §File Size Limits): never grow a file past the hard cap — when an implementation or test addition would cross the soft-warn, split by responsibility (new module; split a test file by unit/scenario) instead. The pre-commit guard blocks hard-cap violations; plan the split, don't fight the guard.
    - One cycle = one task = one commit. Don't combine tasks and don't split red/green/refactor into separate commits.
    - IMPORTANT: Your work will be lost if you don't commit — the parent agent merges from your branch, not your working directory.
    ```

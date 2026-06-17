@@ -47,7 +47,7 @@ def test_calls_require_merge_gate_pass() -> None:
     assert "require_merge_gate_pass" in text, (
         "land skill must call require_merge_gate_pass"
     )
-    # The five-predicate gate including human approval.
+    # The six-predicate gate including human approval and ci_local_stamp.
     assert re.search(r"human.approv|tp:human-approved|pred_human_approved", text, re.IGNORECASE), (
         "land skill must mention the human-approval predicate"
     )
@@ -98,4 +98,89 @@ def test_never_says_safe_to_merge() -> None:
     )
     assert "UNVERIFIED" in text, (
         "land SKILL.md must surface the UNVERIFIED gate label"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 5.1: Serial landings and the depth-1 revert window section
+# ---------------------------------------------------------------------------
+
+def _revert_window_section(text: str) -> str:
+    """Return the 'Serial landings and the depth-1 revert window' section."""
+    match = re.search(
+        r"^##\s+Serial landings and the depth-1 revert window\b.*?(?=^##\s|\Z)",
+        text, re.DOTALL | re.MULTILINE,
+    )
+    assert match, (
+        "SKILL.md must contain a '## Serial landings and the depth-1 revert window' section"
+    )
+    return match.group(0)
+
+
+def test_revert_window_section_exists_after_rules() -> None:
+    """The revert-window section must exist after ## Rules."""
+    text = _read()
+    rules_pos = re.search(r"^## Rules\b", text, re.MULTILINE)
+    section_pos = re.search(
+        r"^## Serial landings and the depth-1 revert window\b",
+        text, re.MULTILINE,
+    )
+    assert rules_pos, "## Rules section must exist in SKILL.md"
+    assert section_pos, (
+        "## Serial landings and the depth-1 revert window section must exist"
+    )
+    assert rules_pos.start() < section_pos.start(), (
+        "The revert-window section must appear after ## Rules"
+    )
+
+
+def test_revert_window_serial_landings() -> None:
+    """Section must state landings are serial and document it as load-bearing."""
+    text = _read()
+    block = _revert_window_section(text)
+    assert re.search(r"\bserial\b", block, re.IGNORECASE), (
+        "The section must use 'serial' to describe the landing model"
+    )
+
+
+def test_revert_window_probe_stat() -> None:
+    """Section must contain the 1/12 probe stat."""
+    text = _read()
+    block = _revert_window_section(text)
+    assert "1/12" in block, (
+        "The section must cite the '1/12' probe stat"
+    )
+
+
+def test_revert_window_newest_landing_phrase() -> None:
+    """Section must state only the newest landing reverts clean."""
+    text = _read()
+    block = _revert_window_section(text)
+    assert "only the newest landing reverts clean" in block, (
+        "The section must state 'only the newest landing reverts clean'"
+    )
+
+
+def test_revert_window_run_post_merge_before_next() -> None:
+    """Section must instruct running /tp-post-merge before the next merge gesture."""
+    text = _read()
+    block = _revert_window_section(text)
+    assert "/tp-post-merge" in block, (
+        "The section must reference /tp-post-merge"
+    )
+    assert "/tp-merge" in block, (
+        "The section must reference /tp-merge"
+    )
+    assert "before the next merge gesture" in block, (
+        "The section must contain the literal 'before the next merge gesture'"
+    )
+
+
+def test_revert_window_event_denominated_budget() -> None:
+    """Section must state the budget is event-denominated (inter-merge gap), not minutes."""
+    text = _read()
+    block = _revert_window_section(text)
+    assert re.search(r"inter.merge gap|budget.*event|event.*budget", block, re.IGNORECASE), (
+        "The section must state the budget is event-denominated "
+        "(the inter-merge gap IS the tripwire latency budget)"
     )

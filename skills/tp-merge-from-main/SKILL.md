@@ -48,7 +48,7 @@ re-review loop.
 
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
-0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
+0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
 
 1. **Validate `{design-name}`** per `skills/_shared/validate-name.md` (must match `[a-z0-9-]+`; reject `/`, `..`, spaces). Then run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implement"` (the merge-back rewrites tracked files like an implementation step; `phase` is constrained to the schema's fixed set, which has no `merge` value). `/tp-merge-from-main` rewrites tracked files and pushes, so the lock must be held by the rightful owner. Honor `--force-takeover` if passed.
 
@@ -56,9 +56,9 @@ re-review loop.
 
 3. **Run the merge driver** from the repo root of the design worktree:
    ```bash
-   python3 skills/tp-merge-from-main/scripts/merge_driver.py "$(git rev-parse --show-toplevel)" "origin/<base>"
+   python3 "$TP_ROOT"/skills/tp-merge-from-main/scripts/merge_driver.py "$(git rev-parse --show-toplevel)" "origin/<base>"
    ```
-   (If the skill is installed at `~/.claude/skills/`, use that path.) The driver:
+   The driver:
    - runs `git merge --no-commit --no-ff origin/<base>` inside the worktree;
    - for each conflicted **living-doc** file, reconstructs `(base, ours, theirs)` from the index stages, then runs `classify → resolve → verify` **per hunk**;
    - applies the staging policy and prints a JSON report with three per-file outcomes:
@@ -73,13 +73,13 @@ re-review loop.
 
 6. **Commit the merge** once the tree is conflict-free and green: `git commit --no-edit` (preserves the merge message). With `--dry-run` or `--no-push`, stop before this.
 
-6.5. **Closeout check (warn, never block)**: before pushing, run `python3 skills/_shared/detect_unarchived.py --repo . --slugs-only` and check whether `{design-name}` appears — i.e., its `three-pillars-docs/tp-designs/{design-name}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has **not** been archived to `completed-tp-designs/`. If it does, **warn** (do not block): the design has shipped but is not closed out — run `/tp-design-learn {design-name}` (or `/tp-spike-learn`) **then** `/tp-design-complete {design-name}` before the human merges, or `framework-check` invariant **#27** will hard-fail once the dir lands on `{default}` unarchived (known-issue M10). `/tp-merge-from-main` is a conflict resolver, **not** a closeout gate — it surfaces the gap and proceeds; the #27 invariant is the hard backstop, this is only the soft in-context nudge. **Fail-open**: a detector error is ignored (the helper always exits 0).
+6.5. **Closeout check (warn, never block)**: before pushing, run `python3 "$TP_ROOT"/skills/_shared/detect_unarchived.py --repo . --slugs-only` and check whether `{design-name}` appears — i.e., its `three-pillars-docs/tp-designs/{design-name}/` dir carries implementation evidence (`implementation-audit.md` / `spike-results.md`) but has **not** been archived to `completed-tp-designs/`. If it does, **warn** (do not block): the design has shipped but is not closed out — run `/tp-design-learn {design-name}` (or `/tp-spike-learn`) **then** `/tp-design-complete {design-name}` before the human merges, or `framework-check` invariant **#27** will hard-fail once the dir lands on `{default}` unarchived (known-issue M10, archived in `known_issues_resolved.md`). `/tp-merge-from-main` is a conflict resolver, **not** a closeout gate — it surfaces the gap and proceeds; the #27 invariant is the hard backstop, this is only the soft in-context nudge. **Fail-open**: a detector error is ignored (the helper always exits 0).
 
 6.6. **Readiness advisory (warn-never-block)**: call `merge_gate.merge_readiness_warning(pr_url)` (from `skills/tp-merge-from-main/scripts/merge_gate.py`). If the return value is non-None, **print it as a WARNING** and **proceed** — never block. This mirrors the step-6.5 `detect_unarchived` warn-never-block contract: `/tp-merge-from-main` is a conflict resolver, not a readiness gate. The warning names the failing readiness sub-state from `classify_readiness` (`copilot-errored`, `review-stale`, `awaiting-copilot`, `unreviewed`) so the human can decide whether to remediate before merging. **Fail-open**: a detector error (fail to fetch, network issue) returns `None` and is silently ignored — a failing readiness check must never nag or block.
 
 6.7. **Mandatory blocking pre-merge gate (fail-closed)**: before pushing the merge, run the deterministic gate. The operator runs:
    ```bash
-   python3 skills/tp-merge-from-main/scripts/gate_cli.py <pr_url>
+   python3 "$TP_ROOT"/skills/tp-merge-from-main/scripts/gate_cli.py <pr_url>
    ```
    or equivalently calls `merge_gate.merge_gate_blocking(pr_url)` from `skills/tp-merge-from-main/scripts/merge_gate.py`. **Exit 0 (PASS) is required before proceeding**; any non-zero exit (1 = FAIL, 2 = INDETERMINATE) means merge is refused. The gate output always shows the label `mechanical predicates hold — semantics UNVERIFIED — your review is the only semantic check`. The label is shown even on PASS — the gate never asserts the branch is ready-to-merge without caveats.
 
@@ -105,9 +105,9 @@ re-review loop.
    auto_strip_hook.run("<pr_url>", "<new_head_oid>")  # new_head_oid = git rev-parse HEAD after push
    PY
    ```
-   `auto_strip_hook.run(pr_url, new_head_oid)` (from `skills/tp-merge-from-main/scripts/auto_strip_hook.py`) calls `strip_stale_approval`, which REST-DELETEs `tp:human-approved` when the present label is not current on the new head — keeping the GitHub UI honest about what is authorized. It is **FAIL-OPEN**: any error is swallowed and returns False, so a strip failure can NEVER block the push. This is convenience only; the gate-time currency re-check in step 6.7 / the `/tp-merge` land gate is the always-on fail-closed backstop, so a missed strip never defeats correctness — the stale label is simply treated as absent at gate time.
+   `auto_strip_hook.run(pr_url, new_head_oid)` (from `skills/tp-merge-from-main/scripts/auto_strip_hook.py`) calls `strip_stale_approval`, which REST-DELETEs `tp:human-approved` when the present label is not current on the new head — keeping the GitHub UI honest about what is authorized. It is **FAIL-OPEN**: any error is swallowed and returns False, so a strip failure can NEVER block the push. This is convenience only; the gate-time currency re-check in step 6.7 / the `/tp-merge` land gate is the always-on fail-closed backstop, so a missed strip never defeats correctness — the stale label is simply treated as absent at gate time. **The strip applies only to the label path.** The native-review approval path (`review-as-human-approval`) is **self-cleaning** and needs no strip: a review carries an immutable server-set `commit_id`, so a real content change makes `commit_id != head` and the gate fails closed automatically at evaluation time — there is no mutable label to clear (and dismissing a review would need branch protection this repo lacks, M18).
 
-8. **Post-merge auto-chain** (fires only when the design's completion PR has actually landed on `{base}`): after the step-7 push, check whether the archive is now present on `{base}` — guard: run `python3 skills/tp-post-merge/scripts/verify_merged.py --repo . --design {design-name} --base {base} --json`; `merged == true` confirms the completion PR was merged to base. **`/tp-merge-from-main` itself does not land the completion PR** — it merges `{base}` *into* the design branch and updates the PR; the human (via the `/tp-merge` land skill, or a later `gh pr merge`) lands it. So in the ordinary base-sync invocation this guard is **false** and the step silently skips (see the last bullet). Only when `verify_merged.py` reports `merged == true` does this chain `/tp-post-merge {design-name}`.
+8. **Post-merge auto-chain** (fires only when the design's completion PR has actually landed on `{base}`): after the step-7 push, check whether the archive is now present on `{base}` — guard: run `python3 "$TP_ROOT"/skills/tp-post-merge/scripts/verify_merged.py --repo . --design {design-name} --base {base} --json`; `merged == true` confirms the completion PR was merged to base. **`/tp-merge-from-main` itself does not land the completion PR** — it merges `{base}` *into* the design branch and updates the PR; the human (via the `/tp-merge` land skill, or a later `gh pr merge`) lands it. So in the ordinary base-sync invocation this guard is **false** and the step silently skips (see the last bullet). Only when `verify_merged.py` reports `merged == true` does this chain `/tp-post-merge {design-name}`.
 
    - **Fail-open**: a teardown error from `/tp-post-merge` **never** undoes the merge. If `/tp-post-merge` fails, log the error and report it to the user — do not roll back anything. The merge already landed; cleanup can be retried manually with `/tp-post-merge {design-name}`.
    - **Skip under `--dry-run` or `--no-push`**: if either flag was passed, skip the auto-chain entirely (the merge did not actually happen or was not pushed).

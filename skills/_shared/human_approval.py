@@ -4,7 +4,7 @@ stdlib-only (C1 invariant: no `import anthropic`, no `subprocess.run(["claude", 
 Subprocess calls go to `gh` only, never to Claude/anthropic. Mirrors
 `review_readiness.py`'s shape: live `*_fn` runners with an injected-dict test seam.
 
-See `three-pillars-docs/tp-designs/human-approval-merge-gate/detailed-design.md` for
+See `three-pillars-docs/completed-tp-designs/human-approval-merge-gate/detailed-design.md` for
 the full interface specification and Finding dispositions (F1–F4, Decisions D1–D13).
 
 Core guarantee (login-independent, holds even when the human operator and the
@@ -35,6 +35,9 @@ if str(_SHARED_DIR) not in sys.path:
 
 # Defined once here (beside label_manager.READY_FOR_HUMAN_MERGE), imported where needed.
 HUMAN_APPROVED_LABEL = "tp:human-approved"
+# The applied label carries the head SHA as a tag: `tp:human-approved:<sha7+>`.
+# The bare base is the family root; presence-matching accepts base OR base+":<tag>".
+HUMAN_APPROVED_LABEL_PREFIX = HUMAN_APPROVED_LABEL + ":"
 
 
 # ============================================================
@@ -43,7 +46,12 @@ HUMAN_APPROVED_LABEL = "tp:human-approved"
 
 
 def _label_present(labels, label: str) -> bool:
-    """True ⟺ `label` is present in the PR labels list.
+    """True ⟺ a `label`-FAMILY label is present in the PR labels list.
+
+    Family match: a name equals `label` (the bare base) OR starts with `label + ":"`
+    (a tagged variant, e.g. `tp:human-approved:<sha>`). Matching the bare base keeps a
+    legacy untagged label *recognized* (so the gate can report it present-but-stale with
+    remediation) rather than silently vanishing.
 
     Total over bad input: non-list, None entries, non-dict entries, missing/None
     "name" keys are all tolerated (skipped), never raise.
@@ -51,8 +59,10 @@ def _label_present(labels, label: str) -> bool:
     if not isinstance(labels, list):
         return False
     for entry in labels:
-        if isinstance(entry, dict) and entry.get("name") == label:
-            return True
+        if isinstance(entry, dict):
+            nm = entry.get("name")
+            if isinstance(nm, str) and (nm == label or nm.startswith(label + ":")):
+                return True
     return False
 
 
@@ -64,9 +74,10 @@ def _label_present(labels, label: str) -> bool:
 def _latest_label_event(timeline, label: str):
     """The most-recent `labeled` event for `label`, or None.
 
-    Filters event["event"] == "labeled" AND event["label"]["name"] == label;
-    returns the one with the max event["created_at"]. ISO-8601 lexical sort is
-    chronological for the Z-suffixed UTC form GitHub returns on this endpoint.
+    Filters event["event"] == "labeled" AND the label name is in the `label` FAMILY
+    (name == label OR name startswith `label + ":"`); returns the one with the max
+    event["created_at"]. ISO-8601 lexical sort is chronological for the Z-suffixed UTC
+    form GitHub returns on this endpoint.
 
     Total over bad input: non-list timeline, non-dict events, missing label /
     created_at fields are all skipped, never raise. None when no event matches.
@@ -80,7 +91,10 @@ def _latest_label_event(timeline, label: str):
         if event.get("event") != "labeled":
             continue
         lbl = event.get("label")
-        if not isinstance(lbl, dict) or lbl.get("name") != label:
+        if not isinstance(lbl, dict):
+            continue
+        nm = lbl.get("name")
+        if not isinstance(nm, str) or not (nm == label or nm.startswith(label + ":")):
             continue
         if not isinstance(event.get("created_at"), str):
             continue
@@ -265,42 +279,52 @@ def _approver_not_automation(event, automation: frozenset) -> bool:
 def _approval_current_on_head(event, head) -> bool:
     """Load-bearing currency conjunct: the label event was applied to THIS exact head.
 
-    SOUND BINDING (immutable head OID, NOT a forgeable timestamp). The REST
-    `gh api repos/{o}/{r}/issues/{n}/timeline` `labeled` event carries a top-level
-    `commit_id` — the SHA of the PR head at the instant the label event was created.
-    GitHub stamps that SHA server-side; it cannot be back-dated or otherwise forged
-    by the actor that creates the commit (unlike a git committer date). Currency is
-    therefore SHA-EQUALITY:
+    SOUND BINDING (immutable head OID, carried in the label NAME). GitHub `labeled`
+    timeline events ALWAYS carry `commit_id: null` (only commit-associated events like
+    reviews get a real SHA), so the prior `commit_id == head_oid` test was structurally
+    un-passable via a label — the gate could never reach PASS on a human approval. The
+    head SHA is instead carried in the label NAME the human applies:
 
-        current ⟺ event["commit_id"] == head["headRefOid"]
+        tp:human-approved:<sha7+>        (e.g. tp:human-approved:a1b2c3d4e5f6)
 
-    This mirrors the proven currency binding in `review_readiness.py`
-    (`review_commit_id == head_oid`) for Copilot reviews. The prior predicate compared
-    the label event's `created_at` to the head commit's `committedDate`; that was
-    UNSOUND because `committedDate` is the git committer timestamp, which the
-    autonomous pipeline (the exact actor this gate exists to constrain) controls via
-    `GIT_COMMITTER_DATE` — it could back-date a NEW head below a PRIOR human approval's
-    timestamp and carry that approval onto content no human ever saw. SHA-equality
-    closes that spoof: a new head has a different OID, so the prior approval's
-    `commit_id` no longer matches and the label is correctly treated as stale.
+    Currency is SHA-PREFIX-EQUALITY: the tag (the part after the family prefix) must be
+    a hex prefix of `head["headRefOid"]`. A new head has a different OID, so the prior
+    tag no longer prefix-matches and the label is correctly treated as stale.
 
-    Any commit pushed AFTER the approval advances `headRefOid` to a SHA the approval's
-    `commit_id` cannot match → stale → False. Total / fail-closed: a missing/empty
-    `commit_id`, a missing/empty `headRefOid`, or any malformed shape → False, never
-    raises. (We do NOT fall back to the timestamp compare — fail-closed, never
-    fail-open to the forgeable predicate.)
+        current ⟺ tag is hex ∧ len(tag) ≥ 7 ∧ head_oid.lower().startswith(tag.lower())
+
+    Why NOT a timestamp compare (the original, rejected approach): comparing the label's
+    `created_at` to the head commit's `committedDate` is UNSOUND — `committedDate` is the
+    git committer timestamp, which the autonomous pipeline (the exact actor this gate
+    constrains) controls via `GIT_COMMITTER_DATE`; it could back-date a NEW head below a
+    PRIOR approval's timestamp and carry that approval onto content no human ever saw.
+    The name-carried SHA closes that spoof the same way `commit_id` intended to, but via
+    a field GitHub actually populates on label events.
+
+    Case-folded (GitHub returns lowercase hex `headRefOid`; a human may type uppercase).
+    Total / fail-closed: a non-dict event, a missing/non-family/bare label name (no tag),
+    a non-hex or <7-char tag, a missing/empty `headRefOid`, or any malformed shape →
+    False, never raises. (We do NOT fall back to the timestamp compare — fail-closed,
+    never fail-open to the forgeable predicate.) A 7-hex prefix collision is ~1/16^7
+    (≈268M); the howto recommends a longer tag to shrink it.
     """
     if not isinstance(event, dict):
         return False
-    commit_id = event.get("commit_id")
-    if not isinstance(commit_id, str) or not commit_id:
+    label = event.get("label")
+    if not isinstance(label, dict):
+        return False
+    name = label.get("name")
+    if not isinstance(name, str) or not name.startswith(HUMAN_APPROVED_LABEL_PREFIX):
+        return False
+    tag = name[len(HUMAN_APPROVED_LABEL_PREFIX):].strip().lower()
+    if len(tag) < 7 or any(c not in "0123456789abcdef" for c in tag):
         return False
     if not isinstance(head, dict):
         return False
     head_oid = head.get("headRefOid")
     if not isinstance(head_oid, str) or not head_oid:
         return False
-    return commit_id == head_oid
+    return head_oid.lower().startswith(tag)
 
 
 # ============================================================
@@ -317,6 +341,7 @@ _HUMAN_APPROVAL_KEYS = (
     "head_fn",
     "commits_fn",
     "self_login_fn",
+    "reviews_fn",
 )
 
 
@@ -367,12 +392,22 @@ def _build_live_runners(pr_url: str) -> dict:
             raise RuntimeError(f"gh api user failed: {result.stderr.strip()}")
         return result.stdout.strip()
 
+    def reviews_fn(url: str) -> list:
+        # REST pulls/<n>/reviews — the proven shape (review_readiness.reviews_fn): each
+        # entry carries user.login/user.type/state/commit_id/submitted_at. _gh_json raises
+        # on a gh/JSON failure so human_approved_on_head's _safe_fetch yields a fail-closed
+        # [] (review path → not satisfied), never fail-open.
+        return _gh_json(
+            ["api", f"repos/{owner}/{repo}/pulls/{number}/reviews", "--paginate"]
+        )
+
     return {
         "labels_fn": labels_fn,
         "timeline_fn": timeline_fn,
         "head_fn": head_fn,
         "commits_fn": commits_fn,
         "self_login_fn": self_login_fn,
+        "reviews_fn": reviews_fn,
     }
 
 
@@ -391,7 +426,13 @@ def _safe_fetch(fn, *args, default):
 def human_approved_on_head(pr_url: str, *, runners=None, config=None) -> bool:
     """True ⟺ a HUMAN (not bot/automation) has a CURRENT approval on THIS head.
 
-    All BINDING conjuncts must hold:
+    DUAL PATH (review-as-human-approval): satisfied by EITHER an APPROVED native PR
+    review current on the head (Path B, primary — `human_approval_review`) OR the
+    SHA-tagged label (Path A, single-account fallback — the conjuncts below). Both paths
+    reuse the same `automation` identity set, so bot/App/self-login rejection is identical
+    across them; either path alone is sufficient, and the predicate stays total/fail-closed.
+
+    Path A — all BINDING conjuncts must hold:
       1. the `tp:human-approved` label is currently present;
       2. the most-recent `labeled` event for it is a human actor (bot/App/automation
          floor — F2); AND
@@ -430,6 +471,7 @@ def human_approved_on_head(pr_url: str, *, runners=None, config=None) -> bool:
         head_fn = _resolve("head_fn")
         commits_fn = _resolve("commits_fn")
         self_login_fn = _resolve("self_login_fn")
+        reviews_fn = _resolve("reviews_fn")
 
         # F2: self login is REQUIRED-resolvable. Unresolvable → fail-CLOSED.
         try:
@@ -446,19 +488,32 @@ def human_approved_on_head(pr_url: str, *, runners=None, config=None) -> bool:
         head = _safe_fetch(head_fn, pr_url, default={})
         # commits is advisory-only (F3 detail note); a failure must not block.
         _safe_fetch(commits_fn, pr_url, default=[])
+        reviews = _safe_fetch(reviews_fn, pr_url, default=[])
 
-        if not _label_present(labels, HUMAN_APPROVED_LABEL):
-            return False
+        # ---- Path A: SHA-tagged label (single-account fallback) ----
+        # Computed as a boolean (NOT an early return) so Path B is still evaluated when
+        # the label is absent. The conjuncts are byte-identical to the original tail.
+        label_ok = False
+        if _label_present(labels, HUMAN_APPROVED_LABEL):
+            ev = _latest_label_event(timeline, HUMAN_APPROVED_LABEL)
+            if ev:
+                label_ok = bool(
+                    _actor_is_human(ev, automation)
+                    and _approver_not_automation(ev, automation)
+                    and _approval_current_on_head(ev, head)
+                )
 
-        ev = _latest_label_event(timeline, HUMAN_APPROVED_LABEL)
-        if not ev:
-            return False
+        # ---- Path B: native APPROVED review (primary, low-friction) ----
+        # Lazy import (mirrors the review_readiness/thread_resolver lazy-import style and
+        # avoids the human_approval_review -> human_approval import cycle). Reuses the same
+        # `automation` set built above, so identity rejection is identical across paths.
+        import human_approval_review  # noqa: E402 — in _shared/ beside this file
 
-        return bool(
-            _actor_is_human(ev, automation)
-            and _approver_not_automation(ev, automation)
-            and _approval_current_on_head(ev, head)
+        review_ok = human_approval_review.review_path_satisfied(
+            reviews, head, automation=automation
         )
+
+        return label_ok or review_ok
     except Exception:
         return False
 
@@ -491,9 +546,11 @@ def strip_stale_approval(pr_url: str, head_oid: str, *, runners=None) -> bool:
 
     Runner keys (test seam; live defaults wired PER-KEY when absent, mirroring
     human_approved_on_head's F4 resolution): `labels_fn`, `timeline_fn`. Staleness is
-    judged against the passed `head_oid` (the just-pushed head SHA) by SHA-equality
-    with the approving event's `commit_id` — no `head_fn` fetch is needed, removing the
-    benign TOCTOU window where the live head could race ahead of the pushed head.
+    judged against the passed `head_oid` (the just-pushed head SHA) by SHA-PREFIX-equality
+    with the tag carried in the approving label's NAME (`tp:human-approved:<sha7+>`) — no
+    `head_fn` fetch is needed, removing the benign TOCTOU window where the live head could
+    race ahead of the pushed head. The DELETE targets the EXACT present label name (the
+    tagged name), not the bare family base — a bare-base DELETE would no-op on tagged labels.
     """
     try:
         provided = runners or {}
@@ -544,8 +601,14 @@ def strip_stale_approval(pr_url: str, head_oid: str, *, runners=None) -> bool:
         import thread_resolver  # noqa: E402 — in _shared/ beside this file
 
         owner, repo, number = thread_resolver._parse_pr_url(pr_url)
+        # DELETE the EXACT present label name (the tagged variant), not the bare base —
+        # a hardcoded `/labels/tp:human-approved` would no-op on `tp:human-approved:<sha>`.
+        lbl = ev.get("label") if isinstance(ev, dict) else None
+        del_name = lbl.get("name") if isinstance(lbl, dict) else None
+        if not isinstance(del_name, str) or not del_name.startswith(HUMAN_APPROVED_LABEL):
+            return False
         endpoint = (
-            f"repos/{owner}/{repo}/issues/{number}/labels/{HUMAN_APPROVED_LABEL}"
+            f"repos/{owner}/{repo}/issues/{number}/labels/{del_name}"
         )
         result = subprocess.run(
             ["gh", "api", "--method", "DELETE", endpoint],

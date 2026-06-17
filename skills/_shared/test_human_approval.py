@@ -70,15 +70,21 @@ class TestLabelPresent:
 # ============================================================
 
 
-HEAD_OID = "sha40"
+# Real 40-hex head SHA; the approval label carries a hex prefix of it as its tag.
+HEAD_OID = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+TAG = "a1b2c3d4e5f6"  # 12-hex prefix of HEAD_OID (currency: prefix-match)
+TAGGED_LABEL = LABEL + ":" + TAG  # tp:human-approved:a1b2c3d4e5f6
+# A different head the tag does NOT prefix (advanced head -> stale approval).
+OTHER_OID = "9988776655443322110aabbccddeeff001122334"
 
 
-def _labeled(login, created_at, *, name=LABEL, actor_type="User", commit_id=HEAD_OID):
+def _labeled(login, created_at, *, name=TAGGED_LABEL, actor_type="User", commit_id=None):
+    # GitHub `labeled` events ALWAYS carry commit_id: null (real shape). Currency binds
+    # to the head SHA carried in the label NAME's tag, not commit_id (always None) and
+    # not created_at. The commit_id kwarg is retained for shape-fidelity tests only.
     return {
         "event": "labeled",
         "created_at": created_at,
-        # commit_id = the immutable head SHA at the instant GitHub recorded this event.
-        # Currency binds to THIS (SHA-equality with the current head), not created_at.
         "commit_id": commit_id,
         "actor": {"login": login, "type": actor_type},
         "label": {"name": name},
@@ -438,9 +444,9 @@ class TestApproverNotAutomation:
 # ============================================================
 
 
-def _head(committed_date=None, *, oid="sha40"):
+def _head(committed_date=None, *, oid=HEAD_OID):
     """A head payload. committed_date is retained as an optional positional for the
-    legacy call sites' readability but is NOT consulted by the SHA-equality currency
+    legacy call sites' readability but is NOT consulted by the SHA-prefix currency
     predicate — only headRefOid (oid) is load-bearing now."""
     return {
         "headRefOid": oid,
@@ -451,56 +457,95 @@ def _head(committed_date=None, *, oid="sha40"):
     }
 
 
+def _ev(name):
+    """A labeled event carrying `name` (the currency is decoded from the name's tag)."""
+    return {"event": "labeled", "created_at": "2026-06-08T14:00:00Z",
+            "commit_id": None, "label": {"name": name}}
+
+
 class TestApprovalCurrentOnHead:
-    def test_current_oid_matches_head(self):
+    def test_current_tag_is_prefix_of_head(self):
         from human_approval import _approval_current_on_head
 
-        ev = {"commit_id": "sha40", "created_at": "2026-06-08T14:00:00Z"}
-        assert _approval_current_on_head(ev, _head(oid="sha40")) is True
+        # commit_id is null (real GitHub shape); currency comes from the name tag.
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), _head(oid=HEAD_OID)) is True
 
-    def test_stale_oid_differs_from_head(self):
+    def test_full_sha_tag_matches(self):
         from human_approval import _approval_current_on_head
 
-        # approval recorded against an OLD head; the PR head has since advanced
-        ev = {"commit_id": "oldsha", "created_at": "2026-06-08T14:00:00Z"}
-        assert _approval_current_on_head(ev, _head(oid="newsha")) is False
+        assert _approval_current_on_head(_ev(LABEL + ":" + HEAD_OID), _head(oid=HEAD_OID)) is True
+
+    def test_uppercase_tag_of_correct_sha_matches(self):
+        """A human may type the tag uppercase; GitHub's headRefOid is lowercase hex.
+        Case-folding makes the correct SHA match instead of silently failing."""
+        from human_approval import _approval_current_on_head
+
+        assert _approval_current_on_head(_ev(LABEL + ":" + TAG.upper()), _head(oid=HEAD_OID)) is True
+
+    def test_stale_tag_not_a_prefix(self):
+        from human_approval import _approval_current_on_head
+
+        # tag is a prefix of HEAD_OID but the head has advanced to OTHER_OID
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), _head(oid=OTHER_OID)) is False
+
+    def test_bare_label_no_tag_is_not_current(self):
+        from human_approval import _approval_current_on_head
+
+        # legacy bare label: recognized by presence, but never CURRENT (no head SHA tag)
+        assert _approval_current_on_head(_ev(LABEL), _head(oid=HEAD_OID)) is False
+
+    def test_short_tag_below_min_length_rejected(self):
+        from human_approval import _approval_current_on_head
+
+        # a <7-char tag is too weak (collision floor) even if it is a prefix
+        assert _approval_current_on_head(_ev(LABEL + ":a1b2c3"), _head(oid=HEAD_OID)) is False
+
+    def test_min_length_tag_exactly_seven_accepted(self):
+        from human_approval import _approval_current_on_head
+
+        # exactly the len>=7 floor: a 7-char prefix of the head IS current. Pins the
+        # boundary so a `< 7` -> `<= 7` off-by-one (which only mis-handles len==7) is
+        # caught — the 6-rejected/12-accepted tests above bracket but never hit 7.
+        assert _approval_current_on_head(_ev(LABEL + ":" + TAG[:7]), _head(oid=HEAD_OID)) is True
+
+    def test_non_hex_tag_rejected(self):
+        from human_approval import _approval_current_on_head
+
+        assert _approval_current_on_head(_ev(LABEL + ":zzzzzzzz"), _head(oid=HEAD_OID)) is False
 
     def test_backdated_committer_date_cannot_revive_stale(self):
-        """CRITICAL regression: a backdated label event timestamp (created_at far in
-        the past, or a head whose committer date was forged via GIT_COMMITTER_DATE)
-        must NOT make a stale approval current. Currency is SHA-equality, so even an
-        event timestamp >= a forged head committedDate FAILS when the OIDs differ."""
+        """CRITICAL regression: the original timestamp-compare predicate was rejected
+        because a forged GIT_COMMITTER_DATE could revive a stale approval. The name-tag
+        binding closes that: a NEW head has a different OID, so the OLD tag no longer
+        prefix-matches — regardless of any (forged) committer date."""
         from human_approval import _approval_current_on_head
 
-        ev = {"commit_id": "approved_old_sha", "created_at": "2030-01-01T00:00:00Z"}
-        # head's committer date forged to look OLD (2020) — irrelevant; OID differs
-        head = {
-            "headRefOid": "new_unapproved_sha",
-            "commits": [{"oid": "new_unapproved_sha", "committedDate": "2020-01-01T00:00:00Z"}],
-        }
-        assert _approval_current_on_head(ev, head) is False
+        # human approved the OLD head (tag prefixes HEAD_OID); head forged to look OLD
+        head = {"headRefOid": OTHER_OID,
+                "commits": [{"oid": OTHER_OID, "committedDate": "2020-01-01T00:00:00Z"}]}
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), head) is False
 
     def test_missing_head_oid(self):
         from human_approval import _approval_current_on_head
 
-        ev = {"commit_id": "sha40"}
-        assert _approval_current_on_head(ev, {"commits": []}) is False
-        assert _approval_current_on_head(ev, {}) is False
-        assert _approval_current_on_head(ev, {"headRefOid": ""}) is False
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), {"commits": []}) is False
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), {}) is False
+        assert _approval_current_on_head(_ev(TAGGED_LABEL), {"headRefOid": ""}) is False
 
-    def test_missing_event_commit_id(self):
+    def test_missing_or_malformed_label_name(self):
         from human_approval import _approval_current_on_head
 
-        # no commit_id on the event -> cannot bind -> fail-closed (NOT fail-open to ts)
-        assert _approval_current_on_head({"created_at": "2026-06-08T13:00:00Z"}, _head(oid="sha40")) is False
-        assert _approval_current_on_head({"commit_id": ""}, _head(oid="sha40")) is False
-        assert _approval_current_on_head({}, _head(oid="sha40")) is False
-        assert _approval_current_on_head(None, _head(oid="sha40")) is False
+        # no label / no name / non-family name -> cannot bind -> fail-closed
+        assert _approval_current_on_head({"created_at": "x"}, _head(oid=HEAD_OID)) is False
+        assert _approval_current_on_head({"label": {}}, _head(oid=HEAD_OID)) is False
+        assert _approval_current_on_head({"label": {"name": "other"}}, _head(oid=HEAD_OID)) is False
+        assert _approval_current_on_head({"label": {"name": None}}, _head(oid=HEAD_OID)) is False
+        assert _approval_current_on_head(None, _head(oid=HEAD_OID)) is False
 
     def test_malformed_head_never_raises(self):
         from human_approval import _approval_current_on_head
 
-        ev = {"commit_id": "sha40"}
+        ev = _ev(TAGGED_LABEL)
         assert _approval_current_on_head(ev, None) is False
         assert _approval_current_on_head(ev, "nope") is False
         assert _approval_current_on_head(ev, {"headRefOid": None}) is False
@@ -529,7 +574,7 @@ def _runners(
 ):
     """Build an injected runners dict. Defaults form a happy-path PASS scenario."""
     if labels is None:
-        labels = [{"name": LABEL}]
+        labels = [{"name": TAGGED_LABEL}]
     if timeline is None:
         timeline = [_labeled("alice", "2026-06-08T14:00:00Z")]
     if head is None:
@@ -660,10 +705,23 @@ class TestHumanApprovedOnHead:
     def test_stale(self):
         from human_approval import human_approved_on_head
 
-        # approval recorded its commit_id against an OLD head; PR head has advanced
+        # approval's name-tag prefixes HEAD_OID, but the PR head has advanced to OTHER_OID
         r = _runners(
-            timeline=[_labeled("alice", "2026-06-08T12:00:00Z", commit_id="oldsha")],
-            head=_head(oid="newsha"),  # head SHA differs from the approval's commit_id
+            labels=[{"name": TAGGED_LABEL}],
+            timeline=[_labeled("alice", "2026-06-08T12:00:00Z")],
+            head=_head(oid=OTHER_OID),  # head SHA the approval tag does not prefix
+        )
+        assert human_approved_on_head(PR_URL, runners=r) is False
+
+    def test_bare_label_present_but_not_current(self):
+        """Breaking-change behavior (audit): a legacy bare `tp:human-approved` label is
+        RECOGNIZED as present (so the gate can emit a pointed re-apply-with-tag remedy)
+        but is never CURRENT — it carries no head SHA tag."""
+        from human_approval import human_approved_on_head
+
+        r = _runners(
+            labels=[{"name": LABEL}],
+            timeline=[_labeled("alice", "2026-06-08T14:00:00Z", name=LABEL)],
         )
         assert human_approved_on_head(PR_URL, runners=r) is False
 
@@ -671,18 +729,19 @@ class TestHumanApprovedOnHead:
         """CRITICAL end-to-end regression: the autonomous pipeline pushes a NEW head
         and back-dates its committer date below a prior human approval's timestamp
         (GIT_COMMITTER_DATE). The label event present, latest actor still the human,
-        the OLD timestamp predicate would have PASSED — but SHA-equality currency FAILS
-        because the approval's commit_id no longer equals the (new) head OID."""
+        the OLD timestamp predicate would have PASSED — but the name-tag currency FAILS
+        because the approval's tag no longer prefixes the (new) head OID."""
         from human_approval import human_approved_on_head
 
         r = _runners(
-            # human approved the old head at 14:00, recorded commit_id=approved_sha
-            timeline=[_labeled("alice", "2026-06-08T14:00:00Z", commit_id="approved_sha")],
+            # human approved the old head; tag prefixes HEAD_OID
+            labels=[{"name": TAGGED_LABEL}],
+            timeline=[_labeled("alice", "2026-06-08T14:00:00Z")],
             # autonomous push: new head, committer date forged to 2020 (looks old)
             head={
-                "headRefOid": "new_unapproved_sha",
+                "headRefOid": OTHER_OID,
                 "commits": [
-                    {"oid": "new_unapproved_sha", "committedDate": "2020-01-01T00:00:00Z"}
+                    {"oid": OTHER_OID, "committedDate": "2020-01-01T00:00:00Z"}
                 ],
             },
         )
@@ -815,6 +874,7 @@ class TestHumanApprovedOnHead:
             "head_fn",
             "commits_fn",
             "self_login_fn",
+            "reviews_fn",  # review-as-human-approval: APPROVED-review path
         )
 
 
@@ -872,7 +932,7 @@ class TestRequireHumanApproval:
 # ============================================================
 
 STRIP_PR_URL = "https://github.com/example/repo/pull/7"
-STALE_HEAD_OID = "newsha40"
+STALE_HEAD_OID = OTHER_OID  # the default approval tag prefixes HEAD_OID, not this -> stale
 
 
 def _strip_runners(
@@ -884,13 +944,14 @@ def _strip_runners(
 ):
     """Injected runners for strip_stale_approval — the two fetch keys the strip path
     consumes (labels/timeline). Staleness is judged against the passed head_oid by
-    SHA-equality with the approving event's commit_id; no head_fn fetch is made.
-    Defaults form a present+STALE scenario: the approval recorded commit_id='sha40'
-    but the call passes STALE_HEAD_OID='newsha40', so the default call issues a DELETE."""
+    SHA-prefix-equality with the tag carried in the approving label's NAME; no head_fn
+    fetch is made. Defaults form a present+STALE scenario: the approval label is
+    TAGGED_LABEL (tag prefixes HEAD_OID) but the call passes STALE_HEAD_OID (=OTHER_OID),
+    so the default call issues a DELETE of the exact tagged label name."""
     if labels is None:
-        labels = [{"name": LABEL}]
+        labels = [{"name": TAGGED_LABEL}]
     if timeline is None:
-        timeline = [_labeled("alice", "2026-06-08T12:00:00Z")]  # commit_id defaults to sha40
+        timeline = [_labeled("alice", "2026-06-08T12:00:00Z")]  # name defaults to TAGGED_LABEL
 
     def _ret(value, raises):
         def fn(*a, **k):
@@ -955,24 +1016,27 @@ class TestStripStaleApproval:
         assert argv[1] == "api"
         assert "--method" in argv
         assert argv[argv.index("--method") + 1] == "DELETE"
-        # REST issues/labels endpoint, label as the final path segment
+        # REST issues/labels endpoint, the EXACT tagged label as the final path segment
+        # (not the bare base — a bare-base DELETE would no-op on the tagged label)
         assert (
-            "repos/example/repo/issues/7/labels/tp:human-approved" in argv
+            f"repos/example/repo/issues/7/labels/{TAGGED_LABEL}" in argv
         )
         # never `gh pr edit`
         assert "edit" not in argv
 
     def test_present_current_no_delete_returns_false(self, monkeypatch):
         """Label present but CURRENT on the pushed head_oid -> no DELETE, returns False.
-        Currency is now SHA-equality: the approving event's commit_id == the passed
+        Currency is name-tag prefix: the approval label's tag prefixes the passed
         head_oid means the human already approved THIS exact head -> nothing stale."""
         import human_approval
 
         rec = _RunRecorder()
         monkeypatch.setattr(human_approval.subprocess, "run", rec)
-        # the approval's recorded commit_id equals the just-pushed head -> current
+        # the approval label's tag prefixes the just-pushed head (STALE_HEAD_OID) -> current
+        current_label = LABEL + ":" + STALE_HEAD_OID[:12]
         runners = _strip_runners(
-            timeline=[_labeled("alice", "2026-06-08T15:00:00Z", commit_id=STALE_HEAD_OID)],
+            labels=[{"name": current_label}],
+            timeline=[_labeled("alice", "2026-06-08T15:00:00Z", name=current_label)],
         )
         result = human_approval.strip_stale_approval(
             STRIP_PR_URL, STALE_HEAD_OID, runners=runners
@@ -1105,7 +1169,7 @@ class TestBackdatedCommitterDateSpoof:
         ).stdout.strip()
 
     def test_backdated_new_head_fails_currency(self, tmp_path):
-        from human_approval import _approval_current_on_head
+        from human_approval import _approval_current_on_head, HUMAN_APPROVED_LABEL_PREFIX
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -1123,8 +1187,13 @@ class TestBackdatedCommitterDateSpoof:
         )
         approved_oid = self._git(repo, "rev-parse", "HEAD")
 
-        # the human approval: recorded against approved_oid, created_at 2026-06-08T14:00
-        approval_event = {"commit_id": approved_oid, "created_at": "2026-06-08T14:00:00Z"}
+        # the human approval: a TAGGED label naming the approved head's SHA prefix.
+        # Currency is decoded from this tag (commit_id is null on real GitHub label
+        # events) — so the prefix-match against the live head is what this test exercises.
+        approval_event = {
+            "label": {"name": f"{HUMAN_APPROVED_LABEL_PREFIX}{approved_oid[:12]}"},
+            "created_at": "2026-06-08T14:00:00Z",
+        }
 
         # ... the autonomous pipeline pushes a NEW commit, FORGING the committer date
         # to 2020 (BELOW the approval timestamp) via GIT_COMMITTER_DATE.
@@ -1142,16 +1211,26 @@ class TestBackdatedCommitterDateSpoof:
         # (b) the OID is distinct and NOT forgeable:
         assert new_oid != approved_oid
 
-        # the live head payload the gate would see for this PR
-        head = {
+        # the live head payloads the gate would see: the forged NEW head, and the
+        # original approved head (the positive control).
+        new_head = {
             "headRefOid": new_oid,
             "commits": [{"oid": new_oid, "committedDate": committed_date}],
+        }
+        approved_head = {
+            "headRefOid": approved_oid,
+            "commits": [{"oid": approved_oid, "committedDate": "2026-06-08T14:00:00Z"}],
         }
 
         # OLD predicate would PASS (created_at 2026 >= committedDate 2020) — the spoof.
         # Demonstrate the unsoundness of the prior compare explicitly:
         assert (approval_event["created_at"] >= committed_date) is True
 
-        # NEW predicate (SHA-equality) correctly FAILS: the approval's commit_id is the
-        # approved_oid, which != the new head OID -> stale -> gate blocks.
-        assert _approval_current_on_head(approval_event, head) is False
+        # POSITIVE CONTROL: the tag genuinely prefix-matches the approved head -> current.
+        # This makes the test exercise the prefix-match binding rather than label-absence:
+        # invert or delete `head_oid.startswith(tag)` and THIS assertion fails.
+        assert _approval_current_on_head(approval_event, approved_head) is True
+
+        # NEW predicate (SHA-prefix) correctly FAILS: the approved tag is NOT a prefix of
+        # the forged new head's OID -> stale -> gate blocks content no human approved.
+        assert _approval_current_on_head(approval_event, new_head) is False

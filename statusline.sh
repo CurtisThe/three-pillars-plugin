@@ -104,13 +104,15 @@ BRANCH=""
 DIRTY=""
 REPO=""
 WORKTREE_DIR=""
+FOLDER=""
 if [ -n "$CWD" ] && git -C "$CWD" --no-optional-locks rev-parse --git-dir >/dev/null 2>&1; then
   BRANCH=$(git -C "$CWD" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
   # Canonical repo name = the MAIN worktree's folder (always listed first by
   # `worktree list`), so linked worktrees show the repo name, not the
-  # design-named worktree dir. Bare repos have no main work tree → omit.
+  # design-named worktree dir. For a bare repo the first entry is the bare
+  # gitdir's own folder — still a usable repo name, so we no longer omit it.
   WT_LIST=$(git -C "$CWD" --no-optional-locks worktree list --porcelain 2>/dev/null)
-  if [ -n "$WT_LIST" ] && ! printf '%s\n' "$WT_LIST" | grep -qx bare; then
+  if [ -n "$WT_LIST" ]; then
     REPO=$(basename "$(printf '%s\n' "$WT_LIST" | sed -n '1s|^worktree ||p')")
   fi
   # Current worktree dir — only shown when different from main repo name
@@ -120,6 +122,14 @@ if [ -n "$CWD" ] && git -C "$CWD" --no-optional-locks rev-parse --git-dir >/dev/
   if [ -n "$(git -C "$CWD" --no-optional-locks status --porcelain 2>/dev/null | head -1)" ]; then
     DIRTY="*"
   fi
+else
+  # Not a git repo — surface the current folder path so location stays visible
+  # ("so I know where I am"). Tilde-abbreviate $HOME for brevity.
+  case "$CWD" in
+    "$HOME")   FOLDER="~" ;;
+    "$HOME"/*) FOLDER="~${CWD#"$HOME"}" ;;
+    *)         FOLDER="$CWD" ;;
+  esac
 fi
 
 # --- TDD design info ---
@@ -154,6 +164,11 @@ fi
 # Repo name
 if [ -n "$REPO" ]; then
   L1+=" ${DIM}|${RST} ${BLU}${REPO}${RST}"
+fi
+
+# Folder path — shown only when NOT in a git repo, so location is always visible
+if [ -z "$REPO" ] && [ -n "$FOLDER" ]; then
+  L1+=" ${DIM}|${RST} ${BLU}${FOLDER}${RST}"
 fi
 
 # Current worktree (root = main worktree, otherwise linked worktree dir name)

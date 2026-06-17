@@ -84,6 +84,64 @@ def _load_repo_config(cwd: Path) -> dict | None:
     return None
 
 
+def _handle_dispose_only(payload: dict) -> int:
+    """--dispose-only handler: call dispose_threads once and exit. No round loop.
+
+    Wired when payload["dispose_only"] is truthy. Calls
+    thread_dispose.dispose_threads with the pr_url from the payload and an
+    empty envelope (no fix round ran). Emits a JSON result envelope on stdout
+    and returns 0 on success, 2 on error.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _shared = _Path(__file__).resolve().parent.parent.parent / "_shared"
+    if str(_shared) not in _sys.path:
+        _sys.path.insert(0, str(_shared))
+    try:
+        import thread_dispose
+    except ImportError as exc:
+        return _emit(_escalate("dispose-only-import-error", str(exc)), 2)
+
+    pr_url = payload.get("pr_url")
+    if not pr_url:
+        return _emit(
+            _escalate("dispose-only-missing-pr-url",
+                      "dispose_only=true requires pr_url in the payload"),
+            2,
+        )
+
+    # Build an empty envelope (no fix round ran out-of-band)
+    envelope = {"fixes_applied": [], "fixes_deferred": []}
+    # resolved_ids from state, if available
+    state = payload.get("state") or {}
+    resolved_ids = set(state.get("resolved_thread_ids") or [])
+    author = payload.get("author") or "automation"
+
+    try:
+        result = thread_dispose.dispose_threads(
+            pr_url,
+            envelope,
+            resolved_ids=resolved_ids,
+            author=author,
+        )
+    except Exception as exc:
+        return _emit(
+            _escalate("dispose-only-failed", f"{type(exc).__name__}: {exc}"),
+            2,
+        )
+
+    envelope_out = {
+        "status": "disposed",
+        "action": "dispose-only",
+        "terminal": None,
+        "converged": False,
+        "head_sha": payload.get("head_sha"),
+        "state_written": False,
+        "dispose_result": result,
+    }
+    return _emit(envelope_out, 0)
+
+
 def main() -> int:
     # Parse stdin — any failure escalates (exit 2 is the contract).
     try:
@@ -92,6 +150,11 @@ def main() -> int:
             raise TypeError(f"stdin must be a JSON object, got {type(payload).__name__}")
     except (json.JSONDecodeError, TypeError) as exc:
         return _emit(_escalate("stdin-invalid", f"{type(exc).__name__}: {exc}"), 2)
+
+    # --dispose-only mode (T1.3): call dispose_threads once and exit.
+    # No iteration, no round loop, no fix dispatch — just dispose + exit.
+    if payload.get("dispose_only"):
+        return _handle_dispose_only(payload)
 
     # Resolve state: either from state_path or inline state object.
     state_path_raw = payload.get("state_path")

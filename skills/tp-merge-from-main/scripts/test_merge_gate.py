@@ -255,17 +255,19 @@ def _make_gate_runners_pass() -> dict:
         return []
 
     # ---- human-approval seams (5th predicate) ----
+    # Currency is SHA-PREFIX-in-the-label-NAME (human-approval-label-currency, 2026-06-13):
+    # the tag after `tp:human-approved:` must be a hex prefix of headRefOid. A BARE
+    # `tp:human-approved` is recognized-but-stale; commit_id is null on real GitHub label
+    # events and is no longer consulted. The tag here IS HEAD_OID, a prefix of headRefOid.
     def labels_fn(url):
-        return [{"name": "tp:human-approved"}]
+        return [{"name": f"tp:human-approved:{HEAD_OID}"}]
 
     def timeline_fn(url):
         return [{
             "event": "labeled",
-            "label": {"name": "tp:human-approved"},
+            "label": {"name": f"tp:human-approved:{HEAD_OID}"},
             "actor": {"type": "User", "login": "alice"},
             "created_at": APPROVAL_AT,
-            # commit_id = the head SHA at the instant the label event was recorded.
-            # Currency is SHA-equality (commit_id == headRefOid), not a timestamp.
             "commit_id": HEAD_OID,
         }]
 

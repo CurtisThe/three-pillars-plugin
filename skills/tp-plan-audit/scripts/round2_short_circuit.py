@@ -11,7 +11,11 @@ See detailed-design.md §round2_short_circuit.py and §Decisions OQ5.
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
+from pathlib import Path
 from typing import Iterable
 
 _SEVERITY_RE = re.compile(
@@ -101,3 +105,46 @@ def should_short_circuit(round1_outputs: Iterable[str]) -> dict:
 
     evidence["reason"] = "below-threshold"
     return {"short_circuit": False, "converged_topic": None, "evidence": evidence}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for round2_short_circuit.
+
+    Usage: round2_short_circuit.py <file1> <file2> [<file3> ...]
+
+    Reads each file, calls should_short_circuit(texts), prints the verdict
+    dict as JSON to stdout. Exit 0 (verdict computed), 2 (usage/unreadable).
+    """
+    parser = argparse.ArgumentParser(
+        prog="round2_short_circuit.py",
+        description=(
+            "Round-2 short-circuit helper: reads round-1 council outputs "
+            "and decides whether Round 2 is redundant."
+        ),
+    )
+    parser.add_argument(
+        "files",
+        nargs="+",
+        metavar="FILE",
+        help="Paths to round-1 output files (at least 2 required).",
+    )
+    args = parser.parse_args(argv)
+
+    if len(args.files) < 2:
+        parser.error("At least 2 FILE arguments are required.")
+
+    texts: list[str] = []
+    for path_str in args.files:
+        p = Path(path_str)
+        try:
+            texts.append(p.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            parser.error(f"Cannot read file {path_str!r}: {exc}")
+
+    verdict = should_short_circuit(texts)
+    print(json.dumps(verdict))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

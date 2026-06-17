@@ -104,6 +104,76 @@ In `--auto` modes (e.g., `/tp-spike-auto`), commits are **required** — the who
 
 Orchestrator skills (`/tp-phase-implement`, `/tp-spike-implement`, `/tp-spike-auto`) delegate the bulk of their commits to the inner skills they invoke (`/tp-task-cycle`, etc.). At the end of the orchestrator run, check for stragglers: if `git status --short` shows any staged or unstaged changes remaining, the orchestrator commits them with a "cleanup" message. If the tree is clean, the orchestrator skips its own commit.
 
+## Hot-patch lane
+
+The hot-patch lane sits *below* `just-do-it` and **outside** the weight-class set
+(see `weight-class.md` §Hot-patch lane cross-note). It is not a design class —
+it has no scope-time because the patch is the scope. Use it for urgent, narrow
+fixes that cannot wait for a full branch + design cycle.
+
+**Lane shape:** seat-exempt single-commit PR on a throwaway worktree.
+
+```
+git worktree add -b hot-patch/<slug> .claude/worktrees/hot-patch-<slug>
+# stage fix + ledger append in the worktree
+git -C .claude/worktrees/hot-patch-<slug> commit \
+    --trailer "hot-patch: <trigger>" \
+    -m "Hotfix: <summary>"
+gh pr create --base master --head hot-patch/<slug>
+# operator merges:
+gh pr merge --merge <PR-NUMBER>
+git worktree remove .claude/worktrees/hot-patch-<slug> && git branch -d hot-patch/<slug>
+```
+
+**Commit message row** (message-template table):
+
+| Lane | Message template |
+|---|---|
+| hot-patch lane | `Hotfix: <summary>` + trailer `hot-patch: <trigger>` |
+
+**Eligibility (all required):**
+
+1. Trailer self-declaration: commit carries `hot-patch: <trigger>` (non-empty trigger).
+2. Hard mechanical exclusions enforced by invariant #37: the commit must not touch
+   `.three-pillars/`, gate/enforcement files (`framework-check.sh`,
+   `deterministic_gate.py`, `land.py`, `gate_cli.py`, `merge_gate.py`, etc.), or
+   the lane's own modules and their tests (`hot_patch_check.py`, `hot_patch.py`,
+   `hot_patch_ledger.py`, `test_hot_patch_check.py`, `test_hot_patch_ledger.py`,
+   `test_hot_patch_anomaly.py`, `test_hot_patch.py`, `test_hot_patch_stanza.py`).
+3. Diff cap: ≤150 changed lines (adds + dels over `git show --numstat`), with the
+   ledger append (`hot-patches.md`) excluded from the sum. Binary files fail.
+
+**Trailer grammar:** `hot-patch: <trigger>` where `<trigger>` is free-text
+describing the trigger event (e.g., `fix teardown order after fleet launch`).
+
+**Ledger obligation:** append a ~5-line entry to
+`three-pillars-docs/tp-designs/orchestration/hot-patches.md` with format:
+
+```
+- <sha> | <date> | trigger: <trigger> | broke: <what-broke> | fix: <why-this-fix> | touched: <surface>
+```
+
+Preferred path: the entry **rides in the same commit** as the fix (paper arrives
+with the patch). Backstop: same-day UTC deadline, enforced fail-closed —
+invariant #37 hard-fails the next commit while any entry is overdue. The ledger is
+size-exempt by location (`three-pillars-docs/tp-designs/` exempt prefix); no
+rotation in v1.
+
+**Scan-cost expectation:** the post-baseline `--since` anomaly scan is acceptable
+at the observed hot-patch rate. Re-evaluate if master history exceeds ~10k commits
+post-baseline.
+
+**Merge:** operator only — never auto-merge. Use `gh pr merge --merge` (merge
+commit; squash is out-of-protocol and self-flags the anomaly scan). The standard
+merge gate runs un-bypassed; hooks always fire on every worktree commit. Gate
+bypass is denied.
+
+**What invariant #37 catches:** (a) overdue ledger entry; (b) trailered commits
+violating the exclusion list or diff cap; (c) post-baseline non-merge master
+commits touching framework code — these are anomalies. Arm (c) keys on
+committer date, which a determined actor can backdate; the threat model is
+honest-operator-under-pressure, not adversarial forgery.
+
 ## Rationale
 
 Frequent, scoped commits produce a clean audit trail at every design phase and prevent the "I have 40 files of uncommitted work across design + implementation" failure mode. Combined with branch-per-design, this means every phase of every design is recoverable, reviewable, and mergeable independently. `/tp-design-complete` then squashes/merges the branch to base, so downstream repos see a clean history if they prefer.

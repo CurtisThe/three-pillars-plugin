@@ -21,7 +21,7 @@ WRONG side (empty when {default} hasn't advanced); corrected per intent. main()
 itself is range-agnostic — it passes the string straight to `git diff`.
 
 Design refs:
-  - three-pillars-docs/tp-designs/merged-design-closeout/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/detailed-design.md
 """
 
 from __future__ import annotations
@@ -33,6 +33,11 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+# Ensure _shared/ is on path for sibling imports when run directly.
+_SHARED_DIR = Path(__file__).resolve().parent
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
 
 DOCS_SUBDIR = "three-pillars-docs"
 
@@ -118,6 +123,56 @@ def scan_docs(repo_root, identifiers) -> list[StaleRef]:
     return refs
 
 
+def stale_invariant_cites(repo_root, touched_paths) -> list[StaleRef]:
+    """Advisory: stale invariant-number cites in the design's touched prose.
+
+    Reuses citation_scan.find_number_cites_in_line + invariant_map over ONLY
+    the touched paths (repo-relative strings or Path objects). Returns a
+    StaleRef per stale cite with `identifier` = "invariant #N (stale)".
+
+    ALWAYS fail-open (returns empty on any error). NEVER a gate — callers
+    must treat the result as advisory only (main() stays exit-0).
+    """
+    if not touched_paths:
+        return []
+    try:
+        import citation_scan  # noqa: PLC0415
+        import invariant_map as inv_map  # noqa: PLC0415
+    except ImportError:
+        return []  # fail-open: optional dependency
+    try:
+        root = Path(repo_root)
+        fc = root / "framework-check.sh"
+        if not fc.is_file():
+            return []
+        imap = inv_map.parse_invariant_map(fc)
+        valid = inv_map.valid_numbers(imap)
+        retired = {n for n, inv in imap.items() if inv.status == "retired"}
+        refs: list[StaleRef] = []
+        for tp in touched_paths:
+            fpath = root / tp if not Path(tp).is_absolute() else Path(tp)
+            if not fpath.is_file():
+                continue
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                rel = str(fpath.relative_to(root))
+            except (OSError, ValueError):
+                continue
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                for n in citation_scan.find_number_cites_in_line(line):
+                    if n not in valid or n in retired:
+                        refs.append(
+                            StaleRef(
+                                doc=rel,
+                                line=lineno,
+                                identifier=f"invariant #{n} (stale)",
+                            )
+                        )
+        return refs
+    except Exception:
+        return []  # fail-open: advisory check must never raise
+
+
 def _read_diff(repo_root, rng) -> str:
     """Diff text from `git diff <range>` (range-agnostic) or stdin. Fail-open → ''."""
     if rng:
@@ -135,9 +190,24 @@ def _read_diff(repo_root, rng) -> str:
         return ""
 
 
+def _changed_paths(repo_root, rng) -> list[str]:
+    """Repo-relative paths changed in the given git diff range. Fail-open → []."""
+    if not rng:
+        return []
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--name-only", rng],
+            capture_output=True, text=True,
+        )
+        return [p for p in out.stdout.splitlines() if p.strip()]
+    except Exception:
+        return []
+
+
 def main(argv=None) -> int:
     """CLI. ALWAYS returns 0 (advisory). Prints stale doc refs (--json or
-    `doc:line: identifier`). Fail-open on every error."""
+    `doc:line: identifier`). Also surfaces stale invariant-number cites in the
+    design's touched prose (advisory only). Fail-open on every error."""
     parser = argparse.ArgumentParser(
         description="Learn-verification: as-built retired symbols still named in three-pillars-docs/."
     )
@@ -154,6 +224,7 @@ def main(argv=None) -> int:
     try:
         identifiers = retired_identifiers(_read_diff(args.repo, args.rng))
         refs = scan_docs(args.repo, identifiers)
+        refs = refs + stale_invariant_cites(args.repo, _changed_paths(args.repo, args.rng))
         if args.as_json:
             print(json.dumps([asdict(r) for r in refs]))
         else:

@@ -555,6 +555,340 @@ def test_budget_cap_is_single_module_constant():
     assert_eq(len(over), 1, "a phase 1k over the constant is flagged")
 
 
+# ── Mode enum + pinning fixtures (design-depth-axis Task 3.1) ──────────────
+# F1: named pinning fixtures freezing audit_plan's current --spike and
+# standard end-to-end output BEFORE the mode-enum refactor touches main().
+
+SPIKE_FIXTURE_DESIGN = textwrap.dedent("""\
+    # Spike Fixture
+
+    ## Hypothesis
+    The widget approach works.
+
+    ## Experiments
+    - Try the widget
+
+    ## Success Criteria
+    - Widget renders
+""")
+
+SPIKE_FIXTURE_PLAN = textwrap.dedent("""\
+    # Spike Plan
+
+    ## Phase 1: Explore (~50k)
+
+    ### Task 1.1: Try widget
+    **Hypothesis**: Widget renders in under 1s.
+    **Try**: Build a minimal widget and render it.
+    **Evaluate**: Measure render time.
+
+    **Deliverable**: timing notes
+""")
+
+STANDARD_FIXTURE_DESIGN = textwrap.dedent("""\
+    # Standard Fixture
+
+    ## Scope
+    ### In scope
+    - The widget
+
+    ## Entities
+    - **Widget**: the thing
+
+    ## Behaviors
+    - **Render**: draws the widget
+""")
+
+STANDARD_FIXTURE_DETAILED = textwrap.dedent("""\
+    # Standard Fixture — Detailed
+
+    ## Module Structure
+    - `src/widget.py` (new)
+
+    ## Interfaces
+
+    ### `render(widget)` (new)
+    Draws the widget.
+
+    ## Implementation Order
+
+    ### Phase 1: Build
+    - widget
+""")
+
+STANDARD_FIXTURE_PLAN = textwrap.dedent("""\
+    # Standard Plan
+
+    ## Phase 1: Build (~80k)
+
+    ### Task 1.1: Build widget
+    **File**: `src/widget.py` (new)
+    **Test**: `src/test_widget.py` test_render
+    **Red**: Assert render(widget) returns markup.
+    **Green**: Implement render.
+    **Done when**: render works.
+""")
+
+EXPECTED_SPIKE_OUTPUT = textwrap.dedent("""\
+    ============================================================
+    PLAN AUDIT — DETERMINISTIC CHECKS (SPIKE MODE)
+    ============================================================
+
+    Design:   hypothesis=yes, experiments=yes, success criteria=yes
+    Plan:     1 tasks across 1 phases
+
+    RESULT: ALL CHECKS PASSED
+
+    Verified: task fields, module coverage, interface coverage,
+    phase alignment, file existence.
+""")
+
+EXPECTED_STANDARD_OUTPUT = textwrap.dedent("""\
+    ============================================================
+    PLAN AUDIT — DETERMINISTIC CHECKS
+    ============================================================
+
+    Design:   1 in-scope, 1 entities, 1 behaviors
+    Detailed: 1 modules, 1 interfaces, 1 phases
+    Plan:     1 tasks across 1 phases
+
+    --- WARN (1) ---
+      [Task 1.1]
+      Parent dir for new file `src/widget.py` does not exist
+
+    TOTAL: 1 issues (1 WARN)
+""")
+
+
+def _run_fixture(files, flags):
+    """Run audit_plan.py as a subprocess on a throwaway fixture dir.
+
+    cwd is the temp dir so the file-existence check is deterministic
+    (the fixture's `src/` never exists there).
+    """
+    import subprocess
+
+    script = Path(__file__).resolve().parent / "audit_plan.py"
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td) / "fix"
+        d.mkdir()
+        for name, content in files.items():
+            (d / name).write_text(content)
+        proc = subprocess.run(
+            [sys.executable, str(script), str(d), *flags],
+            capture_output=True,
+            text=True,
+            cwd=td,
+        )
+    return proc.stdout, proc.returncode
+
+
+def test_mode_pinned_spike_output():
+    print("test_mode_pinned_spike_output")
+    out, rc = _run_fixture(
+        {"design.md": SPIKE_FIXTURE_DESIGN, "plan.md": SPIKE_FIXTURE_PLAN},
+        ["--spike"],
+    )
+    assert_eq(rc, 0, "--spike pinned fixture exits 0")
+    assert_eq(out, EXPECTED_SPIKE_OUTPUT, "--spike output unchanged on pinned fixture")
+
+
+def test_mode_pinned_standard_output():
+    print("test_mode_pinned_standard_output")
+    out, rc = _run_fixture(
+        {
+            "design.md": STANDARD_FIXTURE_DESIGN,
+            "detailed-design.md": STANDARD_FIXTURE_DETAILED,
+            "plan.md": STANDARD_FIXTURE_PLAN,
+        },
+        [],
+    )
+    assert_eq(rc, 0, "standard pinned fixture exits 0 (WARN only)")
+    assert_eq(out, EXPECTED_STANDARD_OUTPUT, "standard output unchanged on pinned fixture")
+
+
+def test_mode_enum_derives_booleans():
+    print("test_mode_enum_derives_booleans")
+    # The internal mode enum (audit finding M2) replaces the spike_mode
+    # boolean: each mode derives load_detailed / check_coverage / field_set.
+    assert_eq(set(ap.MODES), {"standard", "spike", "light"}, "three modes")
+    std = ap.MODES["standard"]
+    assert_eq(std.load_detailed, True, "standard loads detailed-design")
+    assert_eq(std.check_coverage, True, "standard runs coverage checks")
+    assert_eq(std.field_set, ap.STANDARD_FIELDS, "standard field set")
+    spike = ap.MODES["spike"]
+    assert_eq(spike.load_detailed, False, "spike skips detailed-design")
+    assert_eq(spike.check_coverage, False, "spike skips coverage checks")
+    assert_eq(spike.field_set, ap.SPIKE_FIELDS, "spike field set")
+    light = ap.MODES["light"]
+    assert_eq(light.load_detailed, False, "light skips detailed-design")
+    assert_eq(light.check_coverage, False, "light skips coverage checks")
+    assert_eq(light.field_set, ap.STANDARD_FIELDS,
+              "light keeps File/Test/Red/Green (production work, not experiments)")
+
+
+# ── --light flag (design-depth-axis Task 3.2) ──────────────────────────────
+
+LIGHT_FIXTURE_DESIGN = textwrap.dedent("""\
+    ---
+    weight-class: light
+    ---
+    # Light Fixture
+
+    ## Scope
+    ### In scope
+    - The widget
+
+    ## Entities
+    - **Widget**: the thing
+
+    ## Behaviors
+    - **Render**: draws the widget
+""")
+
+LIGHT_FIXTURE_PLAN = textwrap.dedent("""\
+    ---
+    weight-class: light
+    ---
+    # Light Plan
+
+    ## Phase 1: Build (~80k)
+
+    ### Task 1.1: Build widget
+    **File**: `src/widget.py` (new)
+    **Test**: `src/test_widget.py` test_render
+    **Red**: Assert render(widget) returns markup.
+    **Green**: Implement render.
+    **Done when**: render works.
+""")
+
+
+def test_light_no_detailed_design_required():
+    print("test_light_no_detailed_design_required")
+    # No detailed-design.md in the fixture — light must not require it.
+    out, rc = _run_fixture(
+        {"design.md": LIGHT_FIXTURE_DESIGN, "plan.md": LIGHT_FIXTURE_PLAN},
+        ["--light"],
+    )
+    assert_eq(rc, 0, "--light passes without detailed-design.md (WARN only)")
+    assert_in("(LIGHT MODE)", out, "header announces light mode")
+    assert_true("detailed-design.md not found" not in out,
+                "detailed-design.md absence is not an error in light mode")
+    assert_true("MISSING" not in out,
+                "no module/interface coverage findings without detailed-design")
+
+
+def test_light_enforces_standard_task_fields():
+    print("test_light_enforces_standard_task_fields")
+    # Light is production work: File/Test/Red/Green/Done-when still enforced.
+    plan_missing_green = LIGHT_FIXTURE_PLAN.replace(
+        "**Green**: Implement render.\n", ""
+    )
+    out, rc = _run_fixture(
+        {"design.md": LIGHT_FIXTURE_DESIGN, "plan.md": plan_missing_green},
+        ["--light"],
+    )
+    assert_in("INCOMPLETE", out, "missing Green flagged in light mode")
+    assert_in("Green", out, "the missing field is named")
+
+
+def test_light_checks_budget_annotations():
+    print("test_light_checks_budget_annotations")
+    plan_no_budget = LIGHT_FIXTURE_PLAN.replace(" (~80k)", "")
+    out, rc = _run_fixture(
+        {"design.md": LIGHT_FIXTURE_DESIGN, "plan.md": plan_no_budget},
+        ["--light"],
+    )
+    assert_in("budget annotation", out, "budget annotations still checked in light mode")
+
+
+def test_light_divergent_frontmatter_error():
+    print("test_light_divergent_frontmatter_error")
+    # F2: design.md declares light, plan.md stamped full -> consistency ERROR.
+    divergent_plan = LIGHT_FIXTURE_PLAN.replace(
+        "weight-class: light", "weight-class: full"
+    )
+    out, rc = _run_fixture(
+        {"design.md": LIGHT_FIXTURE_DESIGN, "plan.md": divergent_plan},
+        ["--light"],
+    )
+    assert_eq(rc, 1, "divergent frontmatter is a hard failure")
+    assert_in("ERROR", out, "consistency finding reported as ERROR")
+    assert_in("plan.md", out, "the divergent artifact is named")
+    assert_in("full", out, "the divergent class is named")
+
+
+# ── check_consistency wiring, all modes (design-depth-axis Task 3.3) ────────
+
+
+def test_consistency_standard_mode_divergence():
+    print("test_consistency_standard_mode_divergence")
+    # design.md declares full; plan.md stamped light -> ERROR in standard mode.
+    stamp = "---\nweight-class: full\n---\n"
+    out, rc = _run_fixture(
+        {
+            "design.md": stamp + STANDARD_FIXTURE_DESIGN,
+            "detailed-design.md": stamp + STANDARD_FIXTURE_DETAILED,
+            "plan.md": "---\nweight-class: light\n---\n" + STANDARD_FIXTURE_PLAN,
+        },
+        [],
+    )
+    assert_eq(rc, 1, "divergent stamp is a hard failure in standard mode")
+    assert_in("ERROR", out, "consistency finding reported as ERROR")
+    assert_in("plan.md", out, "the divergent artifact is named")
+
+
+def test_consistency_spike_mode_divergence():
+    print("test_consistency_spike_mode_divergence")
+    out, rc = _run_fixture(
+        {
+            "design.md": "---\nweight-class: spike\n---\n" + SPIKE_FIXTURE_DESIGN,
+            "plan.md": "---\nweight-class: full\n---\n" + SPIKE_FIXTURE_PLAN,
+        },
+        ["--spike"],
+    )
+    assert_eq(rc, 1, "divergent stamp is a hard failure in spike mode")
+    assert_in("ERROR", out, "consistency finding reported as ERROR")
+
+
+def test_consistency_missing_stamp_is_error():
+    print("test_consistency_missing_stamp_is_error")
+    # design.md declares a class; plan.md has no frontmatter at all.
+    out, rc = _run_fixture(
+        {
+            "design.md": LIGHT_FIXTURE_DESIGN,
+            "plan.md": "# Light Plan\n\n" + LIGHT_FIXTURE_PLAN.split("---\n", 2)[2],
+        },
+        ["--light"],
+    )
+    assert_eq(rc, 1, "missing stamp is a hard failure")
+    assert_in("missing weight-class frontmatter", out, "missing stamp named")
+
+
+def test_consistency_legacy_frontmatter_free_dirs():
+    print("test_consistency_legacy_frontmatter_free_dirs")
+    # F5 pinned legacy fixture: a frontmatter-free design dir yields ZERO
+    # consistency findings in both standard AND --light modes.
+    standard_files = {
+        "design.md": STANDARD_FIXTURE_DESIGN,
+        "detailed-design.md": STANDARD_FIXTURE_DETAILED,
+        "plan.md": STANDARD_FIXTURE_PLAN,
+    }
+    out, rc = _run_fixture(standard_files, [])
+    assert_true("weight-class consistency" not in out,
+                "legacy dir: zero consistency findings in standard mode")
+    assert_eq(rc, 0, "legacy dir still passes standard mode")
+
+    light_files = {
+        "design.md": STANDARD_FIXTURE_DESIGN,
+        "plan.md": STANDARD_FIXTURE_PLAN,
+    }
+    out, rc = _run_fixture(light_files, ["--light"])
+    assert_true("weight-class consistency" not in out,
+                "legacy dir: zero consistency findings in --light mode")
+    assert_eq(rc, 0, "legacy frontmatter-free dir passes --light")
+
+
 # ── Integration test against completed design ─────────────
 
 
@@ -613,6 +947,17 @@ if __name__ == "__main__":
     test_budget_annotation_colonless_over_cap_flagged()
     test_budget_annotation_under_cap_passes()
     test_budget_cap_is_single_module_constant()
+    test_mode_pinned_spike_output()
+    test_mode_pinned_standard_output()
+    test_mode_enum_derives_booleans()
+    test_light_no_detailed_design_required()
+    test_light_enforces_standard_task_fields()
+    test_light_checks_budget_annotations()
+    test_light_divergent_frontmatter_error()
+    test_consistency_standard_mode_divergence()
+    test_consistency_spike_mode_divergence()
+    test_consistency_missing_stamp_is_error()
+    test_consistency_legacy_frontmatter_free_dirs()
     test_against_completed_design()
 
     print(f"\n{'=' * 40}")

@@ -6,8 +6,8 @@ under tmp_path (no temp-repo / git needed — the detector reads the tree, not r
 Run with: python -m pytest skills/_shared/test_detect_unarchived.py -q
 
 Design refs:
-  - three-pillars-docs/tp-designs/merged-design-closeout/detailed-design.md
-  - three-pillars-docs/tp-designs/merged-design-closeout/plan.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/plan.md
 """
 
 from pathlib import Path

@@ -183,11 +183,11 @@ def test_candidate_branch_teardown_present() -> None:
 def test_candidate_in_report() -> None:
     """Report section must mention candidate-branch deletion (local + remote)."""
     text = _read()
-    # Find the step 6 Report section
+    # Find the Report section (step 6 or 7 — step number may shift as steps are added)
     report_match = re.search(
-        r"^6\.\s+\*\*Report\*\*.*?(?=^[0-9]+\.|^##|\Z)", text, re.DOTALL | re.MULTILINE
+        r"^[0-9]+\.\s+\*\*Report\*\*.*?(?=^[0-9]+\.|^##|\Z)", text, re.DOTALL | re.MULTILINE
     )
-    assert report_match, "Step 6 Report section not found"
+    assert report_match, "Report section not found"
     report_block = report_match.group(0)
     assert re.search(r"[Cc]andidate.*branch.*delete|[Cc]andidate.*branch.*deleted", report_block), (
         "Step 6 Report must mention candidate branch deletion"
@@ -214,4 +214,76 @@ def test_backfill_sweep_section_present() -> None:
     # Should describe --auto delete behavior
     assert re.search(r"--auto.*delete|delete.*--auto|auto.*archived|archived.*auto", text, re.IGNORECASE), (
         "## Backfill sweep section must document --auto delete-all-archived behavior"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.2: post-merge-doc-reconcile wiring — step 6 doc-reconcile
+# ---------------------------------------------------------------------------
+
+def test_step6_doc_reconcile_present() -> None:
+    """SKILL.md must have a step 6 that names reconcile_docs.py with --slug and --apply."""
+    text = _read()
+    assert "reconcile_docs.py" in text, (
+        "tp-post-merge SKILL.md must reference reconcile_docs.py"
+    )
+    assert "--slug" in text, (
+        "tp-post-merge SKILL.md must reference --slug flag for reconcile_docs.py"
+    )
+    assert "--apply" in text, (
+        "tp-post-merge SKILL.md must reference --apply flag for reconcile_docs.py"
+    )
+
+
+def test_step6_is_fail_open() -> None:
+    """The doc-reconcile step must be fail-open (never aborts teardown).
+
+    The assertion is scoped to the step-6 block that names reconcile_docs.py,
+    not the whole file (fail-open is mentioned 6+ times for other steps).
+    """
+    text = _read()
+    # Find the step-6 block (Doc-reconcile) that names reconcile_docs.py
+    step6_match = re.search(
+        r"^6\.\s+\*\*Doc-reconcile.*?(?=^7\.\s+|^##|\Z)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert step6_match, "Step 6 Doc-reconcile block not found in SKILL.md"
+    step6_block = step6_match.group(0)
+    assert "reconcile_docs.py" in step6_block, (
+        "Step 6 block must name reconcile_docs.py"
+    )
+    assert re.search(r"fail.open|fail open", step6_block, re.IGNORECASE), (
+        "The doc-reconcile step (step 6) must be described as fail-open"
+    )
+
+
+def test_report_carries_docs_reconciled_row() -> None:
+    """The report step must carry a 'Docs reconciled:' row."""
+    text = _read()
+    assert re.search(r"[Dd]ocs reconciled", text), (
+        "The report step must carry a 'Docs reconciled:' outcome row"
+    )
+
+
+def test_no_commit_prose_narrowed() -> None:
+    """The absolute 'this skill performs no commit' language must be narrowed.
+
+    The old wording 'this skill performs no commit, by design' (absolute) must
+    be replaced with the scoped exception wording.
+    """
+    text = _read()
+    # The narrowed phrase must now reference the exception
+    assert re.search(
+        r"no commit of design|sole.*scoped exception|scoped exception",
+        text,
+        re.IGNORECASE,
+    ), (
+        "The no-commit prose must be narrowed to 'no commit of design artifacts' "
+        "with the step-6 doc-reconcile commit as the sole, scoped exception"
+    )
+    # Negative assertion: the old absolute phrase must not survive
+    assert "performs no commit, by design" not in text, (
+        "Old absolute phrase 'performs no commit, by design' must have been removed; "
+        "the scoped-exception wording replaces it"
     )

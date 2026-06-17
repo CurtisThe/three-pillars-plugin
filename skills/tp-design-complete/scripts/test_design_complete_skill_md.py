@@ -222,3 +222,80 @@ def test_completion_pr_requests_copilot_review() -> None:
     assert text.find("gh pr create") < text.find("requested_reviewers"), (
         "the Copilot review request must come after 'gh pr create' (needs the PR number)"
     )
+
+
+def test_light_pr_body() -> None:
+    """design-depth-axis Task 4.2 — light/just-do-it PRs carry the fidelity checklist.
+
+    Step 6g must instruct: when `read_class` returns `light` (or `just-do-it`),
+    append the fidelity checklist from weight-class.md to the PR body.
+    """
+    text = _read()
+    assert "read_class" in text, (
+        "step 6g must read the design's weight class via read_class"
+    )
+    assert "fidelity checklist" in text.lower(), (
+        "the fidelity checklist must be named in the PR-body instruction"
+    )
+    assert "skills/_shared/weight-class.md" in text, (
+        "the checklist's source doc must be named"
+    )
+    assert "just-do-it" in text, (
+        "the injection must cover just-do-it as well as light"
+    )
+    # The injection instruction belongs to the PR-opening step — after the
+    # body template begins, before the PR URL is reported.
+    assert text.find("gh pr create") < text.find("fidelity checklist"), (
+        "the checklist injection rides the PR body, after gh pr create's template"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 3.3: post-merge-doc-reconcile — step 6f --archive-cites + guard sites
+# ---------------------------------------------------------------------------
+
+def test_6f_runs_archive_cites_before_staging() -> None:
+    """Step 6f must name reconcile_docs.py --archive-cites --slug run before staging."""
+    text = _read()
+    assert "reconcile_docs.py" in text, (
+        "tp-design-complete SKILL.md must reference reconcile_docs.py"
+    )
+    assert "--archive-cites" in text, (
+        "tp-design-complete SKILL.md step 6f must reference --archive-cites mode"
+    )
+    # --archive-cites must come before the git add staging in step 6f
+    archive_pos = text.find("--archive-cites")
+    git_add_pos = text.find("git add three-pillars-docs/tp-designs/{design-name}")
+    assert archive_pos < git_add_pos, (
+        "--archive-cites must run before staging in step 6f"
+    )
+
+
+def test_6f_stages_reconcile_json_file_list() -> None:
+    """Step 6f must say to stage the --json file list from reconcile_docs.py."""
+    text = _read()
+    # The staging instruction must reference the --json file list or similar
+    assert re.search(r"--json.{0,80}file list|json.{0,80}stage|stage.{0,80}--json", text, re.IGNORECASE), (
+        "step 6f must instruct staging exactly the --json file list from reconcile_docs.py"
+    )
+
+
+def test_both_guard_sites_widened() -> None:
+    """Both guard edit points must be widened to 'archival paths + reconcile --json file list'.
+
+    (a) Step 6f's in-step git status verification
+    (b) The ## Rules commit-scope clause
+    Both must carry the widened wording.
+    """
+    text = _read()
+    # Count occurrences of the widened phrase (both sites)
+    matches = re.findall(
+        r"archival paths.{0,60}reconcile|reconcile.{0,60}json.{0,60}archival|json file list",
+        text,
+        re.IGNORECASE,
+    )
+    assert len(matches) >= 2, (
+        f"Both guard sites (step 6f in-step + ## Rules commit-scope clause) must carry "
+        f"the widened 'archival paths + reconcile --json file list' wording; "
+        f"found {len(matches)} occurrence(s)"
+    )

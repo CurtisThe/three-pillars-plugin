@@ -127,6 +127,66 @@ def test_reply_precedes_resolve() -> None:
     )
 
 
+# ---------- T1.4: step-9.5 refactored onto shared helper ----------
+
+
+def _extract_step_9_5_section(body: str) -> str:
+    """Extract the text of step 9.5 from SKILL.md (between '9.5.' and next numbered step)."""
+    start = body.find("9.5.")
+    if start == -1:
+        return ""
+    # Next numbered step: look for "\n10." or "\n9.6." etc
+    import re
+    m = re.search(r'\n\d+\.', body[start + 3:])
+    if m:
+        end = start + 3 + m.start()
+        return body[start:end]
+    return body[start:]
+
+
+def test_step_9_5_uses_dispose_threads_helper() -> None:
+    """Step 9.5 must reference the shared thread_dispose.dispose_threads primitive
+    in the 9.5 section itself (not just elsewhere in the file) — single source of truth."""
+    body = _read_skill()
+    section_9_5 = _extract_step_9_5_section(body)
+    assert section_9_5, "SKILL.md must have a step 9.5 section"
+    assert "dispose_threads" in section_9_5, (
+        "SKILL.md step 9.5 section must reference dispose_threads (the shared helper, T1.4); "
+        "the inline reply-and-resolve loop should be replaced by a call to the shared primitive"
+    )
+    assert "thread_dispose" in section_9_5, (
+        "SKILL.md step 9.5 section must name the thread_dispose module"
+    )
+
+
+def test_dispose_only_and_step_9_5_name_same_function() -> None:
+    """Both the --dispose-only path and step-9.5 must name the SAME function
+    (dispose_threads) — single source of truth for the reply-and-resolve primitive."""
+    body = _read_skill()
+    # Both paths must name dispose_threads — if one path uses a different call
+    # this test catches the divergence.
+    count = body.count("dispose_threads")
+    assert count >= 2, (
+        f"'dispose_threads' must appear at least twice in SKILL.md — once for "
+        f"the --dispose-only flag description, once for step 9.5 (found {count} times)"
+    )
+
+
+def test_step_9_5_load_bearing_prose_preserved() -> None:
+    """Step 9.5 must keep its load-bearing prose after the T1.4 refactor:
+    reply-before-resolve ordering, disposition_for-only, 9.5-mandatory-every-round."""
+    body = _read_skill()
+    assert "reply ALWAYS precedes the resolve" in body or (
+        "reply" in body.lower() and "always" in body.lower() and "resolve" in body.lower()
+    ), "reply-before-resolve ordering prose must be preserved in step 9.5"
+    assert "disposition_for" in body, (
+        "disposition_for must remain named (disposition is ONLY ever disposition_for's output)"
+    )
+    assert "9.5 is mandatory every round" in body, (
+        "The '9.5 is mandatory every round' rule must be preserved after T1.4 refactor"
+    )
+
+
 def test_two_stable_termination_documented() -> None:
     body = _read_skill()
     assert "two-stable" in body, "two-stable termination must be documented"

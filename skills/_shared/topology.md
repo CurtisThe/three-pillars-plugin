@@ -64,6 +64,19 @@ git reset --hard origin/{base}   # only if the working tree is stale / unpopulat
 
 Or run the worktree management skill's `seat --apply` command to have the framework detect the state and offer the exact command.
 
+### Dynamic Bleed Immunization
+
+The static `--bare` footgun above is a **one-time bootstrap mistake**. There is a second, harder-to-detect class: **dynamic bleed**.
+
+When Claude Code's `isolation=worktree` harness creates or tears down agent worktrees, it sets `core.bare=true` in the seat's **shared** `.git/config` as a side effect. This is a harness bug (M16 in `three-pillars-docs/known_issues.md`) that re-occurs on every fleet or supervised run — the seat reverts to `(bare)` silently mid-session even on a correctly-bootstrapped repo. Instrumented evidence: 25 heals in one run (2026-06-09).
+
+**Root fix (two-part):** install once via the worktree management skill's first-run offer or `seat --apply` (missing-immunization repair):
+
+1. **`extensions.worktreeConfig=true`** — isolates per-worktree git config from the seat's shared `.git/config`, so the harness writes land in the worktree's local config instead of bleeding into the seat.
+2. **`heal-core-bare` hook** — installed via `skills/_shared/bootstrap_immunization.py` into `.git/hooks/post-checkout` and `.git/hooks/post-merge`. Detects the bleed state (`core.bare=true` + `.git/` subdir present) and flips `core.bare=false`. No-op on a healthy repo.
+
+The installer (`skills/_shared/bootstrap_immunization.py`) is **consent-gated**: it runs only via the recorded first-run offer (condition 6 of `skills/_shared/first-run.md`'s cheap-path) or an explicit `yes` in the worktree management skill's `seat --apply` missing-immunization repair. The config record (`worktree_immunization` block in `.three-pillars/config.json`) suppresses re-offers after applied or declined.
+
 ---
 
 ## Bare-Hub Variant
@@ -130,6 +143,8 @@ The orchestration Claude session lives in the seat and stays on `{base}` by conv
 - Coordinates cross-design campaigns.
 
 Individual designs and spikes are spun into per-design worktrees (`<repo>-wt/<name>/` on `tp/<name>`). The orchestrator never moves into a design worktree — it remains in the seat, which is why the seat's health is a precondition for any orchestrated fleet operation.
+
+Two protocol consequences: design worktrees are provisioned by the collaboration preflight's seat-aware branch-offer (`collaboration.md` §Preflight step 4) — never by an in-place `git checkout -b` on the seat; and the seat's own paper trail stays committable mid-fleet — the worktree-isolation guard passes a seat commit whose staged paths are exclusively under `three-pillars-docs/tp-designs/orchestration/**` (one staged path outside refuses as usual).
 
 For the actor-identity half (who is the orchestration session, session handoffs), see the `orchestration` slot handoff in `three-pillars-docs/tp-designs/orchestration/`.
 

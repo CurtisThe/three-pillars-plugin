@@ -39,7 +39,7 @@ not stderr. Python's `webbrowser` module honors `$BROWSER`; `true` is a no-op bi
 "succeeds" without opening anything, neutralizing every `webbrowser.open()` in the aider
 invocation regardless of which trigger fires. Scoped to the subprocess — it's a command-prefix
 env var, never exported to the user's shell. See
-`three-pillars-docs/tp-designs/aider-onboarding-browser-suppression/design.md` for the full
+`three-pillars-docs/completed-tp-designs/aider-onboarding-browser-suppression/design.md` for the full
 trigger inventory.
 
 **Why `--model gpt-4o` (still required):** without an explicit model *and* with no LLM API
@@ -100,4 +100,4 @@ The preamble itself does not need to know whether aider is host-installed or wra
 
 ## Why this exists
 
-Empirical finding from the `codesight-integration` spike (2026-04, see `three-pillars-docs/tp-designs/codesight-integration/spike-results.md` or its archived location): pre-analyzed structural context delivered as CLI content injection reduces design-phase token consumption by ~15–42% (heavier system prompts benefit more) compared to ad-hoc Read/Grep/Glob exploration. The same algorithm delivered via MCP costs ~70% MORE than CLI on the same workflow due to per-turn schema overhead — so this preamble deliberately uses CLI delivery, not an MCP server.
+Empirical finding from the `codesight-integration` spike (2026-04, see `three-pillars-docs/completed-tp-designs/codesight-integration/spike-results.md` or its archived location): pre-analyzed structural context delivered as CLI content injection reduces design-phase token consumption by ~15–42% (heavier system prompts benefit more) compared to ad-hoc Read/Grep/Glob exploration. The same algorithm delivered via MCP costs ~70% MORE than CLI on the same workflow due to per-turn schema overhead — so this preamble deliberately uses CLI delivery, not an MCP server.

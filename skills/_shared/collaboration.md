@@ -32,6 +32,14 @@ Schema:
 }
 ```
 
+**Owner value grammar** — `owner` is a plain string in one of two forms:
+- `<git-email>` — a bare git user email (the standard human-developer form).
+- `orchestrator:<git-email>` — the same email prefixed with `orchestrator:`, written by
+  the autonomous runner (`tp-run-full-design` and the parallel-design runner) at
+  lock-creation to distinguish an orchestrator-held lock from a human-held lock. This
+  is a value convention, not a schema field. `same_actor` collapses both forms for
+  comparison so the prefixed and bare forms are treated as the same actor.
+
 `previous_owners` is an append-only array of prior lock records (each with `owner`, `branch`, `acquired_at`, `released_at`) produced by `--force-takeover`. It preserves history without blocking the new holder.
 
 ## Scope
@@ -56,7 +64,20 @@ Lock-aware skills run this before executing their main work:
    - Current user: `git config user.email` (fall back to `git config user.name` if email is empty; if both are empty, tell the user to set `git config --global user.email <you@example.com>` and stop)
    - Current UTC time as ISO 8601
 
-4. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, refuse to proceed on the default branch and prompt:
+4. **Branch check** — if current branch is `main`, `master`, or the repo's default branch, refuse to proceed on the default branch. First resolve the seat: run `bash "$TP_ROOT"/skills/_shared/seat_resolve.sh --am-i-seat --repo .` (**fail-open**: any error or non-zero exit routes to the *Not in the seat* path — consumers without worktree topology see today's behavior unchanged).
+
+   **In the seat, interactive** (exit 0) — this checkout is the worktree host; an in-place `git checkout -b tp/{design-name}` here dead-ends at the first commit (the worktree-isolation guard refuses seat commits of design work). Offer worktree provisioning instead:
+   > You are on `{branch}` in the seat (the base checkout / worktree host). Design work must happen on `tp/{design-name}` in its own worktree — an in-place checkout on the seat is refused at commit time by the worktree-isolation guard. Provision `../<repo>-wt/{design-name}` now? (yes / no)
+   - **yes**: provision-and-instruct —
+     - If `tp/{design-name}` exists locally: `git worktree add ../<repo>-wt/{design-name} tp/{design-name}`.
+     - If not: `git worktree add -b tp/{design-name} ../<repo>-wt/{design-name}` (cut from the current base HEAD).
+     - Publish the branch if it has no upstream: `git push -u origin tp/{design-name}` (same fail-open clause as the not-seat path).
+     - Then **stop the skill** and instruct: `cd ../<repo>-wt/{design-name}` and re-run this skill from inside the worktree. The session cannot carry its cwd into the worktree, so the skill provisions and instructs — it does not attempt to drive downstream commands with cwd prefixes.
+   - **no**: stop the skill. *(Same rationale as the not-seat **no**.)*
+
+   **In the seat, non-interactive (`--auto`/fleet)** — **refuse-with-instruction**: do not prompt, do not provision. Print the two provisioning commands above and exit; the caller (fleet/orchestrator) owns provisioning and re-dispatches from inside the worktree. The preflight's job here is only to verify it is not about to commit from the seat, and to name the fix.
+
+   **Not in the seat** (exit non-zero, or `seat_resolve.sh` missing/errored) — today's prompt and options, byte-equivalent:
    > You are on `{branch}`. Design work must happen on `tp/{design-name}` — committing to the default branch is the leading cause of accidental cross-design commits. Create/switch to that branch now? (yes / no)
    - **yes**:
      - If the branch doesn't exist locally: `git checkout -b tp/{design-name}`.
@@ -77,7 +98,7 @@ Lock-aware skills run this before executing their main work:
    |---|---|
    | No lock file | **Acquire**: write a fresh lock with current values and phase. |
    | Lock exists, `owner` is `null` (previously released) | **Acquire cleanly**: update top-level owner/branch/phase/acquired_at/last_touched to the new holder. The existing `previous_owners[]` is preserved. No `--force-takeover` required — the prior holder explicitly stepped away. |
-   | Lock exists, `owner` + `branch` both match current | **Refresh**: update `phase` and `last_touched`. Proceed. |
+   | Lock exists, `same_actor(lock.owner, current-email)` is True AND `branch` matches | **Refresh**: update `phase` and `last_touched`. Proceed. (`same_actor` collapses bare and `orchestrator:`-prefixed forms — a human re-running over an orchestrator-held lock, or vice-versa, takes this row.) |
    | Lock exists, `owner` or `branch` differs, `last_touched` ≤ 14 days old | Show owner/branch/phase/last_touched. Refuse unless `--force-takeover` was passed. |
    | Lock exists, `last_touched` > 14 days old | Warn that the lock looks stale, show its contents, ask whether to take over. |
 
@@ -127,6 +148,19 @@ Stale locks (≥ 14 days since `last_touched`) surface as warnings on the next l
 - **Tracked design artifacts** (committed): `design.md`, `detailed-design.md`, `plan.md`, `spike-results.md`, `decisions.md`, everything under `demos/`, `lock.json`. These form the design's permanent record and must sync across machines, survive archival, and be reviewable.
 - **Never `git add`** the truly gitignored state files (`handoff.md`, `.claude/last-design`). Git emits a noisy "paths are ignored" hint and the file would only land in the repo if `-f` is passed. Skills write these files directly; leave staging to the user.
 
+**Orchestration handoff carve-out** — `three-pillars-docs/tp-designs/orchestration/handoff.md`
+is deliberately tracked (gitignore exception: `!three-pillars-docs/tp-designs/orchestration/handoff.md`
+— contract source: `orchestrator-identity`). The orchestration slot's handoff is a durable
+cross-machine process record for fleet / cross-design work, unlike per-design handoffs which
+hold session-local state and stay gitignored. The ordering in `.gitignore` is: general ignore
+(line 36) → slot-wide ignore (line 47) → exception (line 49). Last-match-wins means the
+exception always wins; the test in `skills/_shared/test_gitignore_orchestration_handoff.py`
+pins this ordering as a regression contract.
+
+**Commit cadence for orchestration/handoff.md** — commit only at fleet milestones (wave
+launch, wave drain, campaign close), not after every step. Per-design handoffs remain
+session-local and are never committed.
+
 ## Inline worktree-driving is unsupported
 
 Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-merge-from-main,
@@ -140,7 +174,7 @@ tp-design-complete, and the worktree-management skill) from the **main checkout*
    This is the backstop control — it fires even if the preflight was bypassed.
 
 2. **Fail-open cwd preflight** — each of the five worktree-operating skills runs
-   `python3 skills/_shared/cwd_preflight.py <design>` as a numbered preflight step
+   `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py <design>` as a numbered preflight step
    (see `skills/_shared/cwd-preflight.md`). If a `tp/<design>` worktree exists and
    the session cwd is not inside it, the skill refuses with a `cd` fix before any
    file is written. This is the ergonomic early-refuse.

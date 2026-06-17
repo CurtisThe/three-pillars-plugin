@@ -28,13 +28,14 @@ Turn a high-level design into a concrete implementation blueprint.
    - What are the test boundaries? (what gets unit-tested, what's integration, what's mocked)
    - What are the dependencies? (existing modules to import, new packages needed)
    - What's the processing model? (sync/async, batched, streaming, event-driven)
-6. **Write `three-pillars-docs/tp-designs/{design-name}/detailed-design.md`** with this structure:
+6. **Write `three-pillars-docs/tp-designs/{design-name}/detailed-design.md`** with this structure. If design.md carries a `weight-class` frontmatter block, stamp the same class onto this artifact (`python3 -c "import sys; sys.path.insert(0,'skills/_shared'); from weight_class import write_class; write_class('<artifact>', '<class>')"` or write the `---\nweight-class: <class>\n---` block directly at the top):
 
 ```markdown
 # <Design Name> — Detailed Design
 
 ## Module Structure
 Where the code lives. File paths, new modules, relationship to existing code.
+Size the boundaries here: caps per `CLAUDE.md` §File Size Limits — when a proposed module or its test file would plausibly exceed the soft-warn, split the boundary at design time (by responsibility), not at implement time.
 
 ## Interfaces
 Public APIs with signatures. For each:

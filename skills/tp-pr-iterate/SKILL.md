@@ -1,7 +1,7 @@
 ---
 name: tp-pr-iterate
 description: "Autonomous PR-iteration loop driver — poll review comments, classify (heuristic + Sonnet), defer conflicting structural fixes, dispatch to `tp-pr-fix` per round, reply-and-resolve every thread, apply caps + guards, and terminate only at two-stable: both review sources quiet AND zero unresolved actionable threads verified against GitHub. Classifier-flip is necessary but not sufficient."
-argument-hint: "{design} [--max-iterations N=8] [--max-wall-clock 4h] [--dry-run]"
+argument-hint: "{design} [--max-iterations N=8] [--max-wall-clock 4h] [--dry-run] [--dispose-only]"
 ---
 
 # tp-pr-iterate — PR-Iteration Loop Driver
@@ -45,6 +45,11 @@ Terminates on:
 - `--dry-run` — fetch + classify + log what the loop *would* do, but do
   NOT invoke `tp-pr-fix.run_round`. Use this to verify classifier output
   on a real PR before letting the loop write commits.
+- `--dispose-only` — calls `thread_dispose.dispose_threads` once and exits;
+  no iteration, no fix dispatch, no backoff/poll loop. Use this to
+  reply-and-resolve all open review threads out-of-band (e.g. after a
+  manual head-SHA bump or when threads arrive outside a loop run). This is
+  a flag, NOT a new skill. See the `--dispose-only mode` section below.
 
 ## Prerequisites
 
@@ -230,30 +235,36 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     `_ci_settled_on_head`). After the wait, the loop proceeds to classify.
 
     Reply-and-resolve every Copilot thread:
-    For each Copilot finding this round, post a worker-signed disposition reply
-    and **then** resolve the thread — the reply ALWAYS precedes the resolve, and
-    the loop never resolves a thread without first leaving the evidence reply:
+    The reply ALWAYS precedes the resolve — the loop never resolves a thread
+    without first leaving the evidence reply. Call the shared helper:
 
-    ```
-    for f in copilot_findings:
-        disp = thread_resolver.disposition_for(f, envelope, resolved_thread_ids)
-        body = thread_resolver.sign_reply(_disposition_text(disp, f, envelope), pr_author)
-        if thread_resolver.reply_to_thread(pr_url, f["comment_id"], body):
-            if thread_resolver.resolve_thread(f["thread_id"]):
-                resolved_thread_ids.add(f["thread_id"])
-                resolved_this_round.add(f["thread_id"])
+    ```python
+    result = thread_dispose.dispose_threads(
+        pr_url,
+        envelope,
+        resolved_ids=state.resolved_thread_ids,
+        author=pr_author,
+    )
+    state.resolved_thread_ids.update(result["resolved"])
     ```
 
-    The reply is signed `🤖 three-pillars-worker (on behalf of @{author})` — the
-    worker identity, paralleling `fix_round`'s `GIT_COMMITTER_EMAIL` override, so a
-    reader tells worker actions from the human author. Disposition is `addressed`
-    (links the fixing commit), `stale` (cites the prior-round resolution as
-    evidence), or `deferred` (reason). Copilot re-posts comments anchored to
-    unchanged diff lines every round; without reply-and-resolve the loop
-    re-litigates already-fixed items forever and the new-vs-stale signal is
-    unusable. Resolve uses GraphQL `resolveReviewThread` — never `gh pr edit`
-    (broken on this repo). Track every observed `thread_id` in
-    `state.seen_thread_ids` and every resolved one in `state.resolved_thread_ids`.
+    `thread_dispose.dispose_threads` (from `skills/_shared/thread_dispose.py`)
+    owns the single source of truth for the reply-and-resolve sequence: it
+    calls `thread_resolver.disposition_for` for every open thread (never
+    hand-judges), signs replies with the worker identity
+    (`🤖 three-pillars-worker (on behalf of @{author})`), calls
+    `reply_to_thread` before `resolve_thread` for each thread, and is
+    idempotent (skip already-resolved; skip already-replied). The same
+    helper is called by `--dispose-only` mode out-of-band.
+
+    Disposition is `addressed` (links the fixing commit), `stale` (cites the
+    prior-round resolution as evidence), or `deferred` (reason). Copilot
+    re-posts comments anchored to unchanged diff lines every round; without
+    reply-and-resolve the loop re-litigates already-fixed items forever and
+    the new-vs-stale signal is unusable. Resolve uses GraphQL
+    `resolveReviewThread` — never `gh pr edit` (broken on this repo). Track
+    every observed `thread_id` in `state.seen_thread_ids` and every resolved
+    one in `state.resolved_thread_ids`.
 
     **9.5 is mandatory every round, and disposition is ONLY ever `disposition_for`'s
     output — never a hand-judged "stale".** A finding is `stale` *only* when its
@@ -352,6 +363,29 @@ Steps 1–8 run normally; step 9 is replaced with a stdout log of what
 `fix_round.run_round` *would* have committed. The state.json is still
 persisted so the dashboard reflects the loop's view. Use this to verify
 classifier behavior on a real PR before opting in to automated commits.
+
+## --dispose-only mode
+
+Calls `thread_dispose.dispose_threads` **once** and exits immediately — no
+backoff, no poll loop, no fix-round dispatch, no iteration. The result
+(replied / resolved / skipped thread ids) is emitted as a JSON envelope on
+stdout and the process exits 0 on success, 2 on error.
+
+Wire via `dispose_only=true` in the `run_round.py` stdin JSON payload:
+
+```json
+{
+  "dispose_only": true,
+  "pr_url": "https://github.com/owner/repo/pull/N",
+  "state": {...}
+}
+```
+
+Use this for out-of-band disposition — e.g. after a manual head-SHA bump,
+after Copilot re-fires outside a loop run, or when review threads arrive
+between loop iterations. The in-loop path (step 9.5) and the out-of-band
+path both call the same `thread_dispose.dispose_threads` primitive (single
+source of truth).
 
 ## Architectural constraints (C1)
 

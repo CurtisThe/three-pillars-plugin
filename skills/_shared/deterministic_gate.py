@@ -1,7 +1,7 @@
 """deterministic_gate — the three-valued, fail-closed merge gate.
 
 stdlib-only (C1 invariant: no `import anthropic`, no `subprocess.run(["claude", ...])`).
-See `three-pillars-docs/tp-designs/deterministic-merge-gate/detailed-design.md` for
+See `three-pillars-docs/completed-tp-designs/deterministic-merge-gate/detailed-design.md` for
 the full specification.
 
 The gate is a total function: evaluate_gate(pr_url) -> GateOutcome.
@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import dataclasses
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -404,7 +405,7 @@ def pred_human_approved(
             verdict=GateVerdict.INDETERMINATE,
             detail=(
                 "human approval absent, stale, or not human-applied — apply "
-                "tp:human-approved to the current head (see "
+                "tp:human-approved:<head-sha> to the current head (see "
                 "skills/_shared/human-approval-howto.md)"
             ),
         )
@@ -433,10 +434,15 @@ class GateOutcome:
     verdict:  the folded three-valued verdict (FAIL > INDETERMINATE > PASS)
     blocking: the non-PASS predicate(s), named — listed in CLI output
     label:    ALWAYS GATE_LABEL, even on PASS (never "safe to merge")
+    roster:   full predicate roster (evaluated + omitted), built by evaluate_gate.
+              Defaults to () for backward compat — existing callers that construct
+              GateOutcome(verdict=..., blocking=..., label=...) without roster= still
+              work. gate_cli/land.py guard on empty roster.
     """
     verdict: GateVerdict
     blocking: list  # list[PredicateResult]
     label: str
+    roster: tuple = ()  # tuple[RosterEntry, ...] — populated by evaluate_gate
 
 
 def _fold(results: "list[PredicateResult]") -> GateOutcome:
@@ -534,20 +540,125 @@ def _diff_balloon_factor(config: dict) -> float:
 
 
 def _load_repo_config() -> dict:
-    """Read .three-pillars/config.json from the repo root. Fail-CLOSED to {}.
+    """Read .three-pillars/config.json from committed HEAD. Fail-CLOSED to {}.
 
-    Resolved relative to this module (skills/_shared/ → repo root), so the gate reads
-    the config of the repo it is running in — the same file the loop reads. ANY error
-    (missing file, unreadable, non-dict, bad JSON) returns {}, which the
-    _expects_copilot_review / _expects_github_checks interpreters map to their strict
-    defaults (True) — so a missing/corrupt config NEVER relaxes the gate.
+    Reads the file via `git show HEAD:.three-pillars/config.json` so the gate always
+    sees the COMMITTED value, never an uncommitted working-tree edit. This closes the
+    traceless-disarm channel: an agent cannot delete the human-approval predicate with
+    an uncommitted one-line Edit — the change must be committed (creating a trace) and
+    reviewed before it affects the gate.
+
+    Resolved from the invocation cwd's repo (the project under operation), never
+    from the module path. This ensures the gate reads the config of the project being
+    gated, not the framework checkout that hosts the gate module. find_project_root()
+    resolves the toplevel of whatever git repo contains the cwd at call time.
+
+    Fail-closed contract: ANY error (git failure, unborn HEAD, missing path at HEAD,
+    unreadable, non-dict, bad JSON, not a git repo, unresolvable root) returns {} so the
+    _expects_copilot_review / _expects_github_checks / _require_human_approval
+    interpreters map to their strict defaults (True) — a missing/corrupt config
+    NEVER relaxes the gate. The loader NEVER falls back to reading the working-tree file.
     """
     try:
-        cfg_path = _SHARED_DIR.parent.parent / ".three-pillars" / "config.json"
-        data = json.loads(cfg_path.read_text())
+        from project_root import find_project_root
+        root = find_project_root()
+        if root is None:
+            return {}
+        repo_root = str(root)
+        result = subprocess.run(
+            ["git", "-C", repo_root, "show", "HEAD:.three-pillars/config.json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return {}
+        data = json.loads(result.stdout)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _parse_github_owner_repo(url: str) -> "tuple[str, str] | None":
+    """Parse owner/repo from a GitHub PR URL or remote URL.
+
+    Handles all common GitHub remote/PR URL forms:
+      https://github.com/owner/repo(/...)(.git)
+      http://github.com/owner/repo(/...)(.git)
+      https://user:token@github.com/owner/repo(/...)(.git)   (credentialed)
+      git@github.com:owner/repo(.git)
+      ssh://git@github.com/owner/repo(.git)
+      ssh://git@github.com:22/owner/repo(.git)
+      ssh://git@ssh.github.com:443/owner/repo(.git)
+      trailing slashes stripped; owner/repo compared case-insensitively
+
+    Returns (owner, repo) normalised to lower-case, or None on parse failure
+    (including non-github hosts — never a false positive on a non-github URL).
+    """
+    import re
+    url = url.strip().rstrip("/")
+    # SSH scp-shorthand: git@github.com:owner/repo[.git]
+    # (must be checked before the ssh:// scheme forms)
+    m = re.match(
+        r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$",
+        url,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower(), m.group(2).lower()
+    # ssh:// scheme forms — match host anchored to (ssh.)?github.com.
+    # Userinfo (user@) is optional but the @ is required when userinfo is present
+    # (exclude / from userinfo so host is not consumed by path components).
+    # Covers ssh://git@github.com/o/r, ssh://git@ssh.github.com:443/o/r, etc.
+    # The host may be github.com or ssh.github.com (GitHub's SSH-over-443 endpoint).
+    m = re.match(
+        r"ssh://(?:[^@/]+@)?(?:ssh\.)?github\.com(?::[0-9]+)?/([^/]+)/([^/]+?)(?:\.git)?/?$",
+        url,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower(), m.group(2).lower()
+    # HTTP/HTTPS forms — strip optional userinfo (user:token@) before matching
+    # so credentialed URLs (https://x-access-token:tok@github.com/o/r.git) work.
+    m = re.match(
+        r"https?://(?:[^@/]+@)?github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/.*)?/?$",
+        url,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).lower(), m.group(2).lower()
+    return None
+
+
+def _config_repo_owner_repo(
+    repo_root: str,
+    *,
+    _runner=None,
+) -> "tuple[str, str] | None":
+    """Return the (owner, repo) of the config repo's origin remote.
+
+    Uses `git -C <root> remote get-url origin`. Fails to None on any error
+    (no remote, unreadable remote, parse failure).  _runner is an injection
+    seam for tests; it receives the command list and returns stdout text.
+    """
+    try:
+        if _runner is not None:
+            stdout = _runner(
+                ["git", "-C", repo_root, "remote", "get-url", "origin"]
+            )
+        else:
+            result = subprocess.run(
+                ["git", "-C", repo_root, "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                return None
+            stdout = result.stdout
+        return _parse_github_owner_repo(stdout.strip())
+    except Exception:
+        return None
 
 
 def evaluate_gate(
@@ -576,11 +687,70 @@ def evaluate_gate(
     label is ALWAYS GATE_LABEL (green never reads 'safe').
     """
     try:
-        from human_approval import _require_human_approval  # noqa — in _shared/ beside this file
-
         r = runners or {}
+        _config_root_mismatch_note: "PredicateResult | None" = None
         if config is None:
             config = _load_repo_config()
+            # Binding check (W4): verify the config root's git remote owner/repo
+            # matches the PR's owner/repo. A caller running the gate from a DIFFERENT
+            # repo (wrong cwd) with a relaxed committed config would silently relax
+            # p3/p4 for the real PR.  On mismatch or unreadable remote, treat the
+            # config as untrusted — use {} (strict defaults) and surface an
+            # INFORMATIONAL roster note (roster-only, NOT folded into predicates).
+            #
+            # NON-BLOCKING semantics (strict-defaults + roster-only note):
+            # The strict defaults themselves are the protection against wrong-cwd
+            # relaxation; blocking would permanently gate forks, repos with no
+            # remote, repos with SSH or credentialed remotes that the narrow parser
+            # once rejected, and other valid GitHub repos — the exact failure mode
+            # this design exists to fix. The note is roster-only (appended to
+            # roster_entries, NOT to predicates) so it is visible in output but
+            # NEVER folds into the verdict.
+            if config:  # only check when a non-empty config was actually loaded
+                try:
+                    from project_root import find_project_root as _find_root
+                    _config_root = _find_root()
+                    _pr_pair = _parse_github_owner_repo(pr_url)
+                    _remote_runner = r.get("remote_url_fn", None)
+                    _config_pair = (
+                        _config_repo_owner_repo(
+                            str(_config_root), _runner=_remote_runner
+                        )
+                        if _config_root is not None
+                        else None
+                    )
+                    if _pr_pair is None or _config_pair is None or _pr_pair != _config_pair:
+                        _cfg_str = (
+                            f"{_config_pair[0]}/{_config_pair[1]}"
+                            if _config_pair else "unreadable"
+                        )
+                        _pr_str = (
+                            f"{_pr_pair[0]}/{_pr_pair[1]}"
+                            if _pr_pair else "unreadable"
+                        )
+                        _mismatch_reason = (
+                            f"config root remote ({_cfg_str}) does not match "
+                            f"PR repo ({_pr_str}) — treating config as untrusted "
+                            "(strict defaults apply; this note is informational only)"
+                        )
+                        _config_root_mismatch_note = PredicateResult(
+                            name="config_root_binding",
+                            verdict=GateVerdict.INDETERMINATE,
+                            detail=_mismatch_reason,
+                        )
+                        config = {}  # fail-closed: untrusted config → strict defaults
+                except Exception:
+                    # Unexpected error in binding check: set a roster note for
+                    # visibility (not silently discarded) and use strict defaults.
+                    _config_root_mismatch_note = PredicateResult(
+                        name="config_root_binding",
+                        verdict=GateVerdict.INDETERMINATE,
+                        detail=(
+                            "binding check raised an unexpected error — treating "
+                            "config as untrusted (strict defaults apply; informational only)"
+                        ),
+                    )
+                    config = {}  # fail-closed on any binding-check error
 
         # Extract seam functions (or use live defaults)
         pr_state_fn = r.get("pr_state_fn", None)
@@ -607,16 +777,22 @@ def evaluate_gate(
 
         # Step 2: null-SHA fail-closed
         if not head_oid:
+            import gate_roster as _gr  # noqa — in _shared/ beside this file
+            _null_sha_pred = PredicateResult(
+                name="head_oid",
+                verdict=GateVerdict.INDETERMINATE,
+                detail="null or empty head SHA — cannot prove any predicate",
+            )
+            _null_sha_roster: list = [_gr.RosterEntry.from_result(_null_sha_pred)]
+            if _config_root_mismatch_note is not None:
+                _null_sha_roster.append(
+                    _gr.RosterEntry.from_result(_config_root_mismatch_note)
+                )
             return GateOutcome(
                 verdict=GateVerdict.INDETERMINATE,
-                blocking=[
-                    PredicateResult(
-                        name="head_oid",
-                        verdict=GateVerdict.INDETERMINATE,
-                        detail="null or empty head SHA — cannot prove any predicate",
-                    )
-                ],
+                blocking=[_null_sha_pred],
                 label=GATE_LABEL,
+                roster=tuple(_null_sha_roster),
             )
 
         # Step 3: fetch threads via fail-closed seam
@@ -625,77 +801,50 @@ def evaluate_gate(
         # Step 4: discriminate rollup
         failure_class = classify_failure(rollup)
 
-        # Step 5: evaluate predicates (p3/p4/p5 config-aware)
-        p1 = pred_threads_resolved(threads)
-        p2 = pred_mergeable(mergeable)
-        p3 = pred_checks_success(
-            rollup,
-            failure_class,
-            expects_github_checks=_expects_github_checks(config),
-        )
-        predicates = [p1, p2, p3]
-
-        # p_balloon (diff-balloon guard): appended after p3, before the conditional
-        # p4 (Copilot), so it folds through the existing fail-closed _fold and a
-        # balloon FAIL dominates. Uses balloon_sizes from runners for hermetic tests;
-        # only active when balloon_sizes is explicitly injected OR when running in
-        # pure live mode (no runners injected). This preserves backward compatibility
-        # with existing tests that do not opt into the balloon seam.
-        _balloon_sizes_key_present = "balloon_sizes" in r
+        # Step 5: evaluate predicates (p3/p4/p5/p6 config-aware) + assemble roster.
+        # Delegated to gate_roster to keep evaluate_gate readable and stay under cap.
+        import gate_roster  # noqa — in _shared/ beside this file
         _running_live = not r  # no runners injected → pure live mode
-        if _balloon_sizes_key_present or _running_live:
-            import diff_balloon_guard  # noqa — in _shared/ beside this file
-            _balloon_sizes = r.get("balloon_sizes", None)
-            _balloon_factor = _diff_balloon_factor(config)
-            _p_balloon = diff_balloon_guard.pred_diff_not_ballooned(
-                repo=str(_SHARED_DIR.parent.parent),
-                base_ref="master",
-                head_ref=head_oid,
-                factor=_balloon_factor,
-                sizes=_balloon_sizes,
-            )
-            predicates.append(_p_balloon)
+        predicates, roster_entries = gate_roster.build_predicates_and_roster(
+            pr_url=pr_url,
+            rollup=rollup,
+            failure_class=failure_class,
+            threads=threads,
+            mergeable=mergeable,
+            head_oid=head_oid,
+            config=config,
+            r=r,
+            copilot_runners=copilot_runners,
+            running_live=_running_live,
+            shared_dir=_SHARED_DIR,
+        )
 
-        # p4 (Copilot) is OMITTED entirely when review.expects_copilot=false — the
-        # repo has no Copilot entitlement, so requiring a Copilot review on head is an
-        # un-satisfiable predicate that would deadlock the gate (INDETERMINATE → exit
-        # 2) on a PR the loop already converged and labeled ready. Matches the loop's
-        # `copilot_conjunct_ok = ... if expects_copilot else True`. When expected
-        # (default), the predicate runs as before. Note: _fold over [p1,p2,p3] is a
-        # non-empty set, so the empty-fold INDETERMINATE guard never fires here.
-        if _expects_copilot_review(config):
-            # Pass the MERGED copilot_runners (a complete 4-key dict, or None), NEVER
-            # the raw `runners`. copilot_runners is None when no copilot seams were
-            # injected (-> review_readiness wires its live defaults, production path).
-            # When any copilot key IS injected, copilot_runners is a complete dict
-            # (injected keys win; missing keys filled from _build_live_runners) so
-            # classify_readiness's direct subscripts never KeyError on a partial
-            # injection. (residual hardening for review #59)
-            predicates.append(pred_copilot_on_head(pr_url, runners=copilot_runners))
+        # Step 6: append config-root mismatch note to ROSTER ONLY (never to predicates).
+        # NON-BLOCKING: the note is informational — it must not fold into the verdict.
+        # The strict defaults (config={}) are the actual protection; the roster entry
+        # surfaces the event for operator visibility without blocking the gate.
+        if _config_root_mismatch_note is not None:
+            import gate_roster as _gr2  # noqa — already imported above
+            roster_entries.append(_gr2.RosterEntry.from_result(_config_root_mismatch_note))
 
-        # p5 (human approval) is APPENDED when review.require_human_approval is not
-        # explicitly false (strict default — see human_approval._require_human_approval).
-        # When opted out, the fold is IDENTICAL to the pre-existing predicate set
-        # (backward-compat: no p5 entry, same outcome for the same inputs). We pass the
-        # RAW `r` dict (F4): the human-approval runner keys (labels_fn/timeline_fn/
-        # head_fn/commits_fn/self_login_fn) are namespaced and never collide with the
-        # COPILOT_KEYS or pr_state_fn/threads_fn seams, and human_approved_on_head
-        # resolves each key per-key against its live default (a non-None {} is fine).
-        if _require_human_approval(config):
-            predicates.append(pred_human_approved(pr_url, runners=r, config=config))
-
-        # Step 6: fold fail-closed
-        return _fold(predicates)
+        # Step 7: fold fail-closed, then attach roster
+        outcome = _fold(predicates)
+        return dataclasses.replace(outcome, roster=tuple(roster_entries))
 
     except Exception as e:
+        _err_pred = PredicateResult(
+            name="gate-internal-error",
+            verdict=GateVerdict.INDETERMINATE,
+            detail=f"unexpected gate error: {e}",
+        )
+        try:
+            import gate_roster as _gr  # noqa — in _shared/ beside this file
+            _err_roster = (_gr.RosterEntry.from_result(_err_pred),)
+        except Exception:
+            _err_roster = ()
         return GateOutcome(
             verdict=GateVerdict.INDETERMINATE,
-            blocking=[
-                PredicateResult(
-                    name="gate-internal-error",
-                    verdict=GateVerdict.INDETERMINATE,
-                    detail=f"unexpected gate error: {e}",
-                )
-            ],
+            blocking=[_err_pred],
             label=GATE_LABEL,
+            roster=_err_roster,
         )

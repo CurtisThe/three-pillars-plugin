@@ -6,8 +6,8 @@ CLI flags (--candidate-size, --baseline-size) so no real git state is needed.
 Run with: python -m pytest skills/_shared/test_diff_balloon_guard.py -q
 
 Design refs:
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/detailed-design.md
-  - three-pillars-docs/tp-designs/fleet-worktree-isolation-guards/plan.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/fleet-worktree-isolation-guards/plan.md
 """
 
 from __future__ import annotations

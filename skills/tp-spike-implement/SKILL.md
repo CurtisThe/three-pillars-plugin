@@ -19,7 +19,7 @@ Execute phases from a spike plan serially, with human review gates between phase
 
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
-0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 skills/_shared/cwd_preflight.py {spike-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
+0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py {spike-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
 
 1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "spike-implement"`. This verifies the branch and lock before writing code. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
 2. **Read `plan.md`** from the design directory.

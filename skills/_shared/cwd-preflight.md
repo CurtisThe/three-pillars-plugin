@@ -15,7 +15,7 @@ check and before the collaboration preflight.
 ## How to run it
 
 ```
-python3 skills/_shared/cwd_preflight.py <design>
+python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py <design>
 ```
 
 - **Exit 0** — ok: either the cwd is already inside the `tp/<design>` worktree,

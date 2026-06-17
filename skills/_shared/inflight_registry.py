@@ -18,8 +18,8 @@ Two consumers:
      refs, then this module's CLI to print the registry on demand, no side effects.
 
 Design refs:
-  - three-pillars-docs/tp-designs/inflight-design-registry/design.md
-  - three-pillars-docs/tp-designs/inflight-design-registry/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/inflight-design-registry/design.md
+  - three-pillars-docs/completed-tp-designs/inflight-design-registry/detailed-design.md
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Optional
+
+from orchestrator_identity import display_label, same_actor
 
 
 STALE_DAYS = 30  # default staleness threshold; overridable via build_registry(stale_days=) and the --stale-days CLI flag
@@ -159,7 +161,7 @@ def collision_verdict(entries, design, owner_email):
         return ("conflict", match)
     if match.owner is None:
         return ("clear", match)
-    if match.owner == owner_email:
+    if same_actor(match.owner, owner_email):
         return ("self", match)
     return ("conflict", match)
 
@@ -202,7 +204,7 @@ def format_table(registry):
         rows.append(
             (
                 e.design,
-                e.owner or "-",
+                display_label(e.owner),
                 e.phase or "-",
                 e.branch,
                 _format_age(e.age_days),

@@ -315,3 +315,70 @@ def test_this_repo_declares_require_human_approval(validator):
     cfg = json.loads(repo_cfg_path.read_text())
     validator.validate(cfg)
     assert cfg.get("review", {}).get("require_human_approval") is True
+
+
+# --- worktree_immunization subsection (worktree-residue-gc-and-bootstrap) ---
+
+def test_worktree_immunization_subsection_validates(validator):
+    """Schema accepts a full worktree_immunization block."""
+    cfg = _complete_config()
+    cfg["worktree_immunization"] = {
+        "offered_at": "2026-06-12T10:00:00Z",
+        "applied_at": "2026-06-12T10:01:00Z",
+        "declined": False,
+    }
+    validator.validate(cfg)
+
+
+def test_worktree_immunization_accepts_null_applied_at(validator):
+    """Schema accepts null applied_at (not yet applied)."""
+    cfg = _complete_config()
+    cfg["worktree_immunization"] = {
+        "offered_at": "2026-06-12T10:00:00Z",
+        "applied_at": None,
+        "declined": False,
+    }
+    validator.validate(cfg)
+
+
+def test_worktree_immunization_declined_true_validates(validator):
+    """Schema accepts declined=True with null applied_at."""
+    cfg = _complete_config()
+    cfg["worktree_immunization"] = {
+        "offered_at": "2026-06-12T10:00:00Z",
+        "applied_at": None,
+        "declined": True,
+    }
+    validator.validate(cfg)
+
+
+def test_worktree_immunization_rejects_unknown_keys(validator):
+    """additionalProperties: false prevents unknown keys in the block."""
+    cfg = _complete_config()
+    cfg["worktree_immunization"] = {
+        "offered_at": "2026-06-12T10:00:00Z",
+        "applied_at": None,
+        "declined": False,
+        "extra_key": "boom",
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)
+
+
+def test_config_without_worktree_immunization_still_validates(validator):
+    """Backward compat: a config with no worktree_immunization block is valid."""
+    cfg = _complete_config()
+    assert "worktree_immunization" not in cfg
+    validator.validate(cfg)
+
+
+def test_worktree_immunization_declined_must_be_bool(validator):
+    """Schema rejects non-boolean declined value."""
+    cfg = _complete_config()
+    cfg["worktree_immunization"] = {
+        "offered_at": "2026-06-12T10:00:00Z",
+        "applied_at": None,
+        "declined": "yes",
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(cfg)

@@ -20,11 +20,22 @@ def build_synth_prompt(
     round1: list[dict],
     round2: list[dict] | None,
     slot: str,
+    code_input: dict | None = None,
 ) -> str:
     """Assemble the synthesizer subagent prompt.
 
     round2 None ⇒ --fast-audit (Round-2 skipped). Returns prompt text; raises
     ValueError on empty round1 or member-set mismatch between round1 and round2.
+
+    ``code_input`` is the Slot-8-only (impl-audit) code addition: when not
+    ``None`` it is ``{"base": <ref>, "candidate": <ref>, "touched_files":
+    [<path>, ...]}`` carrying the three-dot ``tp/{slug}...origin/candidate/{slug}
+    /single`` ref pair (the ``origin/`` prefix lives on the candidate ref) + the
+    diff's name-only touched-file paths. The prompt names the REFS and PATHS only
+    — never the diff body; the synthesizer re-derives any line it needs via its
+    own ``git diff {base}...{candidate}`` / ``git show {candidate}:<file>``. When
+    ``code_input is None`` (every Slot-4/6 dispatch) the output is byte-identical
+    to the pre-change signature.
     """
     if not round1:
         raise ValueError("round1 must be a non-empty list of Round-1 verdict dicts")
@@ -56,6 +67,35 @@ def build_synth_prompt(
     for p in artifact_paths:
         lines.append(f"- {p}")
     lines.append("")
+
+    if code_input is not None:
+        base = code_input["base"]
+        candidate = code_input["candidate"]
+        touched_files = code_input.get("touched_files", [])
+        lines.append("## Candidate code under audit (read it yourself via git)")
+        lines.append(
+            "This is the `impl-audit` (Slot 8) code addition — judge the candidate "
+            "code AGAINST the artifact paths above. You are given the git REFS, not "
+            "the diff body."
+        )
+        lines.append(f"- base ref: `{base}`")
+        lines.append(f"- candidate ref: `{candidate}`")
+        if touched_files:
+            lines.append("- touched files (name-only; read each yourself):")
+            for f in touched_files:
+                lines.append(f"  - `{f}`")
+        else:
+            lines.append(
+                "- touched files: NONE — the candidate diff is **empty**. An empty "
+                "candidate diff is itself an audit signal (nothing was changed "
+                "relative to the base), not an error."
+            )
+        lines.append(
+            f"Run `git diff {base}...{candidate}` (three-dot) and "
+            f"`git show {candidate}:<file>` yourself to read the candidate code; "
+            "do NOT expect the diff inlined."
+        )
+        lines.append("")
 
     lines.append("## Round 1 — independent verdicts")
     lines.append(

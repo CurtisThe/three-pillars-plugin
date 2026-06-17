@@ -10,6 +10,29 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Changed
 
+## [2.2.0] — 2026-06-16
+
+Batch release of the W4–W8 trust / safety / quality hardening waves on top of v2.1.0: a new recovery skill, deeper autonomous-run automation, and five new fail-closed enforcement invariants that make the autonomous merge boundary — and the paper trail around it — portable and self-checking.
+
+### Added
+
+- **`/tp-revert`** (free) — land a clean, single-commit revert of a merged design through the standard merge gate, with a depth/forecast probe that refuses-with-reality on deep or conflict-laden reverts. The recovery arm of the fleet-safety barbell.
+- **Weight-class design-depth axis** — four classes (`just-do-it` / `light` / `spike` / `full`) scale ceremony to the size of the change while keeping every check-level; `/tp-plan-audit --light` runs one merged council pass for small changes.
+- **Sanctioned hot-patch lane** — a seat-exempt single-commit path for fast direct-to-default-branch fixes, with an append-only ledger and a new enforcement invariant so unsanctioned traffic becomes observable.
+- **Offline HTML briefing for `/tp-promote`** — a self-contained between-wave briefing with per-seed cards and a compact paste-back answer grammar; degrades gracefully to the terminal confirm.
+- **Record / replay for the autonomous orchestrator** — capture and re-drive an offline run trajectory behind a fail-closed secret/PII filter, seeding offline regression for the loop.
+- **Self-rescheduling run-monitor loop** — polls a running parallel batch, re-renders the cross-run digest each tick, and stops at settled-or-in-trouble, closing the hands-off gap between launch and merge.
+- **Branch-residue cleanup + seat immunization** — the worktree-management skill safely removes residue branches behind a backup-ref floor and offers consent-gated immunization against the harness `core.bare` config bleed.
+- **Reply-and-resolve thread disposition** — a shared helper plus a dispose-only path decouples PR-thread resolution from the iteration loop; the merge gate names the dispose gesture when a thread predicate blocks.
+
+### Changed
+
+- **The autonomous merge boundary is now portable and provenance-checked** — gate config reads from committed HEAD, a sixth predicate requires a fresh local-CI stamp, the enforcement layer resolves its root on any install (not just the dev machine), and `git commit --no-verify` is denied.
+- **Human approval is ergonomic and current-on-head** — approval is carried in a SHA-tagged label *or* a native `APPROVED` PR review, both verified human-actor and current on the head commit; a single-account collision is detected with flip guidance.
+- **The backward paper trail self-reconciles after merges** — archived designs, stale status rows, and rotted invariant citations are repaired by a dated-amendment protocol and a new citation-coherence invariant; invariant numbers are now append-only.
+- **Enforced file-size caps** (500 lines / 50 000 chars, either axis) via a shared guard behind both the pre-commit hook and a framework-check invariant.
+- **Collision-aware merge sequencing** for parallel batches, plus an `orchestrator:<email>` lock-owner identity so a human and their own orchestrator count as one actor.
+
 ## [2.1.0] — 2026-06-09
 
 Batch release of the W1–W3 design waves on top of v2.0.0: new free pipeline skills, the workspace-topology layer, and a hardened autonomous fleet/merge path.

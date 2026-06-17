@@ -19,8 +19,8 @@ function fails open (any OS/IO error → empty result) so a hygiene check can ne
 false-fail a correctly-closed design.
 
 Design refs:
-  - three-pillars-docs/tp-designs/merged-design-closeout/design.md
-  - three-pillars-docs/tp-designs/merged-design-closeout/detailed-design.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/design.md
+  - three-pillars-docs/completed-tp-designs/merged-design-closeout/detailed-design.md
 """
 
 from __future__ import annotations

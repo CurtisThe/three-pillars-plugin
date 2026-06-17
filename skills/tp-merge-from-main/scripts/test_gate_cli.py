@@ -251,7 +251,7 @@ def _make_human_approval_indeterminate_outcome() -> GateOutcome:
                 verdict=GateVerdict.INDETERMINATE,
                 detail=(
                     "human approval absent, stale, or not human-applied — apply "
-                    "tp:human-approved to the current head"
+                    "tp:human-approved:<head-sha> to the current head"
                 ),
             ),
         ],

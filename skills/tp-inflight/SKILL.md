@@ -25,8 +25,8 @@ This skill is **read-only**: it acquires no lock, writes nothing, and never bloc
 
 2. **Build and print the registry** by running the shared helper:
    ```bash
-   python3 skills/_shared/inflight_registry.py          # human table (default)
-   python3 skills/_shared/inflight_registry.py --json   # structured JSON
+   python3 "$TP_ROOT"/skills/_shared/inflight_registry.py          # human table (default)
+   python3 "$TP_ROOT"/skills/_shared/inflight_registry.py --json   # structured JSON
    ```
    Pass `--json` through when the user asked for it. The helper lists `origin/tp/*` via `git ls-remote` (always live — no cache), reads each branch's `lock.json`, and renders one row per in-flight design with owner, phase, branch, age, and a flag column (`⚠ stale` when older than the 30-day staleness threshold, `· unreadable` when the lock blob couldn't be read).
 
@@ -40,3 +40,11 @@ This skill is **read-only**: it acquires no lock, writes nothing, and never bloc
 - **Always live, no cache**: the branch list comes from `git ls-remote` every invocation. There is no TTL or stored snapshot.
 - **Staleness is informational**: a `⚠ stale` flag is a *likely-abandoned* hint (30-day threshold), never an instruction to auto-release or auto-take-over.
 - Do not interpret different design names as collisions here — `/tp-inflight` is awareness-only. The same-name collision *gate* lives in the collaboration preflight (`skills/_shared/collaboration.md`), not in this skill.
+
+## Owner column semantics
+
+The **owner** column in the printed table is rendered by `display_label` in
+`skills/_shared/orchestrator_identity.py` (inherited from `inflight_registry.format_table`).
+An orchestrator-held lock (`owner: "orchestrator:<email>"`) renders as `<email> (orchestrator)`;
+a human-held lock renders verbatim; a released lock renders `-`. The `(orchestrator)` marker
+signals that the lock was written by an autonomous runner, not a human developer.

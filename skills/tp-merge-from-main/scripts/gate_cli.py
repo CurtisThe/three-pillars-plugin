@@ -36,6 +36,10 @@ from deterministic_gate import (  # noqa: E402
     evaluate_gate,
 )
 
+# gate_roster is imported lazily below so gate_cli stays importable even in
+# environments where gate_roster hasn't been deployed yet.
+
+
 # Exit code mapping per verdict
 _EXIT_CODES = {
     GateVerdict.PASS: 0,
@@ -107,6 +111,19 @@ def main(argv: list[str], *, evaluate_fn=None) -> int:
         print("BLOCKING:")
         for pred in outcome.blocking:
             print(f"  [{pred.name}] {pred.detail}")
+
+    # Print the full predicate roster on EVERY path (PASS, FAIL, INDETERMINATE).
+    # Guarded: empty roster on a legacy/injected outcome → print nothing extra
+    # (total-function behavior; never crashes if gate_roster is unavailable).
+    try:
+        import gate_roster  # noqa — in _shared/ beside deterministic_gate
+        roster_lines = gate_roster.render_roster(outcome)
+        if roster_lines:
+            print("ROSTER:")
+            for line in roster_lines:
+                print(line)
+    except Exception:
+        pass  # fail-open: roster printing must never block a refusal or a merge
 
     return _EXIT_CODES.get(outcome.verdict, 2)
 
