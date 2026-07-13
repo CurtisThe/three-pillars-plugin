@@ -133,7 +133,7 @@ def classify(design, branch, sha, lock, now, stale_days=STALE_DAYS):
     )
 
 
-def collision_verdict(entries, design, owner_email):
+def collision_verdict(entries, design, owner_email, local_lock_owner=None, origin_is_ancestor=False):
     """Pure: resolve the collision verdict for the design being claimed.
 
     Returns (verdict, entry|None). Resolution order on the entry whose
@@ -142,12 +142,33 @@ def collision_verdict(entries, design, owner_email):
       - readable and owner is None          → ("clear",   entry)  # released
       - readable and owner == owner_email   → ("self",    entry)  # you, elsewhere
       - readable and owner is someone else  → ("conflict",entry)  # different owner
-      - not readable                        → ("conflict",entry)  # owner unconfirmed
+      - not readable, identity gate passes  → ("self",    entry)  # see below
+      - not readable, otherwise             → ("conflict",entry)  # owner unconfirmed
 
     The readable flag is load-bearing: it distinguishes "owner None because
     released" (clear) from "owner unknown because the lock blob couldn't be
-    read" (conflict — the same-name ref's existence is itself the collision
-    signal, treated conservatively; --force-takeover overrides).
+    read". The unreadable case used to be unconditionally conflict; it now
+    softens to self ONLY when BOTH `same_actor(local_lock_owner, owner_email)`
+    and `origin_is_ancestor` hold — two signals the caller computes and passes
+    in (this function stays pure, no git/fs I/O of its own).
+
+    Identity gates ancestry, never the reverse: raw ancestry alone is a safety
+    inversion, since an empty-creation-pushed `tp/{design}` ref is a base
+    commit — an ancestor of every up-to-date teammate's HEAD — so ancestry-
+    alone would let a stranger claiming the same name resolve self.
+
+    Load-bearing precondition: the sole caller (collaboration.md step 5) runs
+    this verdict BEFORE writing the local lock in step 6. A fresh stranger
+    therefore has no self-owned local lock.json at verdict time — it is the
+    identity conjunct, not ancestry, that stops the stranger.
+
+    Accepted residual (not full double-claim protection): an independent
+    second claimant who writes a local lock off the same base, before ever
+    fetching the true holder's empty creation-push, presents an identical
+    fingerprint (own email as local_lock_owner, ancestor=True) and can also
+    resolve self. Backstopped by the situational-awareness print and Part A's
+    non-fast-forward push rejection; outside the "stranger with no identity
+    signal" threat model this gate targets.
     """
     match = None
     for entry in entries:
@@ -158,6 +179,12 @@ def collision_verdict(entries, design, owner_email):
     if match is None:
         return ("clear", None)
     if not match.readable:
+        if (
+            local_lock_owner is not None
+            and same_actor(local_lock_owner, owner_email)
+            and origin_is_ancestor
+        ):
+            return ("self", match)
         return ("conflict", match)
     if match.owner is None:
         return ("clear", match)
@@ -322,6 +349,54 @@ def read_lock_blob(sha, design):
     if not isinstance(parsed, dict):
         return None
     return parsed
+
+
+def read_local_lock_owner(design, root="."):
+    """Filesystem I/O (stdlib open+json, no subprocess): read the local lock's owner.
+
+    Reads `{root}/three-pillars-docs/tp-designs/{design}/lock.json` and returns
+    `owner` iff it is a non-empty str, else None. Never raises — OSError
+    (missing file/dir, permission) and json.JSONDecodeError/ValueError
+    (malformed or non-dict JSON) all fail-open to None, mirroring
+    read_lock_blob's fail-open contract but for the caller's *local* working
+    tree rather than a committed git object.
+    """
+    path = f"{root}/three-pillars-docs/tp-designs/{design}/lock.json"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            parsed = json.load(f)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    owner = parsed.get("owner")
+    if not isinstance(owner, str) or owner == "":
+        return None
+    return owner
+
+
+def ref_is_ancestor(ancestor, descendant="HEAD", cwd=None):
+    """Git I/O: True iff `ancestor` is an ancestor of (or equal to) `descendant`.
+
+    Runs `git merge-base --is-ancestor {ancestor} {descendant}` and returns
+    `proc.returncode == 0` — True on *only* exit 0. Fail-closed on every other
+    outcome: exit 1 (genuinely not an ancestor), exit 128 (ancestor ref absent
+    locally — the common not-yet-fetched / empty-window case), and any
+    OSError/SubprocessError (git missing) all resolve to False, never True.
+    Ancestry is the secondary conjunct of the identity gate in
+    collision_verdict — erring to False (and thus to "conflict" upstream) is
+    the safe direction; a spurious True could hand a stranger a false "self".
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
 
 
 def build_registry(remote="origin", now=None, stale_days=STALE_DAYS):

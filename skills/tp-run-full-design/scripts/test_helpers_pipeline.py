@@ -82,10 +82,10 @@ def test_tier_3_5_pipeline_end_to_end(tmp_path):
     assert (candidate_dir / "test-results.json").exists()
     assert (candidate_dir / "telemetry.json").exists()
 
-    assert (candidate_dir / "branch.txt").read_text().strip() == "candidate/d12-integration/single"
-    test_results = json.loads((candidate_dir / "test-results.json").read_text())
+    assert (candidate_dir / "branch.txt").read_text(encoding="utf-8").strip() == "candidate/d12-integration/single"
+    test_results = json.loads((candidate_dir / "test-results.json").read_text(encoding="utf-8"))
     assert test_results["passed"] == 7
-    telemetry = json.loads((candidate_dir / "telemetry.json").read_text())
+    telemetry = json.loads((candidate_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert telemetry["agentId"] == "agent-aXYZ"
     assert telemetry["tokens_used"] == 9000
 
@@ -97,7 +97,7 @@ def test_tier_3_5_pipeline_end_to_end(tmp_path):
     # Assertion (3) — decisions.md contains the tier-3.5 forced-lock line.
     # This enforces OQ5 end-to-end through the helper pipeline; if Task 2.3
     # (or any future caller) drops the `decisions_log` argument, this assertion fails.
-    log_contents = decisions_log.read_text()
+    log_contents = decisions_log.read_text(encoding="utf-8")
     assert "[tp-run-full-design/tier-3.5] worktree-cleanup-locked" in log_contents, (
         f"decisions.md missing tier-3.5 forced-lock line; got:\n{log_contents!r}"
     )

@@ -37,7 +37,7 @@ def test_ledger_seed_exists_and_parses():
     from skills._shared.hot_patch_check import parse_ledger  # noqa: PLC0415
 
     assert LEDGER_PATH.exists(), f"Ledger not found: {LEDGER_PATH}"
-    text = LEDGER_PATH.read_text()
+    text = LEDGER_PATH.read_text(encoding="utf-8")
 
     assert text.startswith("# Hot-patch ledger — append-only"), (
         "Ledger must start with '# Hot-patch ledger — append-only'"

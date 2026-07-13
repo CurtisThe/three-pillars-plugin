@@ -7,6 +7,7 @@ Covers Phase 3 of the living-spec-layer plan:
   3.4 `merge` writes base via spec_delta.merge; refuses on conflict
 """
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ class TestTemplateParsesAsDelta:
 
     def test_template_parses_as_delta(self):
         """Read template, substitute placeholder, assert parse_delta succeeds + yields ADDED op."""
-        text = self._TEMPLATE.read_text()
+        text = self._TEMPLATE.read_text(encoding="utf-8")
         filled = text.replace("{{REQUIREMENT_NAME}}", "My Test Requirement")
         delta = parse_delta(filled)
         assert delta.ops, "template must yield at least one operation"
@@ -70,7 +71,7 @@ class TestAddScaffoldsAndRefusesClobber:
         result = cmd_add(design_name, designs_root=designs_root, template_path=template)
         assert result == 0, "cmd_add should succeed on absent spec-delta.md"
         assert delta_path.exists(), "spec-delta.md should be created"
-        content = delta_path.read_text()
+        content = delta_path.read_text(encoding="utf-8")
         assert "{{REQUIREMENT_NAME}}" in content, "created file should contain placeholder"
 
         # Second call: should refuse to clobber; content unchanged
@@ -78,7 +79,7 @@ class TestAddScaffoldsAndRefusesClobber:
         delta_path.write_text("CUSTOM CONTENT — do not overwrite")
         result2 = cmd_add(design_name, designs_root=designs_root, template_path=template)
         assert result2 == 0, "cmd_add should no-op on existing spec-delta.md (exit 0)"
-        assert delta_path.read_text() == "CUSTOM CONTENT — do not overwrite", \
+        assert delta_path.read_text(encoding="utf-8") == "CUSTOM CONTENT — do not overwrite", \
             "existing spec-delta.md must not be overwritten"
 
     def test_add_missing_design_dir(self, tmp_path):
@@ -201,7 +202,7 @@ class TestValidateUsesRealApiThenDrift:
 
     def test_validate_does_not_use_wrong_api(self, tmp_path):
         """Explicitly assert tp_spec does NOT reference validate_artifact.validate(text, 'spec')."""
-        tp_spec_src = (_SKILL_DIR / "tp_spec.py").read_text()
+        tp_spec_src = (_SKILL_DIR / "tp_spec.py").read_text(encoding="utf-8")
         # The nonexistent API would look like: validate_artifact.validate(... "spec")
         # or validate(delta_text, "spec")
         assert 'validate_artifact.validate(' not in tp_spec_src, \
@@ -281,7 +282,7 @@ class TestMergeWritesBaseAndRefusesConflict:
         )
         assert result == 0, "merge with valid delta should exit 0"
 
-        merged_text = base_path.read_text()
+        merged_text = base_path.read_text(encoding="utf-8")
         assert "New Feature" in merged_text, "merged base should contain the added requirement"
         assert "Existing Feature" in merged_text, "merged base should preserve existing requirements"
 
@@ -291,7 +292,7 @@ class TestMergeWritesBaseAndRefusesConflict:
 
         specs_dir, base_path, designs_root, delta_path = self._setup_design(tmp_path)
         self._make_base(base_path)
-        original_content = base_path.read_text()
+        original_content = base_path.read_text(encoding="utf-8")
         self._make_conflicting_delta(delta_path)
 
         result = cmd_merge(
@@ -301,7 +302,7 @@ class TestMergeWritesBaseAndRefusesConflict:
             domain="pipeline",
         )
         assert result != 0, "merge with conflicting delta must exit non-zero"
-        assert base_path.read_text() == original_content, \
+        assert base_path.read_text(encoding="utf-8") == original_content, \
             "base must not be modified on a refused merge"
 
     def test_merge_refuses_on_unparseable_delta(self, tmp_path):
@@ -310,7 +311,7 @@ class TestMergeWritesBaseAndRefusesConflict:
 
         specs_dir, base_path, designs_root, delta_path = self._setup_design(tmp_path)
         self._make_base(base_path)
-        original_content = base_path.read_text()
+        original_content = base_path.read_text(encoding="utf-8")
         self._make_unparseable_delta(delta_path)
 
         result = cmd_merge(
@@ -320,7 +321,7 @@ class TestMergeWritesBaseAndRefusesConflict:
             domain="pipeline",
         )
         assert result != 0, "merge with unparseable delta must exit non-zero"
-        assert base_path.read_text() == original_content, \
+        assert base_path.read_text(encoding="utf-8") == original_content, \
             "base must not be modified on parse failure"
 
     def test_merge_errors_when_base_absent(self, tmp_path):
@@ -347,7 +348,7 @@ class TestMergeWritesBaseAndRefusesConflict:
 
         specs_dir, base_path, designs_root, delta_path = self._setup_design(tmp_path)
         self._make_base(base_path)
-        original_content = base_path.read_text()
+        original_content = base_path.read_text(encoding="utf-8")
         # delta_path NOT created
 
         result = cmd_merge(
@@ -357,7 +358,7 @@ class TestMergeWritesBaseAndRefusesConflict:
             domain="pipeline",
         )
         assert result == 0, "merge with no spec-delta.md must exit 0 (skip)"
-        assert base_path.read_text() == original_content, \
+        assert base_path.read_text(encoding="utf-8") == original_content, \
             "base must be untouched when there is no delta to merge"
 
 
@@ -377,7 +378,7 @@ class TestDesignCompleteDocumentsMergeAndStagesBase:
 
     def test_design_complete_documents_merge_and_stages_base(self):
         """SKILL.md has /tp-spec merge sub-step BEFORE git mv AND stages specs/ path."""
-        text = self._SKILL_MD.read_text()
+        text = self._SKILL_MD.read_text(encoding="utf-8")
 
         # (a) Must mention /tp-spec merge somewhere
         assert "/tp-spec merge" in text, (
@@ -403,7 +404,7 @@ class TestDesignCompleteDocumentsMergeAndStagesBase:
 
     def test_design_complete_documents_noop_skip(self):
         """SKILL.md merge sub-step must document no-op skip when spec-delta.md absent."""
-        text = self._SKILL_MD.read_text()
+        text = self._SKILL_MD.read_text(encoding="utf-8")
 
         # Must mention the no-op / skip behavior for missing spec-delta.md
         has_noop = (
@@ -414,4 +415,71 @@ class TestDesignCompleteDocumentsMergeAndStagesBase:
         assert has_noop, (
             "tp-design-complete/SKILL.md merge sub-step must explicitly document "
             "that the step is a no-op / skip when the design has no spec-delta.md"
+        )
+
+
+# ---------------------------------------------------------------------------
+# H1 (plugin-mode-parity) — the docs tree resolves from cwd (the consumer repo
+# under operation), NOT the module's __file__ location. In plugin mode the
+# module loads from the plugin cache, so a __file__-anchored root operates on
+# the cache — /tp-spec add errors "design directory not found", /tp-spec merge
+# silently no-ops. These reproduce the foreign-repo failure the review found.
+# ---------------------------------------------------------------------------
+
+class TestPluginModeResolvesConsumerCwd:
+    """main() must resolve three-pillars-docs from cwd / --repo, not __file__."""
+
+    def _consumer_with_design(self, tmp_path: Path, name: str = "my-design") -> Path:
+        consumer = tmp_path / "consumer"
+        design_dir = consumer / "three-pillars-docs" / "tp-designs" / name
+        design_dir.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(consumer), check=True)
+        return consumer
+
+    def test_add_resolves_designs_root_from_cwd(self, tmp_path, monkeypatch):
+        """add with cwd = a foreign consumer repo scaffolds INTO that repo —
+        proving the root is cwd-derived, not module-derived (plugin cache)."""
+        from tp_spec import main
+
+        consumer = self._consumer_with_design(tmp_path)
+        monkeypatch.chdir(consumer)
+        rc = main(["add", "my-design"])
+        assert rc == 0, "add must succeed against the consumer repo (cwd)"
+        delta = consumer / "three-pillars-docs" / "tp-designs" / "my-design" / "spec-delta.md"
+        assert delta.exists(), (
+            "add must scaffold into the consumer repo resolved from cwd, "
+            "not the module location (plugin cache in plugin mode)"
+        )
+
+    def test_add_honors_repo_override(self, tmp_path, monkeypatch):
+        """--repo overrides cwd resolution, even from an unrelated cwd."""
+        from tp_spec import main
+
+        consumer = self._consumer_with_design(tmp_path, name="d")
+        # cwd is deliberately NOT the consumer repo.
+        monkeypatch.chdir(tmp_path)
+        rc = main(["add", "d", "--repo", str(consumer)])
+        assert rc == 0
+        delta = consumer / "three-pillars-docs" / "tp-designs" / "d" / "spec-delta.md"
+        assert delta.exists(), "--repo must direct the scaffold to the named repo"
+
+    def test_merge_no_delta_skips_against_cwd_root(self, tmp_path, monkeypatch):
+        """merge from a consumer cwd must inspect the consumer's design dir —
+        the silent-false-success bug resolved the (empty) cache path instead."""
+        from tp_spec import main
+
+        consumer = self._consumer_with_design(tmp_path, name="dz")
+        monkeypatch.chdir(consumer)
+        # No spec-delta.md in the consumer design dir → legitimate skip (rc 0),
+        # but the path it reports must be the CONSUMER dir, not a cache path.
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["merge", "dz"])
+        assert rc == 0
+        out = buf.getvalue()
+        assert str(consumer) in out, (
+            "merge must resolve the delta path under the consumer repo (cwd), "
+            f"not the module/cache location; output was: {out!r}"
         )

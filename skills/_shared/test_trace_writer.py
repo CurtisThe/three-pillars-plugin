@@ -71,20 +71,20 @@ class TestRunIdAndLayout:
     def test_meta_json_is_valid_json(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             meta_path = tmp_path / ".trace" / tw.run_id / "meta.json"
-            data = json.loads(meta_path.read_text())
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
             assert isinstance(data, dict)
 
     def test_meta_json_has_run_id(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             meta_path = tmp_path / ".trace" / tw.run_id / "meta.json"
-            data = json.loads(meta_path.read_text())
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
             assert "run_id" in data
             assert data["run_id"] == tw.run_id
 
     def test_meta_json_has_start_ts(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             meta_path = tmp_path / ".trace" / tw.run_id / "meta.json"
-            data = json.loads(meta_path.read_text())
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
             assert "start_ts" in data
 
 
@@ -103,7 +103,7 @@ class TestEmitAppendAndArgsRedacted:
     def test_run_start_emitted_on_enter(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            lines = jsonl_path.read_text().splitlines()
+            lines = jsonl_path.read_text(encoding="utf-8").splitlines()
             assert len(lines) >= 1
             first = json.loads(lines[0])
             assert first["event_type"] == "RUN_START"
@@ -111,25 +111,25 @@ class TestEmitAppendAndArgsRedacted:
     def test_emit_appends_one_line_per_call(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            before = len(jsonl_path.read_text().splitlines())
+            before = len(jsonl_path.read_text(encoding="utf-8").splitlines())
             tw.emit("SLOT_ENTER", invocation_id="slot-a#1", payload={"slot": "a"})
-            after = len(jsonl_path.read_text().splitlines())
+            after = len(jsonl_path.read_text(encoding="utf-8").splitlines())
             assert after == before + 1
 
     def test_emit_multiple_appends_grow_by_one_each(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            base = len(jsonl_path.read_text().splitlines())
+            base = len(jsonl_path.read_text(encoding="utf-8").splitlines())
             tw.emit("SLOT_ENTER", invocation_id="slot-a#1", payload={"x": 1})
             tw.emit("DISPATCH", invocation_id="slot-a#1", payload={"y": 2})
-            final = len(jsonl_path.read_text().splitlines())
+            final = len(jsonl_path.read_text(encoding="utf-8").splitlines())
             assert final == base + 2
 
     def test_emitted_lines_are_valid_json(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             tw.emit("SLOT_ENTER", invocation_id="s#1", payload={"z": 3})
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            for line in jsonl_path.read_text().splitlines():
+            for line in jsonl_path.read_text(encoding="utf-8").splitlines():
                 obj = json.loads(line)
                 assert isinstance(obj, dict)
 
@@ -137,7 +137,7 @@ class TestEmitAppendAndArgsRedacted:
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             tw.emit("SLOT_ENTER", invocation_id="s#1", payload={"q": 99})
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            lines = jsonl_path.read_text().splitlines()
+            lines = jsonl_path.read_text(encoding="utf-8").splitlines()
             # Last line is the SLOT_ENTER we just emitted
             evt = json.loads(lines[-1])
             assert set(evt.keys()) >= {"v", "ts", "event_type", "invocation_id", "payload"}
@@ -165,7 +165,7 @@ class TestEmitAppendAndArgsRedacted:
         args = {"task_id": "design-audit", "mode": "record"}
         with trace_writer.TraceWriter(tmp_path, args=args) as tw:
             meta_path = tmp_path / ".trace" / tw.run_id / "meta.json"
-            data = json.loads(meta_path.read_text())
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert "args" in data
         assert data["args"]["task_id"] == "design-audit"
 
@@ -189,7 +189,7 @@ class TestSlotRecordRedacted:
             inv_id = "design-audit#1"
             tw.write_slot_record(inv_id, {"verdict": "pass"})
             slot_path = tmp_path / ".trace" / tw.run_id / f"slot-{inv_id}.json"
-            data = json.loads(slot_path.read_text())
+            data = json.loads(slot_path.read_text(encoding="utf-8"))
             assert isinstance(data, dict)
 
     def test_slot_file_contains_clean_fields(self, tmp_path):
@@ -198,7 +198,7 @@ class TestSlotRecordRedacted:
             envelope = {"verdict": "pass", "status": "ok", "tokens": 50}
             tw.write_slot_record(inv_id, envelope)
             slot_path = tmp_path / ".trace" / tw.run_id / f"slot-{inv_id}.json"
-            data = json.loads(slot_path.read_text())
+            data = json.loads(slot_path.read_text(encoding="utf-8"))
             assert data["verdict"] == "pass"
             assert data["tokens"] == 50
 
@@ -253,21 +253,21 @@ class TestClosePathRedactedAndCounter:
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert "end_ts" in data, "meta.json missing end_ts after __exit__"
 
     def test_meta_json_has_exit_status_after_exit(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert "exit_status" in data
 
     def test_meta_json_has_redactions_counter(self, tmp_path):
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert "redactions" in data
         assert isinstance(data["redactions"], int)
 
@@ -275,7 +275,7 @@ class TestClosePathRedactedAndCounter:
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             rid = tw.run_id
             jsonl_path = tmp_path / ".trace" / rid / "trace.jsonl"
-        lines = jsonl_path.read_text().splitlines()
+        lines = jsonl_path.read_text(encoding="utf-8").splitlines()
         last = json.loads(lines[-1])
         assert last["event_type"] == "RUN_END"
 
@@ -283,7 +283,7 @@ class TestClosePathRedactedAndCounter:
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert data["exit_status"] == "ok"
 
     # OD-8 close-path: secret injected into exit_status must be ABSENT from meta.json
@@ -329,7 +329,7 @@ class TestClosePathRedactedAndCounter:
         with trace_writer.TraceWriter(tmp_path, args=args) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert data["redactions"] > 0, (
             "expected redactions > 0 when secret was present in args"
         )
@@ -340,7 +340,7 @@ class TestClosePathRedactedAndCounter:
         with trace_writer.TraceWriter(tmp_path, args=args) as tw:
             rid = tw.run_id
         meta_path = tmp_path / ".trace" / rid / "meta.json"
-        data = json.loads(meta_path.read_text())
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
         assert data["redactions"] == 0, (
             f"expected 0 redactions for clean run, got {data['redactions']}"
         )

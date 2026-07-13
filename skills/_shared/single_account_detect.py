@@ -1,9 +1,14 @@
 """single_account_detect.py — single-account collision detection helpers.
 
-Solo-operator-identity-split design: these four helpers detect the
-single-account collision topology (pure/live) and the per-PR collision
-signature (pure/live). They are advisory-only and fail-open at the
+Solo-operator-identity-split design: these helpers detect the single-account
+collision topology (pure/live). They are advisory-only and fail-open at the
 detection layer — they never block a commit or a gate evaluation.
+
+After retire-approval-tags: the per-PR label collision signature helpers
+(approval_collision_signature, approval_collision_signature_live) have been
+REMOVED — they were pure Path-A label logic. The collaborator-set collision
+helpers (single_account_collision, single_account_collision_live) are KEPT:
+they now mean "the review-path gate has no distinct human reviewer → no gate".
 
 Imports from human_approval one-directionally (no circular import):
 human_approval holds the gate predicates; this module holds the
@@ -16,7 +21,6 @@ no `subprocess.run(["claude", ...])`).
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -26,11 +30,7 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 from human_approval import (  # noqa: E402
-    HUMAN_APPROVED_LABEL,
-    _build_live_runners,
     _is_bot_login,
-    _label_present,
-    _latest_label_event,
     automation_identities,
 )
 
@@ -43,10 +43,11 @@ from human_approval import (  # noqa: E402
 def single_account_collision(*, self_login, collaborators, config) -> bool:
     """Detect a single-account collision topology (pure/total, fail-open).
 
-    Returns True iff the `gh` self-login is the only human-approval path — i.e.
-    there is NO collaborator login that a human could use to apply tp:human-approved
-    that would fall OUTSIDE the automation set. This is the "collision" case: any
-    approval will be rejected because the sole human path equals the automation identity.
+    Returns True iff the review-path gate has no distinct human reviewer — i.e.
+    there is NO collaborator login that a human could use to submit an APPROVED review
+    that would fall OUTSIDE the automation set. This is the "collision" case: the only
+    human path equals the automation identity, so a human APPROVED review would be
+    rejected as automation-authored, leaving the operator with NO gate.
 
     Collision ⟺ for EVERY collaborator entry with type=="User" and a non-[bot] login,
     that login.lower() is INSIDE the automation set (reusing automation_identities —
@@ -110,6 +111,8 @@ def single_account_collision_live(*, runners=None, config=None) -> bool:
       gh api repos/{owner}/{repo}/collaborators --jq '[.[]|{login:.login,type:.type}]'
     using the framework's own gh-auth context. If any fetch raises, returns False.
     """
+    import subprocess as _sp
+
     try:
         provided = runners or {}
         self_login_fn = provided.get("self_login_fn")
@@ -117,8 +120,6 @@ def single_account_collision_live(*, runners=None, config=None) -> bool:
 
         if self_login_fn is None:
             # Build a live self_login_fn inline (no pr_url needed here)
-            import subprocess as _sp
-
             def self_login_fn():
                 r = _sp.run(
                     ["gh", "api", "user", "--jq", ".login"],
@@ -129,10 +130,8 @@ def single_account_collision_live(*, runners=None, config=None) -> bool:
                 return r.stdout.strip()
 
         if collaborators_fn is None:
-            import subprocess as _sp2
-
             def collaborators_fn():
-                r = _sp2.run(
+                r = _sp.run(
                     [
                         "gh", "api", "repos/{owner}/{repo}/collaborators",
                         "--jq", "[.[]|{login:.login,type:.type}]",
@@ -158,74 +157,4 @@ def single_account_collision_live(*, runners=None, config=None) -> bool:
         )
     except Exception:
         # Fail-OPEN: any resolution failure yields no warning, never blocks.
-        return False
-
-
-def approval_collision_signature(*, labels, timeline, self_login) -> bool:
-    """Detect the collision signature on a PR: label present AND latest actor == self_login.
-
-    True ⟺ BOTH:
-      1. A tp:human-approved family label is present (reuses _label_present)
-      2. The most-recent labeled event for it has actor.login (lowercased) == self_login.lower()
-
-    This is the PR-level signal: the operator DID try to approve (label is present)
-    but applied it as the framework's own login (collision actor). This is
-    distinct from the absent-label case or the stale-on-head case.
-
-    Pure/total, fail-closed: missing/malformed inputs → False, never raises.
-    All fixtures must use the tagged form tp:human-approved:<sha7+>.
-    """
-    if not isinstance(self_login, str) or not self_login:
-        return False
-    if not _label_present(labels, HUMAN_APPROVED_LABEL):
-        return False
-    ev = _latest_label_event(timeline, HUMAN_APPROVED_LABEL)
-    if not ev:
-        return False
-    actor = ev.get("actor") if isinstance(ev, dict) else None
-    if not isinstance(actor, dict):
-        return False
-    actor_login = actor.get("login")
-    if not isinstance(actor_login, str) or not actor_login:
-        return False
-    return actor_login.lower() == self_login.lower()
-
-
-def approval_collision_signature_live(pr_url: str, *, runners=None) -> bool:
-    """Live wrapper for approval_collision_signature.
-
-    Resolves labels_fn, timeline_fn, and self_login_fn from the provided
-    runners dict or from _build_live_runners(pr_url) for defaults. Returns
-    False on any resolution failure (fail-open at the detection layer).
-    """
-    try:
-        provided = runners or {}
-        live = None
-
-        def _resolve(key):
-            nonlocal live
-            fn = provided.get(key)
-            if fn is not None:
-                return fn
-            if live is None:
-                live = _build_live_runners(pr_url)
-            return live[key]
-
-        labels_fn = _resolve("labels_fn")
-        timeline_fn = _resolve("timeline_fn")
-        self_login_fn = _resolve("self_login_fn")
-
-        self_login = self_login_fn()
-        if not isinstance(self_login, str) or not self_login:
-            return False
-
-        labels = labels_fn(pr_url)
-        timeline = timeline_fn(pr_url)
-
-        return approval_collision_signature(
-            labels=labels,
-            timeline=timeline,
-            self_login=self_login,
-        )
-    except Exception:
         return False

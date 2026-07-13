@@ -28,7 +28,12 @@ SHARED_DIR = HERE
 # ---------------------------------------------------------------------------
 
 class TestNoGateBehaviorChange:
-    """Regression: this design adds NO gate predicate and does not alter automation_identities."""
+    """Regression: the gate predicate roster matches an explicit allowlist and
+    automation_identities is unchanged. New predicates must be admitted to
+    EXPECTED_PRED_NAMES deliberately (so the negative 'no unexpected pred_*'
+    check stays meaningful) — the single-account-collision design itself added
+    none; later designs (e.g. enforce-review-proof's review_proof_on_head) extend
+    the allowlist as they land."""
 
     EXPECTED_PRED_NAMES = [
         "threads_resolved",
@@ -39,6 +44,10 @@ class TestNoGateBehaviorChange:
         # Sub-predicates called within gate_roster's build logic:
         "diff_not_ballooned",  # conditional inside checks_success path
         "ci_local_stamp",      # p6: ci-local stamp predicate
+        # p7: review-proof-on-head (added by the enforce-review-proof design — this
+        # cross-design baseline allowlist is updated to admit it so the negative
+        # "no unexpected pred_*" check stays meaningful for future designs).
+        "review_proof_on_head",
     ]
 
     def test_predicate_roster_ordered_name_list_unchanged(self):
@@ -52,16 +61,17 @@ class TestNoGateBehaviorChange:
         for name in self.EXPECTED_PRED_NAMES:
             assert name in src, (
                 f"predicate name '{name}' disappeared from gate_roster source — "
-                "this design must NOT alter the gate roster"
+                "an expected gate predicate went missing"
             )
 
-        # Negative check: no new pred_* added by this design
+        # Negative check: no pred_* exists that isn't in the allowlist above.
+        # A new predicate must be added to EXPECTED_PRED_NAMES deliberately.
         found = re.findall(r"\bpred_(\w+)\b", src)
         found_unique = list(dict.fromkeys(found))  # preserve order, dedupe
         for name in found_unique:
             assert name in self.EXPECTED_PRED_NAMES, (
                 f"unexpected pred_{name} found in gate_roster — "
-                "this design must NOT add gate predicates"
+                "admit it to EXPECTED_PRED_NAMES if it is an intended new predicate"
             )
 
     def test_automation_identities_membership_baseline(self):

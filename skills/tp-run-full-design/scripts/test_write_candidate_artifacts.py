@@ -39,15 +39,15 @@ def test_a_writes_four_files_with_expected_content(tmp_path: Path) -> None:
     test_results_json = cand_dir / "test-results.json"
     telemetry_json = cand_dir / "telemetry.json"
 
-    assert branch_txt.read_text() == "candidate/my-slug/single\n"
-    assert summary_md.read_text() == (
+    assert branch_txt.read_text(encoding="utf-8") == "candidate/my-slug/single\n"
+    assert summary_md.read_text(encoding="utf-8") == (
         "# Candidate single\n\nImplemented the thing; tests pass.\n"
     )
 
-    tr = json.loads(test_results_json.read_text())
+    tr = json.loads(test_results_json.read_text(encoding="utf-8"))
     assert tr == parsed["test_results"]
     # Pretty-printed with 2-space indent
-    assert "\n  " in test_results_json.read_text()
+    assert "\n  " in test_results_json.read_text(encoding="utf-8")
 
 
 def test_b_telemetry_merges_parsed_telemetry_agent_meta_and_iso_timestamp(
@@ -59,7 +59,7 @@ def test_b_telemetry_merges_parsed_telemetry_agent_meta_and_iso_timestamp(
     write_candidate_artifacts(parsed, tmp_path, agent_meta)
 
     telemetry = json.loads(
-        (tmp_path / "candidates" / "single" / "telemetry.json").read_text()
+        (tmp_path / "candidates" / "single" / "telemetry.json").read_text(encoding="utf-8")
     )
     # Original telemetry fields preserved
     assert telemetry["duration_ms"] == 4200
@@ -151,13 +151,13 @@ def test_d_idempotent_second_call_overwrites_cleanly(tmp_path: Path) -> None:
     write_candidate_artifacts(parsed_v2, tmp_path, {"agent_id": "agent-xyz"})
 
     cand_dir = tmp_path / "candidates" / "single"
-    assert (cand_dir / "summary.md").read_text() == (
+    assert (cand_dir / "summary.md").read_text(encoding="utf-8") == (
         "# Candidate single\n\nSecond run — different summary.\n"
     )
-    tr = json.loads((cand_dir / "test-results.json").read_text())
+    tr = json.loads((cand_dir / "test-results.json").read_text(encoding="utf-8"))
     assert tr["passed"] == 20
     assert tr["failed"] == 1
-    telemetry = json.loads((cand_dir / "telemetry.json").read_text())
+    telemetry = json.loads((cand_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert telemetry["duration_ms"] == 9999
     assert telemetry["agent_id"] == "agent-xyz"
     # The previous run's agent_meta keys should not leak into the second write.

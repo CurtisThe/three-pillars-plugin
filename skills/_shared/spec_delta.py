@@ -346,7 +346,7 @@ def main(argv: list[str]) -> int:
                     if i + 1 >= len(rest):
                         print("usage: validate <delta> [--base <base>]", file=sys.stderr)
                         return 2
-                    base = parse_spec(Path(rest[i + 1]).read_text())
+                    base = parse_spec(Path(rest[i + 1]).read_text(encoding="utf-8"))
                     i += 2
                 elif rest[i].startswith("--"):
                     print(f"unknown flag: {rest[i]}\n"
@@ -362,7 +362,7 @@ def main(argv: list[str]) -> int:
             if delta_path is None:
                 print("usage: validate <delta> [--base <base>]", file=sys.stderr)
                 return 2
-            errs = [x for x in validate(parse_delta(Path(delta_path).read_text()), base)
+            errs = [x for x in validate(parse_delta(Path(delta_path).read_text(encoding="utf-8")), base)
                     if x.severity == "ERROR"]
             if errs:
                 _blocked(errs)
@@ -371,8 +371,8 @@ def main(argv: list[str]) -> int:
         if len(rest) < 2:
             print("usage: merge <base> <delta> [<delta2> ...]", file=sys.stderr)
             return 2
-        base_text = Path(rest[0]).read_text()
-        delta_texts = [Path(p).read_text() for p in rest[1:]]
+        base_text = Path(rest[0]).read_text(encoding="utf-8")
+        delta_texts = [Path(p).read_text(encoding="utf-8") for p in rest[1:]]
         sys.stdout.write(merge(base_text, delta_texts))
         return 0
     except FileNotFoundError as e:

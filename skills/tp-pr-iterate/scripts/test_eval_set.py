@@ -33,7 +33,7 @@ VALID_LABELS = {"structural", "minor", "unclear"}
 def _read_entries() -> list[dict]:
     if not EVAL_PATH.exists():
         pytest.fail(f"eval file missing: {EVAL_PATH}")
-    lines = EVAL_PATH.read_text().splitlines()
+    lines = EVAL_PATH.read_text(encoding="utf-8").splitlines()
     entries: list[dict] = []
     for i, raw in enumerate(lines, start=1):
         if not raw.strip():

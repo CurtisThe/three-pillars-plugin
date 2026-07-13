@@ -211,20 +211,17 @@ def test_merge_readiness_warning_never_raises():
 def _make_gate_runners_pass() -> dict:
     """Stub runners that produce an all-PASS GateOutcome from evaluate_gate.
 
-    Now a FULL 5-predicate PASS (the strict-default gate includes pred_human_approved):
-    the human-approval runner keys describe a deliberate human (`alice`, not automation)
-    who applied `tp:human-approved` on THIS head, current on the head commit. The
-    framework's own gh identity (`self_login_fn` -> `framework-ci`) is DISTINCT from the
-    human approver, so the F2 self-applied rejection (self is always added to the
-    automation set) does not bite. Committer-equality is advisory (never a reject), so
-    `alice` having also committed the head is fine — this is the 'solo-operator PASS
-    through the full gate' regression with a separate framework gh identity.
+    FULL 5-predicate PASS via the review path (Path B, retire-approval-tags):
+    `alice` (a non-automation human, distinct from the framework gh identity
+    `framework-ci`) submitted an APPROVED review whose commit_id equals the
+    current HEAD_OID. The label path (Path A) has been retired — no labels_fn /
+    timeline_fn / commits_fn runner keys are present. The framework's own gh
+    identity (`self_login_fn` -> `framework-ci`) is DISTINCT from the reviewer
+    `alice`, so the F2 self-applied rejection does not fire.
     """
     # PASS path: merged + reviews all resolved + all CI succeeded + Copilot on head
     HEAD_OID = "abc123def456"
-    REVIEW_COMMIT = HEAD_OID
     HEAD_COMMITTED = "2026-06-05T11:00:00Z"     # head commit time
-    APPROVAL_AT = "2026-06-05T12:00:00Z"        # approval >= head commit (current)
 
     def pr_state_fn(url):
         return {
@@ -240,13 +237,24 @@ def _make_gate_runners_pass() -> dict:
         return []  # no unresolved threads
 
     def reviews_fn(url):
-        return [{
-            "user": {"login": "copilot-pull-request-reviewer[bot]"},
-            "body": "Looks good.",
-            "state": "APPROVED",
-            "commit_id": REVIEW_COMMIT,
-            "submitted_at": "2026-06-05T12:00:00Z",
-        }]
+        # Two reviews: (1) Copilot for copilot_on_head predicate,
+        # (2) alice (human, non-automation) for pred_human_approved via review path.
+        return [
+            {
+                "user": {"login": "copilot-pull-request-reviewer[bot]"},
+                "body": "Looks good.",
+                "state": "APPROVED",
+                "commit_id": HEAD_OID,
+                "submitted_at": "2026-06-05T12:00:00Z",
+            },
+            {
+                "user": {"login": "alice", "type": "User"},
+                "body": "LGTM",
+                "state": "APPROVED",
+                "commit_id": HEAD_OID,
+                "submitted_at": "2026-06-05T12:30:00Z",
+            },
+        ]
 
     def ci_head_fn(url):
         return (HEAD_OID, True)
@@ -254,32 +262,11 @@ def _make_gate_runners_pass() -> dict:
     def requested_fn(url):
         return []
 
-    # ---- human-approval seams (5th predicate) ----
-    # Currency is SHA-PREFIX-in-the-label-NAME (human-approval-label-currency, 2026-06-13):
-    # the tag after `tp:human-approved:` must be a hex prefix of headRefOid. A BARE
-    # `tp:human-approved` is recognized-but-stale; commit_id is null on real GitHub label
-    # events and is no longer consulted. The tag here IS HEAD_OID, a prefix of headRefOid.
-    def labels_fn(url):
-        return [{"name": f"tp:human-approved:{HEAD_OID}"}]
-
-    def timeline_fn(url):
-        return [{
-            "event": "labeled",
-            "label": {"name": f"tp:human-approved:{HEAD_OID}"},
-            "actor": {"type": "User", "login": "alice"},
-            "created_at": APPROVAL_AT,
-            "commit_id": HEAD_OID,
-        }]
-
     def head_fn(url):
         return {"headRefOid": HEAD_OID, "commits": [{"committedDate": HEAD_COMMITTED}]}
 
-    def commits_fn(url):
-        # Solo operator: head committer == approver login (advisory only, never a reject).
-        return [{"committer": {"login": "alice"}, "author": {"login": "alice"}}]
-
     def self_login_fn():
-        # The framework's gh identity — DISTINCT from the human approver `alice` so the
+        # The framework's gh identity — DISTINCT from the human reviewer `alice` so the
         # F2 self-applied rejection (self is always in the automation set) does not bite.
         return "framework-ci"
 
@@ -287,18 +274,33 @@ def _make_gate_runners_pass() -> dict:
     def run_subprocess(*args, **kwargs):
         return _subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
+    def comments_fn(url):
+        # enforce-review-proof p7: a head-bound non-degraded proof digest comment so
+        # the now-default-required review_proof_on_head predicate PASSes on this
+        # fully-ready PR. Built via the real format_proof_digest. Authored by
+        # "framework-ci" — this fixture's self_login_fn login — so the trusted-author
+        # fold (review finding on PR #109) passes hermetically via the self arm.
+        import sys as _sys
+        from pathlib import Path as _Path
+        _pri = _Path(__file__).resolve().parents[2] / "tp-pr-iterate" / "scripts"
+        if str(_pri) not in _sys.path:
+            _sys.path.insert(0, str(_pri))
+        import review_proof
+        return [{"author": "framework-ci", "body": review_proof.format_proof_digest({
+            "base": "base000", "head": HEAD_OID, "files_changed": 3,
+            "insertions": 5, "deletions": 1, "degraded": False, "reason": None,
+        }, [("correctness", 0)])}]
+
     return {
         "pr_state_fn": pr_state_fn,
         "threads_fn": threads_fn,
         "reviews_fn": reviews_fn,
         "ci_head_fn": ci_head_fn,
         "requested_fn": requested_fn,
-        "labels_fn": labels_fn,
-        "timeline_fn": timeline_fn,
         "head_fn": head_fn,
-        "commits_fn": commits_fn,
         "self_login_fn": self_login_fn,
         "run_subprocess": run_subprocess,
+        "comments_fn": comments_fn,
     }
 
 

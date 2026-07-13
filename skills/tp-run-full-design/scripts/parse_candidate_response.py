@@ -31,7 +31,7 @@ class UnknownSchemaVersionError(Exception):
 
 
 def _load_schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text())
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 def parse_candidate_response(text: str) -> dict:

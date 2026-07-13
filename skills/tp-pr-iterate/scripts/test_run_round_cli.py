@@ -96,7 +96,7 @@ def test_run_round_cli_ok_with_state_path(tmp_path):
     assert "head_sha" in env
 
     # Verify state was actually written back.
-    written = json.loads(state_file.read_text())
+    written = json.loads(state_file.read_text(encoding="utf-8"))
     assert written != state, "state file must be updated after run_round"
 
 
@@ -131,8 +131,25 @@ def test_run_round_cli_blocked_no_independent_review(tmp_path):
 
 
 def test_run_round_cli_two_stable_converged(tmp_path):
-    """Real-clean findings, cache head matches, expects_copilot=False →
-    terminal in two-stable variants, converged=true."""
+    """Real-clean findings, cache head matches, expects_copilot=False, proof artifact present →
+    terminal in two-stable variants, converged=true.
+
+    Updated by codereview-proof-of-review: convergence now requires a proof artifact.
+    We stage one via capture_proof into a tmp root, then pass review_proof_root + review_base.
+    """
+    import sys
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import review_proof
+
+    # Stage a real proof artifact
+    proof_root = tmp_path / "proof"
+    review_proof.capture_proof(
+        "base000", "abc1234",
+        ["angle response"],
+        root=proof_root,
+        run_git=lambda args: (0, "3\t1\tfile.py\n", ""),
+    )
+
     state = _minimal_state()
     # Pre-seed the cache so cached_head_sha == head_sha in run_round
     state["last_codereview_head_sha"] = "abc1234"
@@ -149,12 +166,23 @@ def test_run_round_cli_two_stable_converged(tmp_path):
         "ci_rollup": [],
         "config": _clean_config(),
         "pr_url": "https://github.com/o/r/pull/1",
+        "review_proof_root": str(proof_root),
+        # review_base intentionally omitted — ground_ok defaults to True in this test
+        # (live git call not needed to verify the artifact-present branch).
+        # review-integrity-enforcement: convergence now also requires a non-degraded
+        # trusted proof digest on head — feed it hermetically (carry-OFF config).
+        "posted_comments": [{"author": "tp-bot", "body": review_proof.format_proof_digest({
+            "base": "base000", "head": "abc1234", "files_changed": 3,
+            "insertions": 5, "deletions": 1, "degraded": False, "reason": None})}],
+        "self_login": "tp-bot",
     }
 
     rc, env = _run(payload)
 
     assert rc == 0
-    assert env.get("terminal") in ("two-stable", "two-stable [code-review-only]")
+    assert env.get("terminal") in ("two-stable", "two-stable [code-review-only]"), (
+        f"proof artifact present must allow convergence; got {env}"
+    )
     assert env.get("converged") is True
 
 
@@ -276,7 +304,7 @@ def test_run_round_cli_exit_1_never_used(tmp_path):
 def test_run_round_cli_c1_no_anthropic():
     """C1: run_round.py must not import anthropic (ast-level check)."""
     import ast
-    src = RUN_ROUND_PY.read_text()
+    src = RUN_ROUND_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -294,7 +322,7 @@ def test_run_round_cli_c1_no_anthropic():
 def test_run_round_cli_c1_no_claude_subprocess():
     """C1: run_round.py must not spawn a claude subprocess."""
     import ast
-    src = RUN_ROUND_PY.read_text()
+    src = RUN_ROUND_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -319,10 +347,23 @@ def test_run_round_cli_c1_no_claude_subprocess():
 
 def test_run_round_cli_expects_copilot_false_config_reaches_code_review_only(tmp_path):
     """F-P1: a repo with review.expects_copilot=false MUST converge to
-    'two-stable [code-review-only]' when passed an explicit config.
-    Previously an absent config defaulted to expects_copilot=True (fail-closed), making
-    the code-review-only path unreachable — the loop would never converge on repos
-    without Copilot. Passing the config explicitly must allow convergence. (F-P1)"""
+    'two-stable [code-review-only]' when passed an explicit config + proof artifact.
+
+    Updated by codereview-proof-of-review: convergence now requires a proof artifact.
+    We stage one and pass review_proof_root + review_base. (F-P1)"""
+    import sys
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    import review_proof
+
+    # Stage a real proof artifact
+    proof_root = tmp_path / "proof"
+    review_proof.capture_proof(
+        "base001", "abc1234",
+        ["angle resp"],
+        root=proof_root,
+        run_git=lambda args: (0, "5\t2\tfile.py\n", ""),
+    )
+
     state = _minimal_state()
     # Pre-seed the cache so cached_head_sha == head_sha
     state["last_codereview_head_sha"] = "abc1234"
@@ -340,13 +381,22 @@ def test_run_round_cli_expects_copilot_false_config_reaches_code_review_only(tmp
         # Explicit config: Copilot NOT expected, no GitHub CI
         "config": {"review": {"expects_copilot": False}, "ci": {"expects_github_checks": False}},
         "pr_url": "https://github.com/o/r/pull/1",
+        "review_proof_root": str(proof_root),
+        # review_base intentionally omitted — ground_ok defaults to True in this test.
+        # review-integrity-enforcement: convergence now also requires a non-degraded
+        # trusted proof digest on head — feed it hermetically (carry-OFF config).
+        "posted_comments": [{"author": "tp-bot", "body": review_proof.format_proof_digest({
+            "base": "base001", "head": "abc1234", "files_changed": 5,
+            "insertions": 2, "deletions": 0, "degraded": False, "reason": None})}],
+        "self_login": "tp-bot",
     }
 
     rc, env = _run(payload)
 
     assert rc == 0, f"expected exit 0; got {rc}: {env}"
     assert env.get("terminal") in ("two-stable", "two-stable [code-review-only]"), (
-        f"expects_copilot=False with clean findings must converge; got terminal={env.get('terminal')}"
+        f"expects_copilot=False with clean findings + proof must converge; "
+        f"got terminal={env.get('terminal')}"
     )
     assert env.get("converged") is True, (
         "expects_copilot=False convergence must set converged=True"
@@ -399,3 +449,4 @@ def test_run_round_cli_absent_config_defaults_to_expects_copilot_true(tmp_path):
         "absent config must NOT silently converge code-review-only "
         f"(defaults to expects_copilot=True); terminal={env.get('terminal')}"
     )
+

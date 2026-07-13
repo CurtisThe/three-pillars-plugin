@@ -35,6 +35,27 @@ def _run_main(args):
     return rc, buf.getvalue()
 
 
+def _proof_comment_fn_for(head):
+    """A comments_fn yielding a head-bound proof digest (enforce-review-proof p7).
+
+    All-PASS runner dicts inject this so the now-default-required review-proof
+    predicate PASSes alongside the diff-balloon path under test. Authored by
+    "bot" — the runner dicts' self_login_fn login — so the trusted-author fold
+    (review finding on PR #109) passes hermetically via the self arm.
+    """
+    import sys as _sys
+    _shared = Path(__file__).resolve().parent
+    for _p in (str(_shared), str(_shared.parent / "tp-pr-iterate" / "scripts")):
+        if _p not in _sys.path:
+            _sys.path.insert(0, _p)
+    import review_proof
+    body = review_proof.format_proof_digest({
+        "base": "base000", "head": head, "files_changed": 3,
+        "insertions": 5, "deletions": 1, "degraded": False, "reason": None,
+    }, [("correctness", 0)])
+    return lambda _url: [{"author": "bot", "body": body}]
+
+
 # ---------------------------------------------------------------------------
 # Task 2.1: balloon_factor — the ratio with zero-baseline floor
 # ---------------------------------------------------------------------------
@@ -327,6 +348,8 @@ class TestGateCompositionBalloonFails:
             "reviews_fn": reviews_fn,
             "ci_head_fn": ci_head_fn,
             "requested_fn": requested_fn,
+            "comments_fn": _proof_comment_fn_for("abc123"),
+            "self_login_fn": lambda: "bot",  # hermetic self for p7's trusted set
         }
 
     def test_gate_composition_balloon_fails(self):
@@ -410,6 +433,8 @@ class TestGateReadsBalloonFactor:
         return {
             "pr_state_fn": pr_state_fn,
             "threads_fn": lambda url: [],
+            "comments_fn": _proof_comment_fn_for("abc123"),
+            "self_login_fn": lambda: "bot",  # hermetic self for p7's trusted set
         }
 
     def test_custom_factor_10_passes_6x_diff(self):
@@ -593,7 +618,7 @@ def test_repo_config_has_fleet_factor():
     config_path = here.parent.parent / ".three-pillars" / "config.json"
 
     assert config_path.exists(), f"config.json not found at {config_path}"
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     assert isinstance(data, dict), "config.json must be a JSON object"
     assert "fleet" in data, "config.json must have a 'fleet' key"
     assert "diff_balloon_factor" in data["fleet"], (

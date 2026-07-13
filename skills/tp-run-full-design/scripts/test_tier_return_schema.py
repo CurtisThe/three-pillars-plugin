@@ -32,7 +32,7 @@ ROUND_BUNDLE = SCHEMAS_DIR / "council-round-bundle.v1.json"
 def _registry() -> Registry:
     resources = []
     for p in SCHEMAS_DIR.glob("*.json"):
-        schema = json.loads(p.read_text())
+        schema = json.loads(p.read_text(encoding="utf-8"))
         if "$id" in schema:
             resources.append(
                 (schema["$id"], Resource.from_contents(schema, default_specification=DRAFT7))
@@ -41,7 +41,7 @@ def _registry() -> Registry:
 
 
 def _is_valid(schema_path: Path, instance: dict) -> bool:
-    schema = json.loads(schema_path.read_text())
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = jsonschema.Draft7Validator(schema, registry=_registry())
     return validator.is_valid(instance)
 
@@ -417,7 +417,7 @@ def test_council_round1_schema_const_pinned():
 
 
 def test_council_round1_id_is_urn():
-    schema = json.loads(ROUND1.read_text())
+    schema = json.loads(ROUND1.read_text(encoding="utf-8"))
     assert schema["$id"] == "urn:tp-run-full-design:council-round1:v1"
 
 
@@ -487,7 +487,7 @@ def test_council_round2_schema_const_pinned():
 
 
 def test_council_round2_id_is_urn():
-    schema = json.loads(ROUND2.read_text())
+    schema = json.loads(ROUND2.read_text(encoding="utf-8"))
     assert schema["$id"] == "urn:tp-run-full-design:council-round2:v1"
 
 
@@ -546,7 +546,7 @@ def test_council_round_bundle_schema_const_pinned():
 
 
 def test_council_round_bundle_id_is_urn():
-    schema = json.loads(ROUND_BUNDLE.read_text())
+    schema = json.loads(ROUND_BUNDLE.read_text(encoding="utf-8"))
     assert schema["$id"] == "urn:tp-run-full-design:council-round-bundle:v1"
 
 

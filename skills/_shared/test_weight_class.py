@@ -138,15 +138,15 @@ def test_write_class_inserts_block(tmp_path):
     p = tmp_path / "plan.md"
     p.write_text("# Plan\n\nTasks.\n")
     write_class(p, "light")
-    assert p.read_text().startswith("---\nweight-class: light\n---\n")
-    assert "# Plan" in p.read_text()
+    assert p.read_text(encoding="utf-8").startswith("---\nweight-class: light\n---\n")
+    assert "# Plan" in p.read_text(encoding="utf-8")
 
 
 def test_write_class_updates_existing_value(tmp_path):
     p = tmp_path / "design.md"
     p.write_text("---\nweight-class: full\n---\n# D\n")
     write_class(p, "light")
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     assert parse_frontmatter(text)["weight-class"] == "light"
     assert text.count("weight-class:") == 1
     assert "# D" in text
@@ -156,7 +156,7 @@ def test_write_class_preserves_other_keys(tmp_path):
     p = tmp_path / "design.md"
     p.write_text("---\nstatus: draft\nowner: someone\n---\n# D\n")
     write_class(p, "spike")
-    fm = parse_frontmatter(p.read_text())
+    fm = parse_frontmatter(p.read_text(encoding="utf-8"))
     assert fm == {"status": "draft", "owner": "someone", "weight-class": "spike"}
 
 
@@ -164,9 +164,9 @@ def test_write_class_idempotent(tmp_path):
     p = tmp_path / "design.md"
     p.write_text("---\nstatus: draft\n---\n# D\n\nBody.\n")
     write_class(p, "light")
-    first = p.read_text()
+    first = p.read_text(encoding="utf-8")
     write_class(p, "light")
-    assert p.read_text() == first
+    assert p.read_text(encoding="utf-8") == first
 
 
 def test_write_class_rejects_invalid_class(tmp_path):
@@ -174,7 +174,7 @@ def test_write_class_rejects_invalid_class(tmp_path):
     p.write_text("# D\n")
     with pytest.raises(ValueError):
         write_class(p, "enormous")
-    assert p.read_text() == "# D\n"  # untouched on rejection
+    assert p.read_text(encoding="utf-8") == "# D\n"  # untouched on rejection
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +414,7 @@ _PROTOCOL_DOC = Path(__file__).resolve().parent / "weight-class.md"
 
 
 def _doc_text() -> str:
-    return _PROTOCOL_DOC.read_text()
+    return _PROTOCOL_DOC.read_text(encoding="utf-8")
 
 
 def test_protocol_doc_exists():
@@ -500,7 +500,7 @@ def test_dogfood_seed():
     seed = _REPO_ROOT / "three-pillars-docs" / "tp-designs" / "file-size-limits" / "seed.md"
     if not seed.exists():
         pytest.skip("file-size-limits seed absent (archived or different checkout)")
-    assert parse_frontmatter(seed.read_text()).get("weight-class") == "light"
+    assert parse_frontmatter(seed.read_text(encoding="utf-8")).get("weight-class") == "light"
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +511,7 @@ _SKILLS_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _skill_text(skill: str) -> str:
-    return (_SKILLS_ROOT / skill / "SKILL.md").read_text()
+    return (_SKILLS_ROOT / skill / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_surface_tp_design():
@@ -538,7 +538,7 @@ def test_surface_tp_design():
 def test_surface_claude_md():
     """Task 2.5 — CLAUDE.md + CLAUDE.plugin.md use the four-class taxonomy."""
     for name in ("CLAUDE.md", "CLAUDE.plugin.md"):
-        text = (_SKILLS_ROOT.parent / name).read_text()
+        text = (_SKILLS_ROOT.parent / name).read_text(encoding="utf-8")
         assert "just do it, spike, or full design" not in text, (
             f"{name} still carries the bare three-approach phrase"
         )

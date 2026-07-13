@@ -121,11 +121,11 @@ This preserves continuity while keeping context lean. Don't wait until context i
 
 ## File Size Limits
 
-Keep individual files under **600–800 lines** where possible. This ensures files fit within Claude Code's Read tool context (~10k characters) without truncation, which matters for reliable code review, design analysis, and council deliberation. If a file grows beyond this range, consider splitting it by responsibility.
+Keep individual files under **500 lines / 50k characters** where possible. Claude Code's Read tool returns ~2000 lines per call and its Edit tool needs a unique string match, so oversized files degrade code review, design analysis, and council deliberation. If a file grows beyond this range, split it by responsibility.
 
 ## Commits
 
-Every skill that produces substantial work commits at the end — scoped `git add`, conventional message, no Co-Authored-By trailer, no `--no-verify`, no auto-push. One commit per task during `/tp-phase-implement`. One commit per artifact for design/plan/review/audit/learn steps. See `skills/_shared/commit-after-work.md` for the protocol and the full message-template table. Pushing and opening a PR happens only at `/tp-design-complete`.
+Every skill that produces substantial work commits at the end — scoped `git add`, conventional message, no Co-Authored-By trailer, no `--no-verify`. Each commit is then pushed to `origin` fail-open: on push failure print one concise line and keep the commit local — never `--force`, never block the commit. One commit per task during `/tp-phase-implement`. One commit per artifact for design/plan/review/audit/learn steps. See `skills/_shared/commit-after-work.md` for the protocol and the full message-template table. The PR boundary is unchanged: opening a PR happens only at `/tp-design-complete`.
 
 ## Collaboration
 

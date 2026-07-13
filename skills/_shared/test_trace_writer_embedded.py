@@ -62,7 +62,7 @@ class TestEmitEmbeddedTokenAbsentOnDisk:
         with trace_writer.TraceWriter(tmp_path, args={}) as tw:
             tw.emit("RETURN", invocation_id="slot-d#1", payload=payload)
             jsonl_path = tmp_path / ".trace" / tw.run_id / "trace.jsonl"
-            raw_text = jsonl_path.read_text()
+            raw_text = jsonl_path.read_text(encoding="utf-8")
         # Non-secret surrounding text must survive
         assert b"prefix" in raw_text.encode()
         assert b"suffix" in raw_text.encode()
@@ -117,7 +117,7 @@ class TestWriteSlotRecordEmbeddedTokenAbsentOnDisk:
             inv_id = "slot-embedded#3"
             tw.write_slot_record(inv_id, envelope)
             slot_path = tmp_path / ".trace" / tw.run_id / f"slot-{inv_id}.json"
-            data = json.loads(slot_path.read_text())
+            data = json.loads(slot_path.read_text(encoding="utf-8"))
         assert data["verdict"] == "pass"
         assert data["tokens_used"] == 512
         assert token not in data["summary"]
@@ -131,7 +131,7 @@ class TestWriteSlotRecordEmbeddedTokenAbsentOnDisk:
             inv_id = "slot-embedded#4"
             tw.write_slot_record(inv_id, envelope)
             slot_path = tmp_path / ".trace" / tw.run_id / f"slot-{inv_id}.json"
-            data = json.loads(slot_path.read_text())
+            data = json.loads(slot_path.read_text(encoding="utf-8"))
         assert "before" in data["summary"]
         assert "after" in data["summary"]
         assert token not in data["summary"]

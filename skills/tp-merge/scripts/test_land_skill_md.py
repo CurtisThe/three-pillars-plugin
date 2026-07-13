@@ -21,7 +21,7 @@ SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_frontmatter_name_is_tp_merge() -> None:
@@ -48,7 +48,7 @@ def test_calls_require_merge_gate_pass() -> None:
         "land skill must call require_merge_gate_pass"
     )
     # The six-predicate gate including human approval and ci_local_stamp.
-    assert re.search(r"human.approv|tp:human-approved|pred_human_approved", text, re.IGNORECASE), (
+    assert re.search(r"human.approv|pred_human_approved", text, re.IGNORECASE), (
         "land skill must mention the human-approval predicate"
     )
 
@@ -98,6 +98,65 @@ def test_never_says_safe_to_merge() -> None:
     )
     assert "UNVERIFIED" in text, (
         "land SKILL.md must surface the UNVERIFIED gate label"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 8.4: dispatch-from-seat invocation (Phase 8 activation mechanism)
+# ---------------------------------------------------------------------------
+
+
+def test_step_2_documents_dispatch_from_seat_two_hop_recipe() -> None:
+    """Step 2 must document the NON-CIRCULAR two-hop $TP_SEAT_ROOT recipe: seat_resolve.sh
+    --where, then resolve_root.sh --skill-dir anchored at the SEAT's own skill directory
+    (NOT the worktree's, and NOT probe-4's cwd-derived fallback)."""
+    text = _read()
+
+    assert "seat_resolve.sh --where" in text, (
+        "step 2 must resolve the seat via `seat_resolve.sh --where`"
+    )
+    assert re.search(r'resolve_root\.sh.*--skill-dir.*"\$SEAT"/skills/tp-merge\b', text), (
+        "step 2 must resolve TP_SEAT_ROOT via resolve_root.sh --skill-dir anchored at "
+        "the SEAT's own skill directory (skills/tp-merge, NOT .../scripts)"
+    )
+    assert "TP_SEAT_ROOT" in text, (
+        "step 2 must name the resolved seat root as TP_SEAT_ROOT"
+    )
+    assert re.search(r"not.{0,6}probe-4", text, re.IGNORECASE), (
+        "step 2 must explicitly rule out probe-4 (cwd-derived dev-checkout fallback)"
+    )
+
+
+def test_step_2_documents_repo_flag_invocation() -> None:
+    """Step 2 must invoke land.py from $TP_SEAT_ROOT with --repo "$(git rev-parse
+    --show-toplevel)" — the documented dispatch-from-seat carry-capable invocation."""
+    text = _read()
+
+    assert '"$TP_SEAT_ROOT"/skills/tp-merge/scripts/land.py' in text, (
+        "step 2 must invoke land.py from $TP_SEAT_ROOT (the seat's copy)"
+    )
+    assert '--repo "$(git rev-parse --show-toplevel)"' in text, (
+        "step 2 must pass --repo \"$(git rev-parse --show-toplevel)\" (the worktree "
+        "as the explicit subject repo)"
+    )
+
+
+def test_step_2_documents_why_disjoint_code_and_fail_closed_consequence() -> None:
+    """Step 2 must name WHY (the oracle's DISJOINT-CODE guard) and the fail-closed
+    consequence of skipping the two-hop recipe (carry lost, never an unsound PASS)."""
+    text = _read()
+
+    assert re.search(r"DISJOINT.CODE", text), (
+        "step 2 must name the oracle's DISJOINT-CODE guard as the WHY"
+    )
+    assert re.search(r"oracle_independent|independent.oracle", text, re.IGNORECASE), (
+        "step 2 must reference the independent-oracle guard by name"
+    )
+    assert re.search(r"fail.?s?\s*CLOSED|fails closed", text, re.IGNORECASE), (
+        "step 2 must state the guard fails CLOSED (never an unsound certificate)"
+    )
+    assert re.search(r"worktree.resolved.*(refused|detected)|detected and refused", text, re.IGNORECASE), (
+        "step 2 must state a worktree-resolved root is detected/refused by the guard"
     )
 
 

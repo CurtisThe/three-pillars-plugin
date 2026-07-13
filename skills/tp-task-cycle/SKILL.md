@@ -36,7 +36,7 @@ Execute one TDD cycle for a single task.
    - Hard-coded return values are OK if that's all the test needs (the next test will force generalization).
 6. **Run the test** and confirm it passes.
 7. If it fails, **fix the implementation** (not the test, unless the test has a bug). Iterate until green.
-8. **Run the broader test suite** for the file/module to check for regressions. Use the project's test runner (discover from CLAUDE.md, Makefile, package.json, pyproject.toml, etc.). Redirect output: `{project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"`
+8. **Run the broader test suite** for the file/module to check for regressions via the fast iteration lane: `CMD=$(python3 "$TP_ROOT"/skills/_shared/iteration_lane.py --lane iteration --granularity task)` then `$CMD 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"`. The seam resolves the fast `unit` subset in the dev repo and the project-discovered command in a consumer repo. If it resolves nothing (non-zero exit), discover the runner from CLAUDE.md / Makefile / package.json / pyproject.toml as before — never `tee` an empty command as green.
 
 ### Refactor — Clean Up
 

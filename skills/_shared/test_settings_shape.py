@@ -20,7 +20,7 @@ class TestSettingsShape:
 
     def _load_settings(self) -> dict:
         settings_path = _REPO_ROOT / "settings.json"
-        return json.loads(settings_path.read_text())
+        return json.loads(settings_path.read_text(encoding="utf-8"))
 
     def test_settings_is_valid_json(self):
         """settings.json parses as JSON."""
@@ -72,7 +72,7 @@ class TestDocsShape:
 
     def _load_schema(self) -> dict:
         schema_path = _SHARED_DIR / "repo-config.schema.json"
-        return json.loads(schema_path.read_text())
+        return json.loads(schema_path.read_text(encoding="utf-8"))
 
     def test_schema_is_valid_json(self):
         """repo-config.schema.json parses as JSON."""

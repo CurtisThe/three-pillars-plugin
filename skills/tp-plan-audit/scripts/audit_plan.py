@@ -17,7 +17,8 @@ Usage: python3 audit_plan.py <design-dir> [--spike|--light]
            File/Test/Red/Green field completeness and budget annotations
            are still enforced. Divergent weight-class frontmatter between
            design.md and its siblings is reported as ERROR.
-Exit code: 0 = pass, 1 = issues found, 2 = bad input
+Exit code: 1 = ERROR/MISSING/INCONSISTENT/INCOMPLETE, 0 = pass (WARN-only
+           allowed), 2 = bad input
 """
 
 import sys
@@ -27,11 +28,12 @@ from collections import defaultdict, namedtuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
 from weight_class import check_consistency as weight_class_consistency  # noqa: E402
+from audit_artifact import write_pass_artifact  # noqa: E402
 
 
 def read_file(path):
     try:
-        return Path(path).read_text()
+        return Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
 
@@ -76,12 +78,11 @@ def extract_bold_names(text):
 STANDARD_FIELDS = ("File", "Test", "Red", "Green", "Refactor", "Done when", "Status")
 SPIKE_FIELDS = ("Hypothesis", "Try", "Evaluate", "Status")
 
-# Mode enum (audit finding M2): each audit mode derives the three decisions
-# the old `spike_mode` boolean coupled — whether detailed-design.md is
-# loaded/required, whether the structural-coverage checks (module/interface
-# coverage + phase alignment) run, and which task field set the plan uses.
-# `light` is production work, not experiments: it drops the detailed-design
-# requirement like spike but keeps the standard File/Test/Red/Green fields.
+# Mode enum (audit finding M2): each mode derives the three decisions the old
+# `spike_mode` boolean coupled — load/require detailed-design.md, run the
+# structural-coverage checks, and which task field set the plan uses. `light`
+# is production work: drops detailed-design like spike, keeps the standard
+# File/Test/Red/Green fields.
 ModeConfig = namedtuple("ModeConfig", "load_detailed check_coverage field_set")
 MODES = {
     "standard": ModeConfig(load_detailed=True, check_coverage=True, field_set=STANDARD_FIELDS),
@@ -89,18 +90,15 @@ MODES = {
     "light": ModeConfig(load_detailed=False, check_coverage=False, field_set=STANDARD_FIELDS),
 }
 
-# Per-phase token-budget cap (in thousands). Each plan.md phase is dispatched
-# under one `phase-implement` slot by /tp-run-full-design, whose soft budget is
-# 200k in that orchestrator's static budget table (skills/tp-run-full-design/
-# SKILL.md → ## Per-slot budget table). This constant is the source of truth for
-# CODE; the same 200k figure is ALSO stated in prose in that budget table and in
-# tp-plan/SKILL.md (neither can import this constant), so those copies must be
-# updated in lockstep if the slot budget changes (plan §Task 7.2).
+# Per-phase token-budget cap (thousands). Each plan.md phase runs under one
+# `phase-implement` slot of /tp-run-full-design (soft budget 200k, per that
+# orchestrator's ## Per-slot budget table). Source of truth for CODE; the same
+# 200k is ALSO prose in that table and in tp-plan/SKILL.md (neither imports this
+# constant) — keep those in lockstep if the slot budget changes (plan §Task 7.2).
 PER_PHASE_BUDGET_CAP_K = 200
 
-# A continuation block ends at the next field marker, the next task heading,
-# or the next phase/section heading. Hoisted per detailed-design §audit_plan
-# so future field extractors can share the same boundary.
+# A continuation block ends at the next field marker, task heading, or
+# phase/section heading. Hoisted so future field extractors share the boundary.
 _FIELD_BOUNDARY_RE = re.compile(r"^(?:\*\*[A-Za-z ]+\*\*:|### Task |## )")
 
 
@@ -214,12 +212,10 @@ def extract_interface_names(detailed):
 def extract_design_phases(detailed):
     """Find phase names from the Implementation Order section.
 
-    Accepts both `### Phase N:` (existing convention) and `## Phase N:`
-    (some legacy / hand-edited detailed designs). The h2 shape places
-    phase headings as siblings of Implementation Order, which
-    `extract_section` would otherwise truncate; so we scan from the
-    Implementation Order heading forward until the next non-Phase `## `
-    heading.
+    Accepts `### Phase N:` and `## Phase N:` (legacy/hand-edited designs). The
+    h2 shape places phase headings as siblings of Implementation Order, which
+    `extract_section` would truncate; so we scan from the Implementation Order
+    heading forward until the next non-Phase `## ` heading.
     """
     lines = detailed.split("\n")
     phases = []
@@ -349,10 +345,9 @@ def check_phase_alignment(tasks, design_phases):
 # Phase-number matcher (colon NOT required) — shared by task extraction and the
 # spike deliverable scan so they agree on what counts as a phase header.
 _PHASE_NUM_RE = re.compile(r"^##\s+Phase\s+(\d+)")
-# Phase header with an OPTIONAL colon + optional name, for the budget-annotation
-# scan. The colon is optional so a colonless `## Phase 3` / `## Phase 3 Name`
-# header — which _PHASE_NUM_RE (and extract_tasks) still treat as a phase — is
-# checked for a budget annotation rather than silently skipped.
+# Phase header with OPTIONAL colon + name, for the budget-annotation scan: a
+# colonless `## Phase 3 [Name]` (still a phase to _PHASE_NUM_RE/extract_tasks)
+# is checked for a budget annotation rather than silently skipped.
 _PHASE_HEADER_RE = re.compile(r"^##\s+Phase\s+(\d+)\s*:?\s*(.*?)\s*$")
 _BUDGET_ANNOTATION_RE = re.compile(r"\(~(\d+)k\)")
 
@@ -361,12 +356,12 @@ def check_budget_annotations(plan_text, cap_k=PER_PHASE_BUDGET_CAP_K):
     """Each plan.md phase header must carry a `(~Nk)` budget annotation and stay
     under the per-phase cap (the `phase-implement` slot soft budget; Task 7.1).
 
-    This is an independent predicate: it reads only plan.md phase headers — never
-    the detailed-design structural counts — so it is orthogonal to the known
+    Independent predicate: reads only plan.md phase headers — never the
+    detailed-design structural counts — so it is orthogonal to the known
     house-style false positives (vacuous 0-modules/0-interfaces/0-phases and
-    spurious phase-count drift) and cannot trigger or worsen them (plan §Task 7.2
-    note). Both failure modes are advisory WARNs (budget is a sizing hint, not a
-    hard gate; the cap is a strict upper bound, so an exact `cap_k` passes).
+    spurious phase-count drift) and cannot worsen them (plan §Task 7.2). Both
+    failure modes are advisory WARNs (budget is a sizing hint, not a hard gate;
+    the cap is a strict upper bound, so an exact `cap_k` passes).
     """
     issues = []
     for line in plan_text.split("\n"):
@@ -480,6 +475,8 @@ def main():
 
     # Extract structural elements
     tasks = extract_tasks(plan, fields=cfg.field_set)
+    zero_parse = [] if tasks else [("INCOMPLETE", None, "no parseable tasks — "
+        "plan.md has zero recognized '### Task N.M:' headings (check grammar)")]
 
     print("=" * 60)
     print(f"PLAN AUDIT — DETERMINISTIC CHECKS{_MODE_LABELS[mode]}")
@@ -514,7 +511,7 @@ def main():
 
     # Single check-assembly path: completeness always; the rest derived
     # from the mode config.
-    all_issues = check_completeness(tasks, fields=cfg.field_set)
+    all_issues = zero_parse + check_completeness(tasks, fields=cfg.field_set)
     if mode == "spike":
         all_issues += check_spike_deliverables(tasks, plan)
     if cfg.check_coverage:
@@ -525,10 +522,9 @@ def main():
         )
     if mode != "spike":
         all_issues += check_file_existence(tasks) + check_budget_annotations(plan)
-    # All modes: divergent/missing weight-class stamps are hard failures
-    # (the declared class drives which ceremony this very audit runs).
-    # Legacy frontmatter-free dirs pass vacuously — the helper gates on
-    # design.md's class coming from frontmatter (plan-audit F3/F5).
+    # All modes: divergent/missing weight-class stamps are hard failures (the
+    # class drives which ceremony this audit runs). Legacy frontmatter-free dirs
+    # pass vacuously — the helper gates on design.md frontmatter (F3/F5).
     all_issues += [
         ("ERROR", None, f"weight-class consistency: {finding}")
         for finding in weight_class_consistency(d)
@@ -539,6 +535,9 @@ def main():
         print()
         print("Verified: task fields, module coverage, interface coverage,")
         print("phase alignment, file existence.")
+        # Clean-branch ONLY: emit the pass artifact (staleness contract for the
+        # tp-phase-implement preflight). WARN-only/failing runs write nothing.
+        write_pass_artifact(d, mode)
         return 0
 
     cats = defaultdict(list)
@@ -558,7 +557,8 @@ def main():
     summary = ", ".join(f"{len(v)} {k}" for k, v in cats.items())
     print(f"TOTAL: {total} issues ({summary})")
 
-    return 1 if any(t in ("ERROR", "MISSING", "INCONSISTENT") for t, _, _ in all_issues) else 0
+    exit_1 = ("ERROR", "MISSING", "INCONSISTENT", "INCOMPLETE")
+    return 1 if any(t in exit_1 for t, _, _ in all_issues) else 0
 
 
 if __name__ == "__main__":

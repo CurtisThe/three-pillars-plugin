@@ -17,7 +17,7 @@ SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def _step_3_block(text: str) -> str:
@@ -244,9 +244,152 @@ def test_light_pr_body() -> None:
         "the injection must cover just-do-it as well as light"
     )
     # The injection instruction belongs to the PR-opening step — after the
-    # body template begins, before the PR URL is reported.
-    assert text.find("gh pr create") < text.find("fidelity checklist"), (
-        "the checklist injection rides the PR body, after gh pr create's template"
+    # body template begins, before the PR URL is reported. RE-ANCHORED
+    # (pr-author-bot-account) on the github_pr_author.py helper invocation —
+    # step 6g's `gh pr create` code-fence literal was replaced by the
+    # chokepoint wrap, so pinning on "gh pr create" alone would no longer
+    # reflect the real PR-opening call site. RE-ANCHORED again
+    # (shared-script-path-resolution): the chokepoint is now resolved through
+    # resolve_script.py into $GHPA, so the invocation literal is
+    # `python3 "$GHPA" create --context manual` rather than the bare path.
+    assert text.find('python3 "$GHPA" create --context manual') < text.find("fidelity checklist"), (
+        "the checklist injection rides the PR body, after the helper invocation's template"
+    )
+
+
+def test_step_6g_routes_through_pr_author_chokepoint() -> None:
+    """pr-author-bot-account Task 4.2 — step 6g must open the PR through the
+    shared github_pr_author.py chokepoint (--context manual), document that
+    unconfigured repos run plain `gh pr create` underneath unchanged, and
+    name exit 3 (BotAuthUnavailable) as a no-ambient-retry refusal.
+
+    RE-ANCHORED (shared-script-path-resolution): the chokepoint is resolved
+    through resolve_script.py into $GHPA (git-toplevel-first FREE _shared
+    resolution) rather than named as a bare literal path. Pin the NEW contract:
+    the resolve step, the GHPA capture, and the create invocation with the
+    right --context and `--` arg separator, in that order."""
+    text = _read()
+    assert "resolve_script.py" in text, (
+        "step 6g must resolve the chokepoint through resolve_script.py"
+    )
+    resolve_idx = text.find('GHPA="$(python3 "$RS" github_pr_author.py)"')
+    assert resolve_idx != -1, (
+        "step 6g must capture the resolved chokepoint path into $GHPA"
+    )
+    create_idx = text.find('python3 "$GHPA" create --context manual --')
+    assert create_idx != -1, (
+        'step 6g must invoke `python3 "$GHPA" create --context manual --`'
+    )
+    assert resolve_idx < create_idx, (
+        "the $GHPA resolve must precede the create invocation"
+    )
+    assert "gh pr create" in text, (
+        "step 6g must document that unconfigured repos run plain 'gh pr create' underneath"
+    )
+    assert re.search(r"exit code of \*\*3\*\*|exit.{0,10}3", text), (
+        "step 6g must name the helper's exit code 3 (BotAuthUnavailable)"
+    )
+    assert re.search(r"do not.{0,20}retry|never retry", text, re.IGNORECASE), (
+        "step 6g must instruct: do NOT retry with ambient auth on exit 3"
+    )
+
+
+# ---------------------------------------------------------------------------
+# restore-completed-design-lookup Task 1.1: banner-and-keep the handoff
+# ---------------------------------------------------------------------------
+
+def test_handoff_bannered_not_deleted():
+    """Step 6a must preserve handoff.md (banner-and-keep LOCALLY), not delete it.
+
+    A new step 6d1 must banner the archived handoff.md at its NEW location
+    (completed-tp-designs/{design-name}/handoff.md) with a dual marker:
+    a machine frontmatter flag (archived: true) and a human blockquote
+    (the literal '📦 Archived handoff'). Because handoff.md is gitignored by
+    design (session state stays out of VCS), the banner is a LOCAL-only edit —
+    step 6f must NOT `git add` it, and the SKILL must say so.
+    """
+    text = _read()
+    assert "📦 Archived handoff" in text, (
+        "SKILL.md must contain the literal blockquote marker '📦 Archived handoff'"
+    )
+    assert "archived: true" in text, (
+        "SKILL.md must contain the machine frontmatter flag 'archived: true'"
+    )
+    # A step-6d1-style instruction bannering handoff.md at the NEW (archived) path.
+    assert re.search(
+        r"6d1.{0,400}completed-tp-designs/\{design-name\}/handoff\.md",
+        text,
+        re.DOTALL,
+    ) or re.search(
+        r"completed-tp-designs/\{design-name\}/handoff\.md.{0,400}6d1",
+        text,
+        re.DOTALL,
+    ), "a step 6d1 instruction must banner handoff.md at its new completed-tp-designs/ path"
+    # handoff.md is gitignored → LOCAL-only banner; step 6f must NOT stage it.
+    assert "git add three-pillars-docs/completed-tp-designs/{design-name}/handoff.md" not in text, (
+        "step 6f must NOT `git add` the handoff.md — it is gitignored and stays local-only"
+    )
+    # The SKILL must state the local-only / gitignored rationale so the banner
+    # is not mistaken for a VCS-committed artifact.
+    assert re.search(r"gitignored", text, re.IGNORECASE) and re.search(r"local-only", text, re.IGNORECASE), (
+        "SKILL.md must state that handoff.md is gitignored and stays local-only (not committed to the PR)"
+    )
+    # Step 6a must no longer delete handoff.md
+    assert "Delete `handoff.md`" not in text, (
+        "step 6a must no longer read 'Delete `handoff.md`' — it must preserve, not delete"
+    )
+
+
+def test_no_delete_handoff_wording():
+    """The woven 'remove/delete handoff.md' wording must flip to 'archive'.
+
+    Covers the frontmatter description, the step-4 summary bullet, and the
+    ## Rules delete-list clause.
+    """
+    text = _read()
+    frontmatter_match = re.search(r"^---\s*$(.*?)^---\s*$", text, re.DOTALL | re.MULTILINE)
+    assert frontmatter_match, "YAML frontmatter not found"
+    fm = frontmatter_match.group(1)
+    assert "archive handoff.md" in fm, (
+        "description: must say 'archive handoff.md'"
+    )
+    assert "remove handoff.md" not in fm, (
+        "description: must no longer say 'remove handoff.md'"
+    )
+    # Step-4 summary bullet (scoped to the step-4 block, not the whole document)
+    step4_match = re.search(
+        r"^4\.\s+\*\*Show a summary\*\*.*?(?=^5\.\s+\*\*)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert step4_match, "step 4 (Show a summary) block not found"
+    assert re.search(r"handoff\.md.{0,40}will be archived", step4_match.group(0)), (
+        "step-4 summary must say handoff.md 'will be archived'"
+    )
+    # ## Rules section no longer singles out handoff.md as the one deletable artifact
+    rules_match = re.search(r"^## Rules\b.*?(?=^## |\Z)", text, re.DOTALL | re.MULTILINE)
+    assert rules_match, "## Rules section not found"
+    assert "Only delete `handoff.md`" not in rules_match.group(0), (
+        "## Rules must no longer contain 'Only delete `handoff.md`' — nothing is deleted now"
+    )
+
+
+def test_auto_mode_banners_handoff():
+    """--auto must banner-and-keep the handoff identically to interactive.
+
+    The ## Auto Mode archival-half list must reference the handoff
+    preserve (6a) + banner (6d1) steps, so autonomous completions retain
+    the bannered session prose.
+    """
+    block = _auto_mode_block(_read())
+    assert "handoff" in block.lower(), "## Auto Mode must reference the handoff"
+    # Pin BOTH clauses separately — preserve (step 6a) AND banner (step 6d1) — so a
+    # partial removal of either clause reddens this test, not only a full-line revert.
+    assert re.search(r"preserve", block, re.IGNORECASE), (
+        "## Auto Mode must reference the step-6a handoff preserve clause"
+    )
+    assert re.search(r"banner|6d1", block, re.IGNORECASE), (
+        "## Auto Mode must reference the step-6d1 handoff banner clause"
     )
 
 
@@ -298,4 +441,28 @@ def test_both_guard_sites_widened() -> None:
         f"Both guard sites (step 6f in-step + ## Rules commit-scope clause) must carry "
         f"the widened 'archival paths + reconcile --json file list' wording; "
         f"found {len(matches)} occurrence(s)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# plugin-mode-parity Task 3.8 expansion — [N1] legacy ~/.claude/skills/ path
+# ---------------------------------------------------------------------------
+
+def test_detect_parent_invocation_is_tp_root_anchored() -> None:
+    """Catalog N1: step 6b's detect_parent.py invocation must not use the
+    legacy ~/.claude/skills/ install path (a location the plugin never
+    creates — the plugin cache is $CLAUDE_PLUGIN_ROOT, not ~/.claude/skills/).
+    It must instead be anchored via $TP_ROOT, per the D7 PATH fix pattern
+    used by every other executable invocation in this SKILL.md.
+    """
+    text = _read()
+    # Intentional literal tilde: pinning that the doc's literal text no
+    # longer contains the legacy path, no shell expansion involved.
+    # shellcheck-equivalent note: this is a Python string, not a shell script.
+    assert "~/.claude/skills/tp-design-complete/scripts/detect_parent.py" not in text, (
+        "the legacy ~/.claude/skills/ path must be gone from the detect_parent.py invocation"
+    )
+    assert '"$TP_ROOT"/skills/tp-design-complete/scripts/detect_parent.py' in text, (
+        "detect_parent.py must be invoked via the $TP_ROOT anchor "
+        '(python3 "$TP_ROOT"/skills/tp-design-complete/scripts/detect_parent.py)'
     )

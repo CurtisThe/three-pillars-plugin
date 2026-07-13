@@ -113,15 +113,76 @@ def test_append_only_log_rule_unions_tails():
     assert r.lines == ["x", "y", "ours-tail", "theirs-tail"]
 
 
-def test_append_only_log_is_gated_to_human_by_default():
-    # ...but the GATED policy defers it (no isolated ground-truth fixture yet).
+def test_append_only_log_now_resolves_ungated():
+    # The ground-truth fixtures landed by basesync-prepend-log emptied GATED: a synthetic
+    # in-hunk-base append now auto-resolves keep-both (was DEFER under the old GATED policy).
     base = "x\ny"
     t = _diff3("x\ny\nours-tail", base, "x\ny\ntheirs-tail")
     status, lines, results = resolve_file(t)
-    assert status == DEFER
-    assert results[0].status == DEFER
-    assert "gated" in results[0].reason
-    assert "<<<<<<<" in "\n".join(lines)        # left for the human
+    assert status == RESOLVED
+    assert results[0].status == RESOLVED
+    text = "\n".join(lines)
+    assert "ours-tail" in text and "theirs-tail" in text     # zero-drop keep-both
+    assert "<<<<<<<" not in text                             # no human deferral marker
+
+
+def _diff3_empty_base(ours, theirs, pre=""):
+    # Real `git merge-file --diff3` minimizes a concurrent insertion to an EMPTY base (no line
+    # between `||||||| base` and `=======`). _diff3(..., base="") would instead yield a single
+    # blank base line, so a dedicated helper is needed to exercise the empty-base predicate.
+    block = "<<<<<<< ours\n" + ours + "\n||||||| base\n=======\n" + theirs + "\n>>>>>>> theirs"
+    return (pre + "\n" + block) if pre else block
+
+
+def test_log_entry_insertion_keeps_both_verbatim_zero_drop():
+    from classify import Hunk
+    from resolve import resolve_log_entry_insertion
+    h = Hunk(ours=["- **2026-07-04** — A", "", "  body a"], base=[],
+             theirs=["- **2026-07-05** — B", "", "  body b"])
+    r = resolve_log_entry_insertion(h)
+    # ours block then theirs block, VERBATIM (no dedup, no reorder); every line survives.
+    assert r.lines == ["- **2026-07-04** — A", "", "  body a", "- **2026-07-05** — B", "", "  body b"]
+
+
+def test_log_entry_insertion_no_dedup_preserves_shared_body_line():
+    # Two DISTINCT entries that share a body line must NOT lose it — append-style dedup would
+    # corrupt an entry. Verbatim concatenation keeps both copies (fail-safe).
+    from classify import Hunk
+    from resolve import resolve_log_entry_insertion
+    h = Hunk(ours=["- **2026-07-04** — A", "  shared body"], base=[],
+             theirs=["- **2026-07-05** — B", "  shared body"])
+    assert resolve_log_entry_insertion(h).lines.count("  shared body") == 2
+
+
+def test_log_entry_insertion_resolves_end_to_end():
+    t = _diff3_empty_base("- **2026-07-04** — ours\n\n  rat ours",
+                          "- **2026-07-05** — theirs\n\n  rat theirs", pre="## History")
+    status, lines, results = resolve_file(t)
+    assert status == RESOLVED and results[0].label == "log-entry-insertion"
+    text = "\n".join(lines)
+    for needle in ["ours", "theirs", "## History"]:
+        assert needle in text
+    assert "<<<<<<<" not in text
+
+
+def test_log_entry_insertion_defers_on_deletion_nonempty_base():
+    # Non-empty base => a side modified/deleted a shared line => not a pure insertion => defer.
+    from classify import Hunk, is_confident
+    from resolve import resolve_hunk
+    h = Hunk(ours=["- **2026-07-04** — A"], base=["- **2026-07-01** — old"],
+             theirs=["- **2026-07-05** — B"])
+    h.label = "log-entry-insertion"
+    assert is_confident(h) is False           # predicate re-check fails (non-empty base)
+    assert resolve_hunk(h).status == DEFER
+
+
+def test_log_entry_insertion_defers_on_foreign_structure():
+    # A foreign structural line (here an `### L9:` ID heading) inside the insertion disqualifies
+    # the block => defer. Guards against a non-log structure being swept into a keep-both.
+    t = _diff3_empty_base("- **2026-07-04** — ours\n### L9: sneaky id",
+                          "- **2026-07-05** — theirs", pre="## History")
+    status, _lines, results = resolve_file(t)
+    assert status == DEFER                     # falls closed to a human
 
 
 def test_low_confidence_mechanical_hunk_defers():

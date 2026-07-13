@@ -15,7 +15,7 @@ SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
 
 
 def _body() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_phase_header_budget_annotation_documented():

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 # Label constants — consistent with the tp: namespace
 READY_FOR_HUMAN_MERGE = "tp:ready-for-human-merge"
@@ -158,3 +158,58 @@ def ensure_pr_label(pr_url: str, label: str) -> None:
         raise RuntimeError(
             f"gh api add-label failed after create: {retry.stderr.strip()}"
         )
+
+
+def remove_pr_label(pr_url: str, label: str) -> bool:
+    """Best-effort PROBE-FIRST remove of `label` from the PR. Never raises.
+
+    Mirrors ensure_pr_label's shape: a read-only `gh pr view --json labels`
+    probe first, then the mutation ONLY when actually needed. Absent label →
+    True with ZERO write attempts (the production common case — most terminals
+    clear an opposing label that was never applied); probe failure → False with
+    ZERO write attempts (fail-closed-no-write: a hermetic test env where gh is
+    unavailable must never see a write-METHOD invocation — round-3 finding).
+    Present → REST DELETE `repos/{owner}/{repo}/issues/{n}/labels/{name}`
+    (never `gh pr edit --remove-label` — broken on classic-Projects repos),
+    label URL-encoded (tp: labels carry a colon); a 404 (already gone — race)
+    still counts as success. Returns True when the label is absent after the
+    call — callers treat removal as label HYGIENE (run_round's terminals clear
+    the opposing state label so `fleet_watch.classify_run` reads a single-label
+    truth), so a miss must never break the round.
+    """
+    try:
+        _validate_pr_url(pr_url)
+        if not isinstance(label, str) or not label:
+            return False
+        owner, repo, number = _parse_pr_url(pr_url)
+
+        view = subprocess.run(
+            ["gh", "pr", "view", pr_url, "--json", "labels"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if view.returncode != 0:
+            return False  # probe failed → NO write attempt
+        payload = json.loads(view.stdout or "{}")
+        existing = [
+            e.get("name") for e in payload.get("labels") or [] if isinstance(e, dict)
+        ]
+        if label not in existing:
+            return True  # already absent — idempotent, zero writes
+
+        proc = subprocess.run(
+            [
+                "gh", "api", "--method", "DELETE",
+                f"repos/{owner}/{repo}/issues/{number}/labels/{quote(label, safe='')}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0:
+            return True
+        s = (proc.stderr or "").lower()
+        return "404" in s or "not found" in s or "does not exist" in s
+    except Exception:
+        return False

@@ -35,7 +35,7 @@ def _grandfather_entries() -> list[str]:
         return []
     return [
         ln.strip()
-        for ln in GRANDFATHER.read_text().splitlines()
+        for ln in GRANDFATHER.read_text(encoding="utf-8").splitlines()
         if ln.strip() and not ln.strip().startswith("#")
     ]
 

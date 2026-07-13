@@ -23,7 +23,7 @@ SKILL_MD = Path(__file__).resolve().parent / "SKILL.md"
 
 @functools.lru_cache(maxsize=1)
 def _body() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #

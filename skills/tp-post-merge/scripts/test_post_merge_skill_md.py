@@ -9,7 +9,7 @@ Enforces:
   - refuse-on-unverified verb present
   - no-arg scan form present
   - ## Auto Mode section shape
-  - candidate branch teardown documented (5f local + 5g remote)
+  - candidate branch teardown documented via the reaper (5f local + 5g remote, any id)
   - candidate branch deletion in report
   - ## Backfill sweep section present
 
@@ -29,7 +29,7 @@ SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def _auto_mode_block(text: str) -> str:
@@ -167,16 +167,24 @@ def test_auto_mode_section_shape_b() -> None:
 # ---------------------------------------------------------------------------
 
 def test_candidate_branch_teardown_present() -> None:
-    """SKILL.md must document both local and remote candidate branch deletion."""
+    """SKILL.md must document candidate branch teardown via the reaper, covering
+    both local and remote surfaces for any candidate id (generalized off the old
+    `/single`-only inline delete pair — see B9 / candidate-branch-reaper Task 3.2)."""
     text = _read()
-    assert "candidate/{name}/single" in text, (
-        "SKILL.md must reference the candidate branch shape `candidate/{name}/single`"
+    assert "candidate/{name}/*" in text, (
+        "SKILL.md must reference the generalized candidate branch shape "
+        "`candidate/{name}/*` (any id, not the old `/single`-only shape)"
     )
-    assert re.search(r"git branch -D candidate/", text), (
-        "SKILL.md must include `git branch -D candidate/` for local force-delete"
+    assert re.search(r"gc_candidate_branches\.py --slug \{name\} --apply", text), (
+        "SKILL.md teardown must invoke the reaper "
+        "`gc_candidate_branches.py --slug {name} --apply`"
     )
-    assert re.search(r"git push origin --delete candidate/", text), (
-        "SKILL.md must include `git push origin --delete candidate/` for remote delete"
+    # The teardown steps must still name both surfaces the reaper deletes.
+    idx = text.index("gc_candidate_branches.py")
+    window = text[idx : idx + 800]
+    assert "local" in window and "remote" in window, (
+        "the reaper teardown steps must cover both the local and remote candidate "
+        "surfaces"
     )
 
 

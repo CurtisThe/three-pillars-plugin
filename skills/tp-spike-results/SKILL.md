@@ -21,7 +21,7 @@ Capture the findings from a completed or partially completed spike into a struct
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
 1. **Validate `{spike-name}`**: must match `[a-z0-9-]+`. Reject values containing `/`, `..`, spaces, or characters outside `[a-z0-9-]`.
-2. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "audit"`. The spike-results artifact is the verdict record — it must be written by the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
+2. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "spike-results"`. The spike-results artifact is the verdict record — it must be written by the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
 3. **Read all artifacts** in the spike directory: `design.md`, `plan.md` (if exists), any code files, and note any demo files (MP4s, screenshots, logs).
 4. **Capture findings**:
    - **Normal mode**: Have a conversation with the user:
@@ -65,15 +65,18 @@ Decisions that should propagate to architecture.md or downstream designs.
 Designs in three-pillars-docs/tp-designs/ that need updating based on these findings.
 ```
 
-6. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
+6. **Verify evidence is git-tracked**: run `python3 "$TP_ROOT"/skills/_shared/evidence_tracked.py <spike-dir>`. On rc 1, normal mode HARD-WARNS and lists the untracked paths — tell the user to commit the evidence (move files OUT of `demos/scratch/` first if they live there; scratch can never be git-tracked). `--auto` mode treats rc 1 as a STOP/hard-fail logged to `decisions.md` (the verdict's proof must be durable).
+
+7. **Commit the artifact** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
    - `three-pillars-docs/tp-designs/{spike-name}/spike-results.md`
    - `three-pillars-docs/tp-designs/{spike-name}/lock.json` (if refreshed)
    Commit message: `Spike: {spike-name} results`.
-7. **Direct user to run `/tp-spike-learn`**: This is a **required** next step, not optional. Tell the user:
+8. **Direct user to run `/tp-spike-learn`**: This is a **required** next step, not optional. Tell the user:
    > **Required next step**: Run `/tp-spike-learn {spike-name}` to propagate findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, and to scan for affected downstream designs. Skipping this step causes the roadmap Design Inventory to go stale and downstream designs to miss critical dependency updates. Do this BEFORE `/tp-design-complete`.
    In `--auto` mode, log this same message to `decisions.md`.
 
 ## Rules
+- **Evidence must be git-tracked**: the verdict's referenced Demo Reference paths must be git-tracked before the verdict is final (step 6 enforces this).
 - **Validate `{spike-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the verdict record must be written by the rightful owner.
 - Copy the **Parent** link from design.md. If design.md has no parent, use `none`.

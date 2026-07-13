@@ -44,7 +44,7 @@ class UnknownSchemaVersionError(Exception):
 @functools.lru_cache(maxsize=None)
 def _load_schema(schema_path: str) -> dict:
     """Read + parse a schema JSON once per path (the schemas dir is static per run)."""
-    return json.loads(Path(schema_path).read_text())
+    return json.loads(Path(schema_path).read_text(encoding="utf-8"))
 
 
 @functools.lru_cache(maxsize=1)

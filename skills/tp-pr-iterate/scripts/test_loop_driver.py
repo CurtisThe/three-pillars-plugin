@@ -205,6 +205,7 @@ def test_terminal_states_add_needs_human_attention_label(monkeypatch) -> None:
         calls.append((pr_url, label))
 
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", fake_ensure)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -703,8 +704,10 @@ def test_run_loop_single_round_dispatches_and_advances(monkeypatch):
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     # Labels no-op
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -775,8 +778,10 @@ def test_run_loop_waits_on_unsettled_ci(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", fake_ci_settled)
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -809,6 +814,7 @@ def test_run_loop_invokes_guards_cap_exhausted(monkeypatch):
     label_calls = []
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
 
@@ -822,6 +828,7 @@ def test_run_loop_invokes_guards_cap_exhausted(monkeypatch):
     }
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -855,8 +862,10 @@ def test_run_loop_invokes_conflict_defer(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -908,8 +917,10 @@ def test_run_loop_converges_on_two_stable(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -958,8 +969,10 @@ def test_run_loop_does_not_converge_with_unresolved_ground_truth(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1002,8 +1015,10 @@ def test_run_loop_resolve_round_fn_resolves_threads_and_converges(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1051,8 +1066,10 @@ def test_run_loop_new_unresolved_thread_each_round_blocks_two_stable(monkeypatch
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1097,8 +1114,10 @@ def test_run_loop_records_last_comment_seen_at(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1129,6 +1148,7 @@ def test_run_loop_cap_exhausted_bounded_sleeps(monkeypatch):
     label_calls = []
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
 
@@ -1154,6 +1174,7 @@ def test_run_loop_cap_exhausted_bounded_sleeps(monkeypatch):
         )
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1191,8 +1212,10 @@ def test_run_loop_conflict_deferred_terminal(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1217,7 +1240,7 @@ def test_loop_driver_has_no_anthropic_import():
     import ast as _ast
     from pathlib import Path as _Path
 
-    src = (_Path(__file__).parent / "loop_driver.py").read_text()
+    src = (_Path(__file__).parent / "loop_driver.py").read_text(encoding="utf-8")
     tree = _ast.parse(src)
 
     for node in _ast.walk(tree):
@@ -1300,8 +1323,10 @@ def test_run_loop_breaks_ci_wait_on_head_sha_mismatch(monkeypatch):
                         lambda since: ["human: hotfix on top of the loop"])
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1342,8 +1367,10 @@ def test_run_loop_advances_last_loop_sha_via_resolver(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1397,12 +1424,14 @@ def test_converged_run_applies_ready_label(monkeypatch, tmp_path):
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     # Create a decisions.md path in tmp_path
     decisions_path = tmp_path / "decisions.md"
     decisions_path.write_text("")
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/42",
         state=state,
@@ -1455,11 +1484,13 @@ def test_converged_run_appends_terminal_line(monkeypatch, tmp_path):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     decisions_path = tmp_path / "decisions.md"
     decisions_path.write_text("")
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/42",
         state=state,
@@ -1475,7 +1506,7 @@ def test_converged_run_appends_terminal_line(monkeypatch, tmp_path):
     )
 
     assert result.get("termination_reason") == "two-stable"
-    content = decisions_path.read_text()
+    content = decisions_path.read_text(encoding="utf-8")
     pattern = r"^### \[pr-readiness/terminal\] (\S+) — PR #\d+ @ [0-9a-f]{7,} \(.+\)$"
     matches = [line for line in content.splitlines() if _re.match(pattern, line)]
     assert len(matches) == 1, (
@@ -1500,12 +1531,14 @@ def test_non_converging_run_writes_no_terminal_line(monkeypatch, tmp_path):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     decisions_path = tmp_path / "decisions.md"
     decisions_path.write_text("")
 
     # reviewed_fn=False → no convergence
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/42",
         state=state,
@@ -1523,7 +1556,7 @@ def test_non_converging_run_writes_no_terminal_line(monkeypatch, tmp_path):
     assert result.get("termination_reason") != "two-stable", (
         f"reviewed_fn=False must not converge to two-stable; got {result.get('phase')}"
     )
-    content = decisions_path.read_text()
+    content = decisions_path.read_text(encoding="utf-8")
     # The READY line must not be written (convergence did not happen).
     # The BLOCKED line is acceptable (blocked-no-independent-review is also non-convergence).
     ready_pattern = r"^### \[pr-readiness/terminal\] READY"
@@ -1555,8 +1588,10 @@ def test_run_loop_predicate_true_converges(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1592,8 +1627,10 @@ def test_run_loop_predicate_false_loops(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1632,8 +1669,10 @@ def test_run_loop_missing_reviewed_fn_unverifiable(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1777,6 +1816,7 @@ def test_run_loop_threads_config_into_ci_settled_on_head(monkeypatch):
             poll_fn=poll,
             sleep_fn=lambda *a, **k: None,
             now_fn=lambda: datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc),
+            proof_ok_fn=lambda _h: True,
         )
     assert captured["config"] == cfg
 
@@ -1822,6 +1862,7 @@ def test_run_loop_converges_codereview_only_when_copilot_not_expected(monkeypatc
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     # Inject codereview_fn that returns real-clean findings for the head sha.
     # This lets round 1 (sha1, structural classified) cache real findings,
@@ -1841,6 +1882,9 @@ def test_run_loop_converges_codereview_only_when_copilot_not_expected(monkeypatc
         reviewed_fn=lambda pr_url: False,
         # Real fan-out: returns clean findings for any head (empty = no issues found).
         codereview_fn=lambda effort, head_sha: [],
+        # enforce-review-proof: proof is an orthogonal conjunct; this test isolates the
+        # /code-review convergence machinery, so assert proof present.
+        proof_ok_fn=lambda _h: True,
     )
 
     assert result.get("termination_reason") == "two-stable", (
@@ -1873,8 +1917,10 @@ def test_run_loop_codereview_only_still_blocked_by_open_finding(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -1909,8 +1955,10 @@ def test_run_loop_default_still_requires_copilot_when_expected(monkeypatch):
     monkeypatch.setattr(loop_driver, "_ci_settled_on_head", lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test-design",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2132,9 +2180,11 @@ def test_two_stable_blocked_on_settled_but_failed_ci(monkeypatch):
     label_calls = []
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     state["max_iterations"] = 2
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2172,6 +2222,7 @@ def test_two_stable_blocked_on_settled_but_failed_ci(monkeypatch):
         minor_round,
     ]
     result2 = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state2,
@@ -2258,6 +2309,7 @@ def test_codereview_structural_counter_lifecycle(monkeypatch):
                         lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     # max_iterations=3: iteration starts at 0; after 3 rounds iteration=3;
     # guard fires at start of iteration 4 (iteration > max_iterations).
@@ -2281,6 +2333,7 @@ def test_codereview_structural_counter_lifecycle(monkeypatch):
     _cr_by_head = {"sha1": structural_cr, "sha2": structural_cr, "sha3": []}
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2334,6 +2387,7 @@ def test_infra_block_holds_no_fix(monkeypatch):
     label_calls = []
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     fix_calls = []
 
@@ -2351,6 +2405,7 @@ def test_infra_block_holds_no_fix(monkeypatch):
     state["max_iterations"] = 2
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2396,6 +2451,7 @@ def test_code_failure_takes_fix_path(monkeypatch):
     label_calls = []
     monkeypatch.setattr(loop_driver, "_ensure_pr_label",
                         lambda pr_url, label: label_calls.append((pr_url, label)))
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     fix_calls = []
 
@@ -2414,6 +2470,7 @@ def test_code_failure_takes_fix_path(monkeypatch):
     state["max_iterations"] = 2
 
     result = loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2467,6 +2524,7 @@ def test_phase6_skipped_on_head_sha_mismatch_break(monkeypatch):
                         lambda *a, **kw: (False, "head-sha-mismatch", moved_head_rollup))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     fix_calls = []
 
@@ -2482,6 +2540,7 @@ def test_phase6_skipped_on_head_sha_mismatch_break(monkeypatch):
                 r["copilot_threads"], r["head_sha"], r["commit_id"])
 
     loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2516,6 +2575,7 @@ def test_poll_fn_receives_escalated_effort_after_codereview_structural_round(mon
                         lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     structural_cr = [{"file": "x.py", "summary": "bug", "verdict": "structural"}]
     rounds = [
@@ -2545,6 +2605,7 @@ def test_poll_fn_receives_escalated_effort_after_codereview_structural_round(mon
                 r["copilot_threads"], r["head_sha"], r["commit_id"])
 
     loop_driver.run_loop(
+        proof_ok_fn=lambda _h: True,
         design="test",
         pr_url="https://github.com/o/r/pull/1",
         state=state,
@@ -2667,7 +2728,7 @@ def test_append_blocked_no_review_line_writes_correct_format(tmp_path):
 
     loop_driver._append_blocked_no_review_line(pr_url, head_oid, now, decisions_file)
 
-    content = decisions_file.read_text()
+    content = decisions_file.read_text(encoding="utf-8")
     assert "### [pr-readiness/terminal] BLOCKED" in content
     assert "no independent review ran" in content
     assert "PR #42" in content
@@ -2845,7 +2906,7 @@ def test_run_round_fail_closed_blocked_no_independent_review(tmp_path):
         "blocked-no-independent-review terminal must apply tp:needs-human-attention "
         "(the F9 'escalate' label); labels seen: {labels_applied!r}"
     )
-    content = decisions_file.read_text()
+    content = decisions_file.read_text(encoding="utf-8")
     assert "BLOCKED" in content
     assert result["state"]["phase"] == "blocked-no-independent-review"
     assert result["action"] in ("fix", "noop")
@@ -3014,6 +3075,7 @@ def test_run_loop_codereview_fn_called_per_new_head_not_on_same_head(monkeypatch
                         lambda url, commit, n, cfg: (True, None, []))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda url: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda url, lbl: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     config = {"ci": {"expects_github_checks": False}, "review": {"expects_copilot": False}}
 
@@ -3031,6 +3093,8 @@ def test_run_loop_codereview_fn_called_per_new_head_not_on_same_head(monkeypatch
         unresolved_actionable_fn=lambda url: 0,
         reviewed_fn=None,
         codereview_fn=codereview_fn,
+        # enforce-review-proof: isolate per-head fan-out from the orthogonal proof conjunct.
+        proof_ok_fn=lambda _h: True,
     )
 
     # codereview_fn must have been called for H1 (first round) and H2 (when head advanced)
@@ -3083,6 +3147,7 @@ def test_run_loop_dedupe_round_uses_cache_not_poll_legacy(monkeypatch):
                         lambda url, commit, n, cfg: (True, None, []))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda url: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda url, lbl: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     config = {"ci": {"expects_github_checks": False}, "review": {"expects_copilot": False}}
 
@@ -3101,6 +3166,7 @@ def test_run_loop_dedupe_round_uses_cache_not_poll_legacy(monkeypatch):
         unresolved_actionable_fn=lambda url: 0,
         reviewed_fn=None,
         codereview_fn=codereview_fn,
+        proof_ok_fn=lambda _h: True,
     )
 
     # codereview_fn called exactly once for H1 (round 1), not again on round 2 (dedupe)
@@ -3138,6 +3204,7 @@ def test_run_loop_copilot_carries_alone_converges(monkeypatch):
                         lambda url, commit, n, cfg: (True, None, []))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda url: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda url, lbl: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     config = {"ci": {"expects_github_checks": False}, "review": {"expects_copilot": True}}
 
@@ -3155,6 +3222,7 @@ def test_run_loop_copilot_carries_alone_converges(monkeypatch):
         unresolved_actionable_fn=lambda url: 0,
         reviewed_fn=lambda url: True,  # Copilot reviewed successfully
         # No codereview_fn (un-injected, defaults to degraded)
+        proof_ok_fn=lambda _h: True,
     )
 
     # Should converge via Copilot disjunct
@@ -3189,6 +3257,7 @@ def test_run_loop_force_push_back_cache_miss_fails_closed(monkeypatch):
                         lambda url, commit, n, cfg: (True, None, []))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda url: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda url, lbl: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     config = {"ci": {"expects_github_checks": False}, "review": {"expects_copilot": False}}
 
@@ -3206,6 +3275,7 @@ def test_run_loop_force_push_back_cache_miss_fails_closed(monkeypatch):
         unresolved_actionable_fn=lambda url: 0,
         reviewed_fn=None,
         # No codereview_fn — cache miss will inject merge_codereview_angles([]) sentinel
+        proof_ok_fn=lambda _h: True,
     )
 
     # Should hit blocked-no-independent-review, not false-converge
@@ -3296,6 +3366,7 @@ def test_run_loop_f_c1_dispatch_early_return_resume_not_wedged(monkeypatch):
                         lambda url, commit, n, cfg: (True, None, []))
     monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda url: True)
     monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda url, lbl: None)
+    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
 
     config = {"ci": {"expects_github_checks": False}, "review": {"expects_copilot": False}}
 
@@ -3314,6 +3385,8 @@ def test_run_loop_f_c1_dispatch_early_return_resume_not_wedged(monkeypatch):
         unresolved_actionable_fn=lambda url: 0,
         reviewed_fn=None,
         codereview_fn=None,  # no re-dispatch; uses cache
+        # enforce-review-proof: isolate the cache-resume convergence from the proof conjunct.
+        proof_ok_fn=lambda _h: True,
     )
 
     # With the atomic cache write (F-C1 fix): cache hits → real-clean findings →
@@ -3325,4 +3398,221 @@ def test_run_loop_f_c1_dispatch_early_return_resume_not_wedged(monkeypatch):
         "via the cache (real-clean findings), NOT get wedged blocked-no-independent-review "
         f"due to a dedup/cache desync. Got phase={result.get('phase')}, "
         f"reason={result.get('termination_reason')}"
+    )
+
+
+# ---------- codereview-proof-of-review: proof_ok conjunct (Tasks 2.1 + 2.2) ----------
+
+
+def _proof_base_state(now=None, **overrides):
+    """Minimal state for proof matrix tests."""
+    if now is None:
+        now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    state = {
+        "phase": "fixing",
+        "iteration": 1,
+        "max_iterations": 8,
+        "max_wall_clock_sec": 14400,
+        "started_at": (now - timedelta(hours=1)).isoformat(),
+        "last_verdict": "minor-only",
+        "transitions": [],
+        "cumulative_diff_lines": 0,
+        "original_diff_lines": 100,
+        "consecutive_structural_rounds": 0,
+        "last_loop_sha": None,
+        "last_comment_seen_at": None,
+        "last_codereview_head_sha": "abc123",
+        "last_codereview_findings": [],
+    }
+    state.update(overrides)
+    return state
+
+
+def _proof_config():
+    return {"review": {"expects_copilot": False}, "ci": {"expects_github_checks": False}}
+
+
+def _noop_label(url, label):
+    pass
+
+
+# Task 2.1: _independent_review_ran proof_ok matrix
+
+def test_independent_review_ran_proof_ok_true_behaves_as_before():
+    """proof_ok=True: conjunct satisfied when other conditions hold.
+
+    Invariant: three-valued 'is not False' semantics — proof_ok=True passes the conjunct.
+    """
+    result = loop_driver._independent_review_ran(
+        [],  # real-clean findings
+        expects_copilot=False,
+        reviewed=None,
+        head_sha="h1",
+        cached_head_sha="h1",
+        proof_ok=True,
+    )
+    assert result is True, "proof_ok=True + clean findings + cache match must be True"
+
+
+def test_independent_review_ran_proof_ok_false_blocks_even_clean():
+    """proof_ok=False: blocks even with clean findings + matching head.
+
+    Invariant: flipping to truthiness check `proof_ok` would make None block too —
+    the 'is not False' semantics are load-bearing (see test_independent_review_ran_proof_ok_none).
+    """
+    result = loop_driver._independent_review_ran(
+        [],  # real-clean findings
+        expects_copilot=False,
+        reviewed=None,
+        head_sha="h1",
+        cached_head_sha="h1",
+        proof_ok=False,
+    )
+    assert result is False, (
+        "proof_ok=False must block even with clean findings and matching head "
+        "(fail-closed: missing/degraded/empty-diff proof blocks convergence)"
+    )
+
+
+def test_independent_review_ran_proof_ok_none_legacy_permissive():
+    """proof_ok=None: legacy permissive — no regression on existing call-sites.
+
+    INVARIANT (pinned): proof_ok=None MUST behave identically to the pre-change
+    behavior (no proof enforcement). Flipping the production conjunct to a truthiness
+    check (`proof_ok`) would make None block — violating this invariant. The
+    three-valued 'is not False' form is the ONLY correct implementation.
+    """
+    result = loop_driver._independent_review_ran(
+        [],  # real-clean findings
+        expects_copilot=False,
+        reviewed=None,
+        head_sha="h1",
+        cached_head_sha="h1",
+        proof_ok=None,
+    )
+    assert result is True, (
+        "proof_ok=None must be legacy-permissive (no proof enforcement). "
+        "A truthiness check would make None block — three-valued 'is not False' is the "
+        "load-bearing invariant; this test goes RED if the conjunct is changed."
+    )
+
+
+def test_independent_review_ran_proof_ok_false_with_copilot_reviewed():
+    """proof_ok=False blocks BOTH arms — including the Copilot disjunct.
+
+    Round-2 review finding on PR #109: with the proof conjunct nested inside
+    review_available only, an expects_copilot=true repo could converge a round
+    with a successful Copilot review but NO proof on the head — the loop labeled
+    ready while gate p7 refused the same head. Design behavior 3's invariant
+    (convergence-eligible round with no proof → blocked) holds regardless of
+    which reviewer ran, so the conjunct is applied at the top level now.
+    """
+    result = loop_driver._independent_review_ran(
+        _degraded_findings(),
+        expects_copilot=True,
+        reviewed=True,
+        head_sha="h1",
+        cached_head_sha="other",
+        proof_ok=False,
+    )
+    assert result is False, (
+        "proof_ok=False must block the Copilot arm too — a Copilot-reviewed "
+        "round with no proof on head must not satisfy _independent_review_ran"
+    )
+
+
+def test_independent_review_ran_proof_ok_none_with_copilot_reviewed():
+    """proof_ok=None (legacy / unenforced) keeps the Copilot arm permissive."""
+    result = loop_driver._independent_review_ran(
+        _degraded_findings(),
+        expects_copilot=True,
+        reviewed=True,
+        head_sha="h1",
+        cached_head_sha="other",
+        proof_ok=None,
+    )
+    assert result is True
+
+
+# Task 2.2: run_round threads proof_ok
+
+def test_run_round_proof_ok_false_blocks_convergence():
+    """run_round with proof_ok=False on an otherwise-converging round →
+    terminal='blocked-no-independent-review' + tp:needs-human-attention label."""
+    now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    state = _proof_base_state(now)
+    config = _proof_config()
+    labels_applied = []
+
+    def _label(url, lbl):
+        labels_applied.append(lbl)
+
+    result = loop_driver.run_round(
+        state,
+        head_sha="abc123",
+        codereview_findings=[],  # real-clean
+        reviewed=None,
+        unresolved_actionable=0,
+        ci_rollup=[],
+        config=config,
+        now=now,
+        pr_url="https://github.com/o/r/pull/1",
+        label_fn=_label,
+        proof_ok=False,
+    )
+    assert result["terminal"] == "blocked-no-independent-review", (
+        f"proof_ok=False must block convergence; got terminal={result['terminal']!r}"
+    )
+    assert "tp:needs-human-attention" in labels_applied, (
+        "blocked-no-independent-review must apply tp:needs-human-attention label"
+    )
+
+
+def test_run_round_proof_ok_true_converges():
+    """run_round with proof_ok=True + clean findings + minor-only → two-stable."""
+    now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    state = _proof_base_state(now)
+    config = _proof_config()
+    labels_applied = []
+
+    result = loop_driver.run_round(
+        state,
+        head_sha="abc123",
+        codereview_findings=[],
+        reviewed=None,
+        unresolved_actionable=0,
+        ci_rollup=[],
+        config=config,
+        now=now,
+        pr_url="https://github.com/o/r/pull/1",
+        label_fn=lambda url, lbl: labels_applied.append(lbl),
+        proof_ok=True,
+    )
+    assert result["terminal"] in ("two-stable", "two-stable [code-review-only]"), (
+        f"proof_ok=True + clean findings must converge; got terminal={result['terminal']!r}"
+    )
+
+
+def test_run_round_proof_ok_none_existing_behavior():
+    """run_round with proof_ok=None → existing two-stable behavior (no regression)."""
+    now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    state = _proof_base_state(now)
+    config = _proof_config()
+
+    result = loop_driver.run_round(
+        state,
+        head_sha="abc123",
+        codereview_findings=[],
+        reviewed=None,
+        unresolved_actionable=0,
+        ci_rollup=[],
+        config=config,
+        now=now,
+        pr_url="https://github.com/o/r/pull/1",
+        label_fn=_noop_label,
+        proof_ok=None,  # legacy permissive
+    )
+    assert result["terminal"] in ("two-stable", "two-stable [code-review-only]"), (
+        f"proof_ok=None must preserve existing two-stable convergence; "
+        f"got terminal={result['terminal']!r}"
     )

@@ -237,8 +237,8 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     Reply-and-resolve every Copilot thread:
     The reply ALWAYS precedes the resolve — the loop never resolves a thread
     without first leaving the evidence reply. Call the shared helper:
-
     ```python
+    # thread_dispose resolved via sys.path.insert(0, "$TP_ROOT/skills/_shared")
     result = thread_dispose.dispose_threads(
         pr_url,
         envelope,
@@ -303,17 +303,21 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
        qualifies.
 
     When conjuncts 1–3 hold AND conjunct 4 is **False** (no independent review ran for
-    this head): transition `blocked-no-independent-review`, apply `tp:needs-human-attention`,
-    append the `BLOCKED — no independent review ran` line to `decisions.md`. This is a
+    this head): transition `blocked-no-independent-review`, apply `tp:needs-human-attention`
+    **and remove any stale `tp:ready-for-human-merge`** (terminal label hygiene — a prior
+    convergence's label must not mask a later blocked head), append the
+    `BLOCKED — NEEDS REVIEW — no proof (no independent review ran)` line to `decisions.md`. This is a
     **terminal** — `run_round` returns `terminal="blocked-no-independent-review"` and
-    `run_loop` stops. The `tp:needs-human-attention` label signals the review-blocker for
-    human follow-up. Never apply `tp:ready-for-human-merge` on this path.
+    `run_loop` stops; `tp:needs-human-attention` escalates for human follow-up (never apply
+    `tp:ready-for-human-merge` here). Bounded re-run / not-converged: see `proof-of-review.md`.
 
     When all four hold: transition `awaiting-human-review` with `termination_reason="two-stable"`,
-    apply `tp:ready-for-human-merge` (via `_ensure_pr_label`), append the
-    `[pr-readiness/terminal]` line to `decisions.md`. The loop is **fail-open** on the
-    readiness check: a missing/erroring `reviewed_fn` is UNVERIFIABLE → the loop keeps
-    iterating to a cap/idle terminal, never false-converges.
+    apply `tp:ready-for-human-merge` (via `_ensure_pr_label`) **and remove the sticky
+    `tp:needs-human-attention`** (`label_manager.remove_pr_label`, probe-first REST — it is
+    also applied on recoverable paths and nothing else clears it; without this a
+    recovered-then-converged run reads as fleet trouble), append the `[pr-readiness/terminal]`
+    line to `decisions.md`. The loop is **fail-open** on the readiness check: a
+    missing/erroring `reviewed_fn` is UNVERIFIABLE → keep iterating to a cap/idle terminal.
 
     **Copilot-optional terminal (`review.expects_copilot`).** The Copilot conjunct
     (`reviewed is True`) is required **only when Copilot is an available reviewer** —
@@ -322,8 +326,8 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     entitlement absence), the Copilot disjunct of `_independent_review_ran` is dead, so
     `review_available` alone carries the fourth conjunct — the dual-source `/code-review`
     arm is the load-bearing reviewer. The transition note is `two-stable [code-review-only]`;
-    `termination_reason` stays `"two-stable"`. With `review.expects_copilot` true (the
-    default), behavior is unchanged.
+    `termination_reason` stays `"two-stable"`; the canonical clean-round finish is
+    `scripts/converge.py` (ordered: post proof digest → shell `run_round.py`). expects_copilot true is unchanged.
 
     **Honest-attribution rule.** A single-context self-pass (a `/code-review` running
     inside the same LLM context as the loop, reading the diff in-context rather than as
@@ -492,3 +496,4 @@ across PRs #45/#46. Get any of them wrong and a round silently misreads Copilot'
 - `tp-pr-fix/SKILL.md` — the single-round worker this loop dispatches to.
 - `tp-merge-from-main/SKILL.md` — the base-into-branch conflict resolver to invoke when the PR goes `DIRTY`/`BEHIND` mid-loop (never hand-merge). (The `/tp-merge` land gate is separate — landing the PR is the human's.)
 - `tp-pr-fix/scripts/fix_round.py` — deterministic identity-gate + commit + push + label helper. (Owns no iterate-state; `last_loop_sha` write-back is the loop driver's job — see above.)
+- Proof-of-review per-round contract: see `tp-pr-iterate/proof-of-review.md`.

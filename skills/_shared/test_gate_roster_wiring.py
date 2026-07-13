@@ -395,8 +395,12 @@ def test_stamp_indeterminate_on_unresolvable_root_live_path(monkeypatch):
         mergeable="MERGEABLE",
         head_oid="deadbeef",
         config=_HERMETIC_CONFIG,
-        r={},           # empty runners → running_live=True in evaluate_gate context;
-                        # here we pass running_live explicitly below
+        r={
+            # p7's hermetic seam (review finding on PR #109): running_live=True
+            # below would otherwise send the default-required proof predicate to
+            # live `gh pr view` mid-test. Only the stamp path is under test here.
+            "comments_fn": lambda _u: [],
+        },
         copilot_runners=None,
         running_live=True,  # forces the live stamp path (not hermetic carve-out)
         shared_dir=None,

@@ -374,16 +374,29 @@ def pred_copilot_on_head(pr_url: str, *, runners: "dict | None" = None) -> Predi
 def pred_human_approved(
     pr_url: str, *, runners: "dict | None" = None, config: "dict | None" = None
 ) -> PredicateResult:
-    """Gate predicate 5: does a CURRENT human approval exist on this head?
+    """Gate predicate 5: does a CURRENT-OR-CARRIED human approval exist on this head?
 
-    Thin call to human_approval.human_approved_on_head:
-    - True  → PASS  (a deliberate human applied tp:human-approved on THIS head)
-    - False → INDETERMINATE  (absent / stale / bot-applied / self-applied / any
+    Config-off (the default) takes the EXACT pre-carry path — a thin call to
+    `human_approval.human_approved_on_head` — so behavior AND spawn profile are
+    byte-identical to before approval-survives-safe-base-sync (this is also what keeps
+    the existing `human_approved_on_head`-stubbing unit tests below passing unmodified:
+    stubbing that one name still fully intercepts this predicate whenever
+    `base_sync_cert.carry_enabled(config)` is False):
+    - True  → PASS  (a non-automation human approved THIS head via APPROVED review)
+    - False → INDETERMINATE  (absent / stale / bot-reviewed / self-reviewed / any
               unprovable case — currency unprovable, fail-closed)
+
+    Config-on routes through `human_approval.approved_on_head_result` instead, which
+    ALSO attempts a certified no-op base-sync carry on a currency miss. PASS detail
+    stays "a non-automation human approved THIS head" when current, or the carry detail
+    ("approval carried across N certified base-sync merge(s) ...") when carried.
+    INDETERMINATE detail is today's remediation string VERBATIM, with "; carry:
+    <reason>" appended ONLY when a carry was actually attempted and refused (an
+    unattempted carry — e.g. an unresolvable repo_root/base_ref — reports no reason).
 
     NEVER FAIL (D6): a missing or unprovable human approval is an INDETERMINATE
     "cannot prove" state, not a hard FAIL. INDETERMINATE → gate_cli exit 2 (the
-    irreversible-boundary block), and — unlike a FAIL — a later human apply +
+    irreversible-boundary block), and — unlike a FAIL — a later human APPROVED review +
     re-evaluation flips it to PASS with no other state change. Mirrors
     pred_copilot_on_head's three-valued PASS/INDETERMINATE mapping.
 
@@ -391,23 +404,38 @@ def pred_human_approved(
     """
     try:
         import human_approval  # noqa — in _shared/ beside this file
-        approved = human_approval.human_approved_on_head(
-            pr_url, runners=runners, config=config
-        )
-        if approved:
-            return PredicateResult(
-                name="human_approved",
-                verdict=GateVerdict.PASS,
-                detail="current human approval on head SHA",
+        import base_sync_cert  # noqa — in _shared/ beside this file (carry_enabled only)
+
+        if base_sync_cert.carry_enabled(config):
+            approved, detail = human_approval.approved_on_head_result(
+                pr_url, runners=runners, config=config
             )
+        else:
+            approved = human_approval.human_approved_on_head(
+                pr_url, runners=runners, config=config
+            )
+            detail = "current" if approved else ""
+
+        if approved:
+            pass_detail = (
+                detail if (detail and detail != "current")
+                else "a non-automation human approved THIS head"
+            )
+            return PredicateResult(
+                name="human_approved", verdict=GateVerdict.PASS, detail=pass_detail,
+            )
+
+        indeterminate_detail = (
+            "human approval absent or not current — get an APPROVED PR review "
+            "on the current head from a non-automation human "
+            "(see skills/_shared/human-approval-howto.md)"
+        )
+        if detail:
+            indeterminate_detail = f"{indeterminate_detail}; carry: {detail}"
         return PredicateResult(
             name="human_approved",
             verdict=GateVerdict.INDETERMINATE,
-            detail=(
-                "human approval absent, stale, or not human-applied — apply "
-                "tp:human-approved:<head-sha> to the current head (see "
-                "skills/_shared/human-approval-howto.md)"
-            ),
+            detail=indeterminate_detail,
         )
     except Exception:
         return PredicateResult(
@@ -539,7 +567,7 @@ def _diff_balloon_factor(config: dict) -> float:
         return 5.0
 
 
-def _load_repo_config() -> dict:
+def _load_repo_config(repo_root: "str | None" = None) -> dict:
     """Read .three-pillars/config.json from committed HEAD. Fail-CLOSED to {}.
 
     Reads the file via `git show HEAD:.three-pillars/config.json` so the gate always
@@ -548,10 +576,12 @@ def _load_repo_config() -> dict:
     an uncommitted one-line Edit — the change must be committed (creating a trace) and
     reviewed before it affects the gate.
 
-    Resolved from the invocation cwd's repo (the project under operation), never
-    from the module path. This ensures the gate reads the config of the project being
-    gated, not the framework checkout that hosts the gate module. find_project_root()
-    resolves the toplevel of whatever git repo contains the cwd at call time.
+    `repo_root`, when given, is used VERBATIM in place of `find_project_root()` (the
+    dispatch-from-seat `--repo` override, task 8.1) — the explicit override always wins
+    over cwd-derived resolution. When `repo_root` is None (the default), resolution
+    falls back to the invocation cwd's repo (the project under operation), never
+    from the module path — `find_project_root()` resolves the toplevel of whatever
+    git repo contains the cwd at call time.
 
     Fail-closed contract: ANY error (git failure, unborn HEAD, missing path at HEAD,
     unreadable, non-dict, bad JSON, not a git repo, unresolvable root) returns {} so the
@@ -560,13 +590,16 @@ def _load_repo_config() -> dict:
     NEVER relaxes the gate. The loader NEVER falls back to reading the working-tree file.
     """
     try:
-        from project_root import find_project_root
-        root = find_project_root()
-        if root is None:
-            return {}
-        repo_root = str(root)
+        if repo_root is not None:
+            root = Path(repo_root)
+        else:
+            from project_root import find_project_root
+            root = find_project_root()
+            if root is None:
+                return {}
+        root_str = str(root)
         result = subprocess.run(
-            ["git", "-C", repo_root, "show", "HEAD:.three-pillars/config.json"],
+            ["git", "-C", root_str, "show", "HEAD:.three-pillars/config.json"],
             capture_output=True,
             text=True,
             check=False,
@@ -666,6 +699,7 @@ def evaluate_gate(
     *,
     runners: "dict | None" = None,
     config: "dict | None" = None,
+    repo_root: "str | None" = None,
 ) -> GateOutcome:
     """Total function. Evaluate the gate predicates, fold fail-closed.
 
@@ -682,6 +716,21 @@ def evaluate_gate(
     no tooling path to PASS (the two cross-PR config-blindness deadlocks). `config`
     defaults to a fail-closed disk read; inject a dict in tests.
 
+    `repo_root` (task 8.1, dispatch-from-seat activation): an explicit override for the
+    subject repo, used in place of `find_project_root()` for (a) the committed-HEAD
+    config read (`_load_repo_config`), (b) `gate_roster`'s project-root resolution
+    (balloon/stamp), and (c) the carry repo-root threaded to both carry consumers
+    (`pred_human_approved`'s `resolve_carry` and `pred_review_proof_on_head`) via the
+    `carry_repo_root` key on the runners dict passed down to `gate_roster`. This is the
+    `gate_cli.py --repo <path>` / `land.py --repo <path>` seam — NOT a bare runner key.
+
+    CRITICAL regression pin: passing `repo_root` ALONE (no `runners`) must NOT flip
+    live-mode predicate activation off. `_running_live` is computed from the CALLER's
+    original `runners` dict ONLY, before `carry_repo_root` is folded in for the
+    downstream call — so a `--repo` invocation with no other seams injected stays a
+    FULL LIVE gate (balloon/stamp/proof predicates stay ACTIVE, never silently
+    OMITTED as a hermetic run).
+
     No exception escapes as PASS: the whole body is wrapped so any uncaught error
     folds to INDETERMINATE with a 'gate-internal-error' blocking entry.
     label is ALWAYS GATE_LABEL (green never reads 'safe').
@@ -690,7 +739,7 @@ def evaluate_gate(
         r = runners or {}
         _config_root_mismatch_note: "PredicateResult | None" = None
         if config is None:
-            config = _load_repo_config()
+            config = _load_repo_config(repo_root=repo_root)
             # Binding check (W4): verify the config root's git remote owner/repo
             # matches the PR's owner/repo. A caller running the gate from a DIFFERENT
             # repo (wrong cwd) with a relaxed committed config would silently relax
@@ -708,8 +757,11 @@ def evaluate_gate(
             # NEVER folds into the verdict.
             if config:  # only check when a non-empty config was actually loaded
                 try:
-                    from project_root import find_project_root as _find_root
-                    _config_root = _find_root()
+                    if repo_root is not None:
+                        _config_root = Path(repo_root)
+                    else:
+                        from project_root import find_project_root as _find_root
+                        _config_root = _find_root()
                     _pr_pair = _parse_github_owner_repo(pr_url)
                     _remote_runner = r.get("remote_url_fn", None)
                     _config_pair = (
@@ -804,7 +856,28 @@ def evaluate_gate(
         # Step 5: evaluate predicates (p3/p4/p5/p6 config-aware) + assemble roster.
         # Delegated to gate_roster to keep evaluate_gate readable and stay under cap.
         import gate_roster  # noqa — in _shared/ beside this file
+        # CRITICAL regression pin (task 8.1): _running_live is derived from the
+        # CALLER'S ORIGINAL runners dict ONLY — computed BEFORE repo_root is folded
+        # into the effective runners dict below. A naive implementation that added
+        # carry_repo_root to `r` first, then computed `not r`, would make a
+        # --repo-only invocation (no other seams injected) look "hermetic" and
+        # silently OMIT the balloon/stamp/proof predicates instead of running them
+        # live — exactly the "fail-closed but useless" activation bug this phase
+        # exists to close.
         _running_live = not r  # no runners injected → pure live mode
+        # repo_root is None (the overwhelmingly common case, and every call site that
+        # predates task 8.1) → pass `r` THROUGH UNCHANGED, same object, no copy — this
+        # preserves identity for callers/tests that assert `runners is r` downstream.
+        # Only build a new dict when repo_root actually needs threading in.
+        _effective_r = r
+        if repo_root is not None:
+            # Thread the override down as the shared carry_repo_root key so BOTH
+            # carry consumers (pred_human_approved's resolve_carry, via gate_roster's
+            # r=r passthrough, and pred_review_proof_on_head's repo_root= kwarg) and
+            # gate_roster's own _project_root (balloon/stamp) resolve against the
+            # SAME override rather than a cwd-derived find_project_root() call.
+            _effective_r = dict(r)
+            _effective_r["carry_repo_root"] = str(repo_root)
         predicates, roster_entries = gate_roster.build_predicates_and_roster(
             pr_url=pr_url,
             rollup=rollup,
@@ -813,7 +886,7 @@ def evaluate_gate(
             mergeable=mergeable,
             head_oid=head_oid,
             config=config,
-            r=r,
+            r=_effective_r,
             copilot_runners=copilot_runners,
             running_live=_running_live,
             shared_dir=_SHARED_DIR,

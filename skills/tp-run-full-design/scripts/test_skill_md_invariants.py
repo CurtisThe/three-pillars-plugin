@@ -10,7 +10,26 @@ from __future__ import annotations
 
 import functools
 import re
+import sys
 from pathlib import Path
+
+import pytest
+
+# SLOTS lives in the shared html_briefing package, which is PRO-TIER as of
+# `html-pro-tier` (the live-briefing/cockpit stack ships pro-only). One source of
+# truth, consumed by this lint AND the briefing DAG producer. In the FREE core
+# build html_briefing is absent, so the SLOTS-dependent lints skip cleanly.
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parent.parent.parent / "_shared" / "html_briefing"),
+)
+try:
+    from tier_sequence import SLOTS  # noqa: E402
+
+    _HTML_BRIEFING_PRESENT = True
+except ModuleNotFoundError:
+    SLOTS = ()  # html_briefing is pro-tier; absent in the free core build
+    _HTML_BRIEFING_PRESENT = False
 
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
@@ -30,17 +49,15 @@ ACF_DESIGN = (
     / "design.md"
 )
 
-# The 10 dispatch slots in pipeline order. Module-level so the dispatch-loop and
-# budget-table invariants assert against the same set (a dropped slot fails both).
-SLOTS = (
-    "pickup", "design", "detail", "design-audit", "plan", "plan-audit",
-    "phase-implement", "impl-audit", "design-learn", "PR",
-)
+# The 10 dispatch slots in pipeline order are imported from tier_sequence.SLOTS
+# (module-level above) so the dispatch-loop and budget-table invariants assert
+# against the same shared set — a dropped slot fails both here and in the
+# briefing DAG producer.
 
 
 @functools.lru_cache(maxsize=1)
 def _body() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_mode_c_documented():
@@ -128,6 +145,7 @@ def test_artifact_policy_documented():
     )
 
 
+@pytest.mark.skipif(not _HTML_BRIEFING_PRESENT, reason="SLOTS lives in pro-tier html_briefing; N/A in free core")
 def test_dispatch_loop():
     body = _body()
 
@@ -306,7 +324,7 @@ def test_impl_audit_code_input():
 
     # Task 2.3 (cross-file) — council ORCHESTRATOR MODE documents --code-input as a
     # Slot-8-only additive flag alongside --artifacts.
-    council = COUNCIL_MD.read_text()
+    council = COUNCIL_MD.read_text(encoding="utf-8")
     assert "\n## ORCHESTRATOR MODE" in council, (
         "council/SKILL.md must have an ## ORCHESTRATOR MODE section"
     )
@@ -371,6 +389,25 @@ def test_tier5_step2_council_codeaudit():
     )
 
 
+def test_tier56_step3_references_staged_blob_guard():
+    """design-complete-stamp-guard Task 2.2 — Tier 5.6 Step 3 (Archive) prose must
+    reference verify_archive_staged.py, the staged-blob guard the inherited
+    /tp-design-complete {slug} --auto archival commit now runs as its pre-commit
+    self-check."""
+    body = _body()
+    assert "\n## Tier 5.6" in body, "a ## Tier 5.6 section must exist"
+    tier56 = body.split("\n## Tier 5.6", 1)[1].split("\n## ", 1)[0]
+    assert "### Step 3 — Archive" in tier56, (
+        "Tier 5.6 must have a ### Step 3 — Archive subsection"
+    )
+    step3 = tier56.split("### Step 3 — Archive", 1)[1].split("\n### ", 1)[0]
+    assert "verify_archive_staged.py" in step3, (
+        "Tier 5.6 Step 3 must reference verify_archive_staged.py (the guard the "
+        "--auto archival commit runs as its pre-commit self-check)"
+    )
+
+
+@pytest.mark.skipif(not _HTML_BRIEFING_PRESENT, reason="SLOTS lives in pro-tier html_briefing; N/A in free core")
 def test_budget_table():
     body = _body()
 
@@ -1044,7 +1081,7 @@ def test_phase_implement_auto_serial_note():
     task sub-subagents (L23), so all tasks run serially."""
     phase_md_path = SKILL_MD.parent.parent / "tp-phase-implement" / "SKILL.md"
     assert phase_md_path.exists(), f"tp-phase-implement/SKILL.md must exist at {phase_md_path}"
-    phase_body = phase_md_path.read_text()
+    phase_body = phase_md_path.read_text(encoding="utf-8")
 
     assert "\n## Auto Mode" in phase_body, "## Auto Mode section must exist in tp-phase-implement/SKILL.md"
     auto_section = phase_body.split("\n## Auto Mode", 1)[1].split("\n## ", 1)[0]
@@ -1072,7 +1109,7 @@ def test_inline_council_superseded():
     """Task 5.1 — the supersession of the orchestrator-of-subagents inline-council
     / audit-skills-internal-subagent-dispatch follow-on is recorded in living docs
     (audit-council-fanout/design.md), not as HTML mutations on immutable archives."""
-    acf_design_text = ACF_DESIGN.read_text()
+    acf_design_text = ACF_DESIGN.read_text(encoding="utf-8")
     assert "supersede" in acf_design_text.lower(), (
         "audit-council-fanout/design.md must document supersession of "
         "orchestrator-of-subagents inline-council assertion"
@@ -1087,7 +1124,7 @@ def test_m8_resolved():
     after scoped-subagent-types added a new M8) is marked RESOLVED with a reference
     to audit-council-fanout. (Entry lives in known_issues_resolved.md since the
     file-size-limits split — resolved entries MOVE to the archive.)"""
-    text = KNOWN_ISSUES_RESOLVED.read_text()
+    text = KNOWN_ISSUES_RESOLVED.read_text(encoding="utf-8")
     # The issue was renumbered M8 -> M9 when scoped-subagent-types added fleet atomicity as M8.
     m9 = text.split("\n### M9", 1)
     assert len(m9) == 2, "M9 entry (council fan-out) must exist"
@@ -1102,7 +1139,7 @@ def test_design_dispatch_counts_superseded():
     """Task 5.3 (PA2) — the stale '7 total' / '37 dispatches' figures in
     audit-council-fanout/design.md now carry an adjacent SUPERSEDED annotation
     with the reader-counted 8/38/5 correction."""
-    text = ACF_DESIGN.read_text()
+    text = ACF_DESIGN.read_text(encoding="utf-8")
     # Original stale wording is preserved (annotate, don't rewrite history).
     assert "7 total" in text, "the original '7 total' figure must remain visible"
     assert "37 dispatches" in text, "the original '37 dispatches' figure must remain"
@@ -1184,3 +1221,227 @@ def test_weight_class_light_slots() -> None:
         "fidelity audit budget is 80k"
     )
     assert "500k" in budget, "hard ceiling unchanged"
+
+
+def test_emit_step_present():
+    """html-briefing-flow Task 4.3 — the orchestrator emits a live briefing
+    after each tier via the `emit_run_briefing` CLI step (tier id + running
+    token total), documented as a CLI step (not a Python hook), and the
+    auto-path invocation never passes `--serve` (a blocking foreground server)."""
+    body = _body()
+    assert "\n## Per-tier briefing emit" in body, (
+        "a ## Per-tier briefing emit section must exist"
+    )
+    section = body.split("\n## Per-tier briefing emit", 1)[1].split("\n## ", 1)[0]
+
+    # Invoked by name, documented as a CLI step, not a python hook.
+    assert "emit_run_briefing" in section
+    assert "cli step" in section.lower()
+    assert "not a python hook" in section.lower()
+
+    # The CLI invocation carries the tier id + running token total and must NOT
+    # pass --serve (serve is the human-initiated standalone surface). The command
+    # is shown inline (backtick-wrapped) to hold tp-run-full-design/SKILL.md at
+    # its 1081-line cap; extract just that invocation, not the surrounding prose
+    # (which legitimately mentions --serve when documenting its exclusion).
+    cmd_match = re.search(r"`([^`]*emit_run_briefing[^`]*)`", section)
+    assert cmd_match, "the emit section must show the emit_run_briefing CLI invocation"
+    cmd = cmd_match.group(1)
+    assert "--tier" in cmd and "--tokens" in cmd, "tier id + running token total"
+    assert "--serve" not in cmd, "the auto-path emit step must never pass --serve"
+
+
+# ---------------------------------------------------------------------------
+# orchestrator-pipeline-modes — Task 2.1 tests
+# ---------------------------------------------------------------------------
+
+PIPELINE_MODES_MD = SKILL_MD.parent / "pipeline-modes.md"
+
+
+def test_skill_md_line_cap():
+    """Task 2.1 — SKILL.md must not exceed the pinned absolute line cap (≤1100).
+
+    The file is grandfathered over the 500-line hard cap; this absolute cap
+    assertion bounds creep from future edits.  Pin is set to the post-edit
+    count; if SKILL.md is later trimmed, lower the cap accordingly.
+    """
+    lines = _body().splitlines()
+    assert len(lines) <= 1100, (
+        f"SKILL.md is {len(lines)} lines — exceeds the 1100-line absolute cap; "
+        "move prose to pipeline-modes.md or another companion doc"
+    )
+
+
+def test_skill_md_mode_argument():
+    """Task 2.1 — ## Arguments section contains a --mode entry."""
+    body = _body()
+    args_section = body.split("## Prerequisites", 1)[0]
+    assert "--mode" in args_section, (
+        "## Arguments must list the --mode flag"
+    )
+    assert "{full|design|plan|build}" in args_section, (
+        "## Arguments --mode entry must name all four values {full|design|plan|build}"
+    )
+    # Default must be documented AND bound to `full` specifically — a bare
+    # "full" + "default" conjunction passes even if the documented default
+    # changed (both tokens occur elsewhere in the section).
+    assert "default `full`" in args_section, (
+        "## Arguments --mode entry must document `full` as the default value"
+    )
+
+
+def test_skill_md_argument_hint_mode():
+    """Task 2.1 — argument-hint frontmatter mentions --mode."""
+    body = _body()
+    # The frontmatter lives before the first ---\n block end.
+    frontmatter = body.split("---", 2)[1]
+    assert "--mode" in frontmatter, (
+        "argument-hint frontmatter must mention --mode"
+    )
+
+
+def test_skill_md_pipeline_modes_pointer():
+    """Task 2.1 — SKILL.md contains a pointer to pipeline-modes.md."""
+    body = _body()
+    assert "pipeline-modes.md" in body, (
+        "SKILL.md must contain a pointer to pipeline-modes.md"
+    )
+
+
+def test_pipeline_modes_md_exists():
+    """Task 2.1 — pipeline-modes.md companion doc must exist."""
+    assert PIPELINE_MODES_MD.exists(), (
+        f"pipeline-modes.md must exist at {PIPELINE_MODES_MD}"
+    )
+
+
+def test_pipeline_modes_md_slot_range_table():
+    """Task 2.1 — companion doc documents the mode→slot-range table."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    for mode in ("full", "design", "plan", "build"):
+        assert mode in body, (
+            f"pipeline-modes.md must document the {mode!r} row in the slot-range table"
+        )
+    assert "slot" in body.lower(), (
+        "pipeline-modes.md must describe the slot-range concept"
+    )
+
+
+def test_pipeline_modes_md_precondition_table():
+    """Task 2.1 — companion doc documents the precondition table."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "precondition" in body.lower() or "Slot-0" in body or "slot-0" in body.lower(), (
+        "pipeline-modes.md must document the precondition gate"
+    )
+    assert "design.md" in body and "plan.md" in body, (
+        "pipeline-modes.md must list the required artifact filenames"
+    )
+
+
+def test_pipeline_modes_md_pr_shape():
+    """Task 2.1 — companion doc documents per-mode PR shapes."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "design only" in body, (
+        "pipeline-modes.md must document the design-mode PR title"
+    )
+    assert "plan only" in body, (
+        "pipeline-modes.md must document the plan-mode PR title"
+    )
+    assert "NOT in this PR: plan.md, implementation" in body, (
+        "pipeline-modes.md must document the design-mode NOT-in PR note"
+    )
+    assert "NOT in this PR: implementation" in body, (
+        "pipeline-modes.md must document the plan-mode NOT-in PR note"
+    )
+
+
+def test_pipeline_modes_md_precedence_rule():
+    """Task 2.1 — companion doc documents the CLI > pickup > full precedence."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "cli" in body.lower() and "pickup" in body.lower(), (
+        "pipeline-modes.md must document the CLI > pickup precedence rule"
+    )
+    assert "full" in body, (
+        "pipeline-modes.md must state the default full fallback"
+    )
+
+
+def test_pipeline_modes_md_closeout_scoping():
+    """Task 2.1 — companion doc documents Tier 5.6 closeout scoping."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "closeout" in body.lower() or "Tier 5.6" in body, (
+        "pipeline-modes.md must document Tier 5.6 closeout scoping"
+    )
+    assert "build" in body and "full" in body, (
+        "pipeline-modes.md must state build/full run closeout"
+    )
+
+
+def test_pipeline_modes_md_composes_with_skip_design():
+    """Task 2.1 — companion doc documents --mode orthogonality with --skip-design (B8)."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "--skip-design" in body, (
+        "pipeline-modes.md must document --mode orthogonality with --skip-design (B8)"
+    )
+
+
+def test_pipeline_modes_md_token_literals():
+    """Task 2.1 / B11 — companion doc contains all four decisions.md token literals."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    for token in (
+        "[tp-run-full-design/tier-0] invalid-mode",
+        "[tp-run-full-design/tier-0] mode-precondition-failed",
+        "[tp-run-full-design/tier-1] mode-cli-overrides-pickup",
+        "[tp-run-full-design/tier-1] mode-resolved",
+    ):
+        assert token in body, (
+            f"pipeline-modes.md must contain the exact token literal {token!r}"
+        )
+
+
+def test_pipeline_modes_md_references_predicate_module():
+    """Task 2.1 — companion doc references the predicate module path."""
+    body = PIPELINE_MODES_MD.read_text(encoding="utf-8")
+    assert "skills/tp-run-full-design/scripts/pipeline_modes.py" in body, (
+        "pipeline-modes.md must reference "
+        "skills/tp-run-full-design/scripts/pipeline_modes.py as the predicate source"
+    )
+
+
+def test_skill_md_documents_orphan_branch_sweep():
+    """Task 2.2 (worktree-agent-branch-cleanup) — `## Cleanup` names
+    sweep_orphan_branches.py as an exit-time step (Option B backstop), AND a
+    SECOND, independent grep over the Tier 7 section pins the normal-path
+    (post-Tier-7) pointer — R7: a Cleanup-only grep could pass while the
+    normal-path pointer was silently dropped, so both must hold."""
+    body = _body()
+    # Anchor on the REAL `## Cleanup` section heading (start-of-line), not the
+    # first substring — an Execution-flow prose line ("fall through to ##
+    # Cleanup and exit ...") precedes the heading and would otherwise make the
+    # slice engulf nearly the whole doc, leaving the abnormal-path pointer
+    # unpinned (a genuinely vacuous grep). Bound the section to the next
+    # top-level heading so the assertion reds when the pointer is dropped.
+    cleanup_match = re.search(r"(?m)^## Cleanup$", body)
+    assert cleanup_match is not None, "SKILL.md must have a '## Cleanup' section heading"
+    cleanup_start = cleanup_match.start()
+    next_heading = re.search(r"(?m)^## ", body[cleanup_start + 1:])
+    cleanup_section = (
+        body[cleanup_start: cleanup_start + 1 + next_heading.start()]
+        if next_heading
+        else body[cleanup_start:]
+    )
+    assert "sweep_orphan_branches.py" in cleanup_section, (
+        "## Cleanup must name sweep_orphan_branches.py as an exit-time step"
+    )
+    assert "worktree-agent-" in cleanup_section, (
+        "## Cleanup prose must name worktree-agent- so a reader knows what is swept"
+    )
+
+    tier7_start = body.index("## Tier 7")
+    tier7_section = body[tier7_start: body.index("## Branch hygiene", tier7_start)]
+    assert "sweep_orphan_branches.py" in tier7_section, (
+        "Tier 7 outcomes must point to the normal-path (post-Tier-7) sweeper run"
+    )
+    assert "worktree-agent-" in tier7_section, (
+        "Tier 7 normal-path pointer must name worktree-agent- too"
+    )

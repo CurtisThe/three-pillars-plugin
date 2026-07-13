@@ -354,4 +354,4 @@ class TestCLI:
         stub.chmod(stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         result = check_gh_merged("my-design", gh_cmd=str(stub), repo=str(repo))
         assert result is True
-        assert sentinel.read_text().strip() == str(repo.resolve())
+        assert sentinel.read_text(encoding="utf-8").strip() == str(repo.resolve())

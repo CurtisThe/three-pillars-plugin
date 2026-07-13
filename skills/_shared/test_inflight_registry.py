@@ -437,7 +437,7 @@ _TP_INFLIGHT_SKILL = _SKILLS_DIR / "tp-inflight" / "SKILL.md"
 
 def test_tp_inflight_skill_prose():
     assert _TP_INFLIGHT_SKILL.exists(), "skills/tp-inflight/SKILL.md must exist"
-    text = _TP_INFLIGHT_SKILL.read_text()
+    text = _TP_INFLIGHT_SKILL.read_text(encoding="utf-8")
 
     # Frontmatter: name + description
     assert "name: tp-inflight" in text
@@ -462,7 +462,7 @@ _COLLABORATION = _MODULE.parent / "collaboration.md"
 
 def test_collaboration_wiring_prose():
     assert _COLLABORATION.exists()
-    text = _COLLABORATION.read_text()
+    text = _COLLABORATION.read_text(encoding="utf-8")
     low = text.lower()
 
     # Names the helper

@@ -29,7 +29,7 @@ import run_round  # noqa: E402
 
 def test_dispose_only_in_arguments_section():
     """SKILL.md Arguments section must document --dispose-only."""
-    body = SKILL_MD.read_text()
+    body = SKILL_MD.read_text(encoding="utf-8")
     assert "--dispose-only" in body, (
         "SKILL.md must document --dispose-only in the Arguments section"
     )
@@ -37,7 +37,7 @@ def test_dispose_only_in_arguments_section():
 
 def test_dispose_only_description_mentions_helper_and_no_iteration():
     """SKILL.md must state --dispose-only calls the helper once and exits, no iteration."""
-    body = SKILL_MD.read_text()
+    body = SKILL_MD.read_text(encoding="utf-8")
     lower = body.lower()
     assert "dispose-only" in lower, "--dispose-only must be documented"
     # The description must contain 'once' and some form of 'exits' or 'exit'

@@ -10,6 +10,35 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ### Changed
 
+## [2.3.0] — 2026-07-13
+
+Batch release of a month of fleet-driven hardening on top of v2.2.0: an offline briefing/cockpit for shepherding many parallel runs, a stronger and more portable autonomous merge boundary (head-bound review proof, approval that survives safe base-syncs, retired approval tags), faster autonomous iteration, and correctness fixes for running the framework as an installed plugin against a separate project.
+
+### Added
+
+- **Offline HTML briefing & cockpit** (pro) — self-contained between-wave / parallel-run briefings with per-run cards and a compact paste-back grammar, so the operator can shepherd more runs at once; degrades gracefully to the terminal.
+- **`--mode` slot-range axis on `/tp-run-full-design`** — select which pipeline tiers a run executes (e.g. skip design, run only the review/merge tail).
+- **Tier-7 convergence primitive** — a single-shot finisher for the autonomous "reviewed-stable" terminal, replacing the ad-hoc per-round shell-out and the trap set that came with it.
+- **Candidate-branch reaper** — the worktree `gc` path and `/tp-post-merge` now reap merged `candidate/*` branches behind a backup-ref floor.
+- **`/tp-session-restore` resolves completed designs** — restoring an archived design frames it as completed (with its completion date) instead of reporting "nothing to restore".
+
+### Changed
+
+- **Autonomous workers default to Opus** — previously Sonnet.
+- **Push-after-commit is the default** — each artifact commit is pushed to `origin` fail-open (a failed push is logged, never blocks the commit); the PR boundary is unchanged, opening a PR still happens only at `/tp-design-complete`.
+- **Stronger, more portable autonomous merge boundary** — the gate now requires a **head-bound review proof** each round; **human approval survives mechanically-safe base-syncs** (no re-approval tax when only auto-resolvable living-doc classes changed); the legacy `APPROVED`-tag approval path was **retired** in favor of the deterministic gate; and PRs can be authored by a machine account so a human review is always the distinct approver.
+- **Plugin-mode parity** — fixed framework behaviors that assumed the operated-on repo is the framework's own checkout, so an installed plugin now works correctly against a separate project.
+- **Faster autonomous iteration** — a fast CI lane trims the inner red-green loop; fleet workers wire into it.
+- **Steadier fleet operation** — more reliable parallel launches, clean tmux teardown, and briefing-server keepalive/reaping.
+- **Base-sync auto-resolves more living-doc conflict classes** (prepend/append-log) behind the zero-drop verifier; free `_shared` helper scripts now resolve on any install layout, not just the dev checkout.
+- **Corrected tier documentation** — the README/CLAUDE variants now derive their tier claims from the release manifest: the merge (`/tp-merge`, `/tp-merge-from-main`) and autonomous PR-loop (`/tp-pr-fix`, `/tp-pr-iterate`) skills are free; the parallel-worktree and fleet-orchestration skills are the paid tier.
+- Additional enforcement / quality hardening: shipped-surface currency invariant, plan-audit hardening, design-complete stamp guard, distinct audit lock phases, spike-evidence versioning, and a shared project-context primitive.
+
+### Fixed
+
+- `/tp-session-restore` no longer reports "nothing to restore" for a completed (archived) design.
+- Stale agent-worktree branches left by fleet runs are now cleaned up.
+
 ## [2.2.0] — 2026-06-16
 
 Batch release of the W4–W8 trust / safety / quality hardening waves on top of v2.1.0: a new recovery skill, deeper autonomous-run automation, and five new fail-closed enforcement invariants that make the autonomous merge boundary — and the paper trail around it — portable and self-checking.

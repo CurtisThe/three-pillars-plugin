@@ -65,7 +65,7 @@ def _git_status_porcelain(repo: Path) -> str:
 
 @pytest.fixture(scope="module")
 def expected_old_layout_plan():
-    return json.loads(EXPECTED_OLD_LAYOUT_PLAN.read_text())
+    return json.loads(EXPECTED_OLD_LAYOUT_PLAN.read_text(encoding="utf-8"))
 
 
 def test_detect_returns_plan_matching_hardcoded_fixture(expected_old_layout_plan):
@@ -239,7 +239,7 @@ def test_dry_run_output_diff_against_hardcoded_fixture(capsys):
     exit_code = main(["--dry-run", "--repo", str(OLD_LAYOUT_REPO)])
     captured = capsys.readouterr()
 
-    expected = EXPECTED_OLD_LAYOUT_DRY_RUN.read_text()
+    expected = EXPECTED_OLD_LAYOUT_DRY_RUN.read_text(encoding="utf-8")
     assert exit_code == 0
     assert captured.out == expected, (
         "dry-run stdout diverged from hardcoded fixture:\n"
@@ -315,7 +315,7 @@ def test_apply_rewrites_only_target_paths(tmp_path):
     exit_code = main(["--apply", "--repo", str(repo)])
     assert exit_code == 0
 
-    claude = (repo / "CLAUDE.md").read_text()
+    claude = (repo / "CLAUDE.md").read_text(encoding="utf-8")
     assert "/tdd-" not in claude, "CLAUDE.md still has /tdd- skill refs"
     assert "/tp-setup" in claude
     assert "/tp-design" in claude
@@ -323,7 +323,7 @@ def test_apply_rewrites_only_target_paths(tmp_path):
     assert "three-pillars-docs/tp-designs/" in claude
     assert "three-pillars-docs/vision.md" in claude
 
-    moved_design = (repo / "three-pillars-docs" / "tp-designs" / "sample" / "design.md").read_text()
+    moved_design = (repo / "three-pillars-docs" / "tp-designs" / "sample" / "design.md").read_text(encoding="utf-8")
     assert "/tdd-design" not in moved_design
     assert "/tp-design" in moved_design
     assert not _LEGACY_DOC_PATH_RE.search(moved_design)
@@ -331,7 +331,7 @@ def test_apply_rewrites_only_target_paths(tmp_path):
     assert not re.search(r"\btdd/sample\b", moved_design)
     assert "tp/sample" in moved_design
 
-    moved_plan = (repo / "three-pillars-docs" / "tp-designs" / "sample" / "plan.md").read_text()
+    moved_plan = (repo / "three-pillars-docs" / "tp-designs" / "sample" / "plan.md").read_text(encoding="utf-8")
     assert "/tdd-phase-implement" not in moved_plan
     assert "/tp-phase-implement" in moved_plan
     assert not _LEGACY_DOC_PATH_RE.search(moved_plan)
@@ -341,12 +341,12 @@ def test_apply_rewrites_only_target_paths(tmp_path):
 def test_apply_skips_unrelated_docs_paths(tmp_path):
     """Files containing unrelated `docs/whatever/` mentions and bare `tdd` words must not be touched."""
     repo = _setup_git_repo(tmp_path)
-    pre_unrelated = (repo / "unrelated.md").read_text()
+    pre_unrelated = (repo / "unrelated.md").read_text(encoding="utf-8")
 
     exit_code = main(["--apply", "--repo", str(repo)])
     assert exit_code == 0
 
-    post_unrelated = (repo / "unrelated.md").read_text()
+    post_unrelated = (repo / "unrelated.md").read_text(encoding="utf-8")
     assert post_unrelated == pre_unrelated, "unrelated.md was modified despite having no target patterns"
 
 
@@ -357,7 +357,7 @@ def test_apply_rewrites_claude_md_and_claude_plugin_md(tmp_path):
     assert exit_code == 0
 
     for fname in ("CLAUDE.md", "CLAUDE.plugin.md"):
-        content = (repo / fname).read_text()
+        content = (repo / fname).read_text(encoding="utf-8")
         assert "/tdd-" not in content, f"{fname} still has /tdd- refs after migration"
         assert not _LEGACY_DOC_PATH_RE.search(content), f"{fname} still has legacy docs/ paths"
 
@@ -369,7 +369,7 @@ def test_apply_rewrites_readme_and_readme_plugin(tmp_path):
     assert exit_code == 0
 
     for fname in ("README.md", "README.plugin.md"):
-        content = (repo / fname).read_text()
+        content = (repo / fname).read_text(encoding="utf-8")
         assert "/tdd-" not in content, f"{fname} still has /tdd- refs after migration"
         assert not _LEGACY_DOC_PATH_RE.search(content), f"{fname} still has legacy docs/ paths"
 
@@ -423,7 +423,7 @@ def test_apply_owns_completed_at_write_atomically_at_end(tmp_path):
 
     config_path = repo / ".three-pillars" / "config.json"
     assert config_path.is_file(), "migrate did not create .three-pillars/config.json"
-    config = json.loads(config_path.read_text())
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     assert config.get("schema_version") == 1
     assert config["migration"]["completed_at"] is not None, "completed_at not written"
     assert config["migration"]["from_layout"] == "docs+tdd"
@@ -440,14 +440,14 @@ def test_apply_owns_completed_at_write_atomically_at_end(tmp_path):
 def test_apply_does_not_rewrite_lock_json_branch_field(tmp_path):
     """lock.json files are JSON, not markdown — their branch field must be grandfathered through migration."""
     repo = _setup_git_repo(tmp_path)
-    pre_lock = json.loads((repo / "docs" / "tdd-designs" / "sample" / "lock.json").read_text())
+    pre_lock = json.loads((repo / "docs" / "tdd-designs" / "sample" / "lock.json").read_text(encoding="utf-8"))
     assert pre_lock["branch"] == "tdd/sample"
 
     exit_code = main(["--apply", "--repo", str(repo)])
     assert exit_code == 0
 
     post_lock = json.loads(
-        (repo / "three-pillars-docs" / "tp-designs" / "sample" / "lock.json").read_text()
+        (repo / "three-pillars-docs" / "tp-designs" / "sample" / "lock.json").read_text(encoding="utf-8")
     )
     assert post_lock["branch"] == "tdd/sample", f"lock.json branch was rewritten: {post_lock['branch']!r}"
     assert post_lock == pre_lock, "lock.json content was modified during migration"
@@ -502,7 +502,7 @@ def test_apply_handles_claude_last_design_when_present(tmp_path, capsys):
     last_design = repo / ".claude" / "last-design"
     last_design.parent.mkdir(parents=True, exist_ok=True)
     last_design.write_text("my-active-design\nolder-design\n")
-    before_content = last_design.read_text()
+    before_content = last_design.read_text(encoding="utf-8")
     # Commit so _ensure_clean_repo passes; the apply test still gets to
     # observe the file's pre/post content because the migration won't touch it.
     subprocess.run(["git", "add", ".claude/last-design"], cwd=repo, check=True)
@@ -516,7 +516,7 @@ def test_apply_handles_claude_last_design_when_present(tmp_path, capsys):
         ".claude/last-design references active designs at the old path — "
         "re-check via /tp-session-restore"
     ) in captured.out, f"last-design advisory missing from stdout:\n{captured.out}"
-    assert last_design.read_text() == before_content, (
+    assert last_design.read_text(encoding="utf-8") == before_content, (
         ".claude/last-design content must be preserved verbatim — it's an MRU "
         "of design names, not paths, and remains valid post-migration"
     )

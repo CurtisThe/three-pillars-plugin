@@ -1,9 +1,9 @@
-"""Content invariants for skills/_shared/human-approval-howto.md (Task 4.5, D8).
+"""Content invariants for skills/_shared/human-approval-howto.md (retire-approval-tags).
 
-A lightweight substring/regex content test (mirrors test_merge_skill_md.py): the
-operator guide must document the exact label, how to apply it on the current head,
-the human-actor (out-of-band) requirement, the push-strips-it caveat, and that the
-land skill (/tp-merge) refuses without a current human approval.
+Updated for the review-first howto (Path A label retired): the operator guide must
+document the review-path authorization (APPROVED PR review), the human-actor
+requirement, the currency check (commit_id == headRefOid), the single-account = no-gate
+posture, and that the land skill (/tp-merge) refuses without a current human approval.
 
 Run with: pytest skills/_shared/test_human_approval_howto.py -q
 """
@@ -17,28 +17,42 @@ HOWTO = Path(__file__).resolve().parent / "human-approval-howto.md"
 
 
 def _read() -> str:
-    return HOWTO.read_text()
+    return HOWTO.read_text(encoding="utf-8")
 
 
 def test_howto_file_exists() -> None:
     assert HOWTO.exists(), "skills/_shared/human-approval-howto.md must exist"
 
 
-def test_howto_covers_label_apply() -> None:
+def test_howto_covers_review_approval() -> None:
+    """The howto must document the review-path authorization mechanism."""
     text = _read()
 
-    # The exact label.
-    assert "tp:human-approved" in text, "must document the exact label tp:human-approved"
-
-    # How to apply it (REST labels endpoint and/or gh).
-    assert re.search(r"issues/\{?pr_number\}?/labels|labels\[\]=tp:human-approved|add-label", text), (
-        "must show how to apply the label via the REST labels endpoint and/or gh"
+    # The review path must be documented.
+    assert re.search(r"APPROVED.*review|review.*APPROVED|Approve|approve", text), (
+        "must document the APPROVED PR review authorization mechanism"
     )
 
     # On the current head.
     assert re.search(r"current head|head SHA|on the .*head", text, re.IGNORECASE), (
-        "must require applying the label on the current head"
+        "must require the review to be on the current head"
     )
+
+
+def test_howto_no_label_apply_instruction() -> None:
+    """retire-approval-tags: the howto must NOT instruct the operator to apply a label."""
+    text = _read()
+    # The label REST snippet (apply label REST call) should be gone.
+    assert "issues/{pr_number}/labels" not in text and "issues/\\{pr_number\\}/labels" not in text, (
+        "howto must not contain label REST snippet (Path A retired)"
+    )
+    # Must not tell the operator to create/apply the SHA-tagged label.
+    # (It may still mention the label in a historical/retirement context,
+    # but must not have an 'Applying it' / 'apply it' operator-instruction section.)
+    assert not re.search(
+        r"^## Applying it",
+        text, re.MULTILINE
+    ), "howto must not have an 'Applying it' operator-instruction section (Path A retired)"
 
 
 def test_howto_requires_human_out_of_band() -> None:
@@ -52,13 +66,18 @@ def test_howto_requires_human_out_of_band() -> None:
     )
 
 
-def test_howto_documents_push_strips_it() -> None:
+def test_howto_documents_currency_via_commit_id() -> None:
+    """Currency is the review's immutable commit_id == headRefOid (server-set).
+    The howto must document this (not the old SHA-in-label-name mechanism)."""
     text = _read()
-    assert re.search(r"strip|stale|re.apply|re.approve", text, re.IGNORECASE), (
-        "must document that pushing a new commit auto-strips the approval (re-approve)"
+    # Must reference the immutable commit_id currency.
+    assert re.search(r"commit_id|immutable|server.set", text, re.IGNORECASE), (
+        "must describe review currency via the immutable server-set commit_id"
     )
-    assert re.search(r"push", text, re.IGNORECASE), (
-        "must connect the strip to advancing the PR head via a push"
+    # Must reference headRefOid or head SHA.
+    assert re.search(r"head OID|head SHA|headRefOid|commit_id.*head|head.*commit_id",
+                     text, re.IGNORECASE), (
+        "must describe currency as a commit_id == headRefOid binding"
     )
 
 
@@ -70,56 +89,36 @@ def test_howto_explains_land_refusal() -> None:
     )
 
 
-def test_howto_distinguishes_advisory_label() -> None:
+def test_howto_documents_single_account_no_gate() -> None:
+    """Design mandate (retire-approval-tags): the howto MUST warn that on a
+    single-account setup (operator == framework login) the review-path gate has
+    NO distinct human reviewer → you have NO gate. Two-account required for a
+    real gate."""
     text = _read()
-    assert "tp:ready-for-human-merge" in text, (
-        "must distinguish the advisory tp:ready-for-human-merge from the authorizing tp:human-approved"
-    )
-
-
-def test_howto_documents_single_account_rejection_and_remedy() -> None:
-    """Design mandate (design.md L65-78): the howto MUST warn that an approver whose
-    login equals the gh-auth self-login is REJECTED (INDETERMINATE) on a single-account
-    deployment, AND give the remedy (a distinct GitHub identity OR relax via
-    review.automation_identities). The refusal message points the operator here."""
-    text = _read()
-    # The self-login collision rejection is named.
+    # The self-login collision is named.
     assert re.search(r"self.login", text, re.IGNORECASE), (
-        "must mention the framework's self-login (the rejection cause)"
+        "must mention the framework's self-login"
     )
     assert re.search(r"single.account|single.PAT|same .*login|shar", text, re.IGNORECASE), (
         "must call out the single-account / shared-login deployment"
     )
-    assert re.search(r"reject|INDETERMINATE", text, re.IGNORECASE), (
-        "must state the single-account operator's own approval is rejected"
+    # Single-account = no gate (not just rejected — no gate at all).
+    assert re.search(r"no gate|no distinct|no .*reviewer|cannot.*distinguish", text, re.IGNORECASE), (
+        "must state that single-account == no gate (no distinct reviewer)"
     )
-    # The remedy: a distinct GitHub identity.
-    assert re.search(r"distinct .*identity|separate .*account|different .*login", text, re.IGNORECASE), (
-        "must give the remedy: approve from a distinct GitHub identity"
+    # The remedy: a two-account setup.
+    assert re.search(r"two.account|distinct .*identity|separate .*account|different .*login",
+                     text, re.IGNORECASE), (
+        "must give the remedy: two-account setup for a real gate"
     )
-    # The alternate remedy: relax via config key.
+    # The config remedy should still be present.
     assert "review.automation_identities" in text, (
-        "must offer the config remedy review.automation_identities"
+        "must still document review.automation_identities config"
     )
 
 
-def test_howto_binds_currency_to_head_sha_tag_not_timestamp() -> None:
-    """Currency is SHA-prefix-equality on the immutable head OID carried in the label
-    NAME tag, NOT a forgeable committer timestamp and NOT the always-null commit_id.
-    The howto must document the tagged label and the head-SHA prefix binding."""
+def test_howto_distinguishes_advisory_label() -> None:
     text = _read()
-    # The tagged label family is documented.
-    assert "tp:human-approved:" in text, (
-        "must document the SHA-tagged label name tp:human-approved:<sha>"
-    )
-    # Currency is a head-SHA binding, described as a hex-prefix match.
-    assert re.search(r"head OID|head SHA|headRefOid", text), (
-        "must describe currency as a head-OID/SHA binding"
-    )
-    assert re.search(r"prefix", text, re.IGNORECASE), (
-        "must describe the binding as a hex-prefix match against the current head SHA"
-    )
-    # How to obtain the head SHA for the tag.
-    assert "headRefOid" in text, (
-        "must show how to get the head SHA (gh pr view --json headRefOid) for the tag"
+    assert "tp:ready-for-human-merge" in text, (
+        "must distinguish the advisory tp:ready-for-human-merge from the review path"
     )

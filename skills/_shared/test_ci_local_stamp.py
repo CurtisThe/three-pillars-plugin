@@ -116,7 +116,7 @@ class TestWriteReadStamp:
         head_sha = _make_commit(repo_root)
 
         stamp_path = ci_local_stamp.write_stamp(repo_root)
-        data = json.loads(stamp_path.read_text())
+        data = json.loads(stamp_path.read_text(encoding="utf-8"))
 
         assert data["schema"] == 1
         assert data["head_sha"] == head_sha
@@ -132,7 +132,7 @@ class TestWriteReadStamp:
         _make_commit(repo_root)
 
         stamp_path = ci_local_stamp.write_stamp(repo_root)
-        data = json.loads(stamp_path.read_text())
+        data = json.loads(stamp_path.read_text(encoding="utf-8"))
         assert data["dirty"] is False
 
     def test_write_stamp_dirty_true_with_uncommitted_edit(self, tmp_path):
@@ -147,7 +147,7 @@ class TestWriteReadStamp:
         (repo_root / "x.txt").write_text("dirty!")
 
         stamp_path = ci_local_stamp.write_stamp(repo_root)
-        data = json.loads(stamp_path.read_text())
+        data = json.loads(stamp_path.read_text(encoding="utf-8"))
         assert data["dirty"] is True
 
     def test_write_stamp_linked_worktree(self, tmp_path):
@@ -312,7 +312,7 @@ class TestWriteReadStamp:
         head_sha = _make_commit(repo_root)
 
         stamp_path = ci_local_stamp.write_stamp(repo_root, expect_start_dirty=False)
-        data = json.loads(stamp_path.read_text())
+        data = json.loads(stamp_path.read_text(encoding="utf-8"))
         assert data["dirty"] is False
         assert data["head_sha"] == head_sha
 

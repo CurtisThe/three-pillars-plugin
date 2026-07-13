@@ -46,6 +46,8 @@ over the matching domain spec tree.
 
 **Validator API (exact signature)**:
 ```python
+import sys
+sys.path.insert(0, "$TP_ROOT/skills/_shared")  # $TP_ROOT resolved per skills/_shared/first-run.md
 from validate_artifact import validate_artifact
 from pathlib import Path
 

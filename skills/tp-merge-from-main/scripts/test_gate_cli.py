@@ -242,7 +242,8 @@ class TestReview59:
 
 def _make_human_approval_indeterminate_outcome() -> GateOutcome:
     """A GateOutcome whose sole blocker is an INDETERMINATE `human_approved` predicate
-    (4 other preds PASS, human approval absent/stale/not-human)."""
+    (4 other preds PASS, human approval absent — no current APPROVED review from a
+    non-automation human)."""
     return GateOutcome(
         verdict=GateVerdict.INDETERMINATE,
         blocking=[
@@ -250,8 +251,8 @@ def _make_human_approval_indeterminate_outcome() -> GateOutcome:
                 name="human_approved",
                 verdict=GateVerdict.INDETERMINATE,
                 detail=(
-                    "human approval absent, stale, or not human-applied — apply "
-                    "tp:human-approved:<head-sha> to the current head"
+                    "get an APPROVED PR review on the current head from a "
+                    "non-automation human (see human-approval-howto.md)"
                 ),
             ),
         ],
@@ -279,25 +280,15 @@ class TestHumanApprovalExitCode:
         assert "human_approved" in captured.out, (
             f"the human-approval blocker must be named in output; got:\n{captured.out!r}"
         )
-        assert "tp:human-approved" in captured.out, (
+        assert "human-approval-howto.md" in captured.out, (
             "the blocker detail (how to authorize) must reach stdout"
         )
 
-    def test_gate_cli_py_is_byte_unchanged(self):
-        """D5 hard constraint: gate_cli.py must be byte-unchanged by this design — the
-        exit-2 contract for human approval is satisfied entirely by the existing
-        INDETERMINATE->2 map, NOT by a new CLI branch. Asserts `git diff --quiet`."""
-        cli_path = HERE / "gate_cli.py"
-        # Resolve the repo root from this test file's location.
-        repo_root = HERE.parent.parent.parent  # scripts -> tp-merge -> skills -> root
-        rel = cli_path.resolve().relative_to(repo_root.resolve())
-        result = subprocess.run(
-            ["git", "diff", "--quiet", "HEAD", "--", str(rel)],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, (
-            f"gate_cli.py must be byte-unchanged vs HEAD (D5); `git diff --quiet` "
-            f"returned {result.returncode}. stdout={result.stdout!r} stderr={result.stderr!r}"
-        )
+    # NOTE (approval-survives-safe-base-sync, task 8.2): the prior "gate_cli.py must
+    # be byte-unchanged vs HEAD" pin from the human-approval-merge-gate design (D5)
+    # is now SUPERSEDED — this phase deliberately adds the `--repo <path>` flag
+    # (dispatch-from-seat activation). The byte-identity constraint that pin enforced
+    # was scoped to "this design needs zero CLI change for exit-2"; it was never meant
+    # to freeze gate_cli.py against ALL future, deliberate changes. See
+    # test_gate_cli_repo.py for the coverage of the new flag's own no-flag-unchanged
+    # behavior (same call shape as before when --repo is absent).

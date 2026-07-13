@@ -5,14 +5,30 @@ Prints "COLLISION self_login=<login>" if single_account_collision_live()
 returns True; prints nothing otherwise. Any error is silently swallowed
 (fail-open — the advisory must never block a commit).
 
+Reads `<repo>/.three-pillars/config.json` fail-open (missing/corrupt -> {})
+and threads it through as `config=` — pr-author-bot-account fix: previously
+this called `single_account_collision_live(config={})`, so a committed
+`review.automation_identities` entry (e.g. a configured PR-author bot
+account) was invisible to the warning, and that bot reading as a "distinct
+human reviewer" silently suppressed a real collision (false negative).
+
 Exit code is always 0.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _load_repo_config_fail_open(repo_root: str) -> dict:
+    config_path = Path(repo_root) / ".three-pillars" / "config.json"
+    try:
+        return json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def main(argv: list[str]) -> int:
@@ -20,10 +36,11 @@ def main(argv: list[str]) -> int:
     shared = Path(repo_root) / "skills" / "_shared"
     if str(shared) not in sys.path:
         sys.path.insert(0, str(shared))
+    config = _load_repo_config_fail_open(repo_root)
     try:
         from single_account_detect import single_account_collision_live  # noqa: PLC0415
 
-        if single_account_collision_live(config={}):
+        if single_account_collision_live(config=config):
             r = subprocess.run(
                 ["gh", "api", "user", "--jq", ".login"],
                 capture_output=True, text=True, check=False,

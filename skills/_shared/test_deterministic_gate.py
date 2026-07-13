@@ -13,6 +13,29 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 
+
+def _proof_comment_fn_for(head="abc123"):
+    """A comments_fn yielding a head-bound proof digest (enforce-review-proof p7).
+
+    All-PASS runner dicts inject this so the (default-required) review_proof_on_head
+    predicate PASSes alongside the other predicates. Built via the real
+    format_proof_digest so the gate parser is tested against the production string.
+    Authored by "framework-bot" — the runner dicts' hermetic self login — so the
+    trusted-author fold (review finding on PR #109) passes without a live
+    `gh api user` self-login resolution.
+    """
+    import sys as _sys
+    _pri = HERE.parent / "tp-pr-iterate" / "scripts"
+    if str(_pri) not in _sys.path:
+        _sys.path.insert(0, str(_pri))
+    import review_proof  # noqa: E402
+    body = review_proof.format_proof_digest({
+        "base": "base000", "head": head, "files_changed": 3,
+        "insertions": 5, "deletions": 1, "degraded": False, "reason": None,
+    }, [("correctness", 0)])
+    return lambda _url: [{"author": "framework-bot", "body": body}]
+
+
 # ============================================================
 # Task 1.1: FailureClass enum + _node_status normalizer
 # ============================================================
@@ -430,8 +453,10 @@ class TestPredHumanApproved:
         result = pred_human_approved(PR_URL)
         assert result.verdict == GateVerdict.INDETERMINATE
         assert result.name == "human_approved"
-        # detail names the sub-state (absent/stale/not-human) + howto pointer
-        assert "absent" in result.detail or "stale" in result.detail
+        # detail instructs the user to get an APPROVED review (not apply a label)
+        assert "APPROVED" in result.detail or "approved" in result.detail.lower()
+        # tp:human-approved label must NOT appear in the detail (path retired)
+        assert "tp:human-approved" not in result.detail
 
     def test_internal_raise_is_indeterminate(self, monkeypatch):
         from deterministic_gate import GateVerdict, pred_human_approved
@@ -632,6 +657,10 @@ class TestEvaluateGate:
             "reviews_fn": reviews_fn,
             "ci_head_fn": ci_head_fn,
             "requested_fn": requested_fn,
+            "comments_fn": _proof_comment_fn_for("abc123"),
+            # p7's trusted-author set resolves self hermetically via this key
+            # (matches _proof_comment_fn_for's digest author).
+            "self_login_fn": lambda: "framework-bot",
         }
 
     def test_all_predicates_pass_is_pass_with_label(self):
@@ -781,6 +810,10 @@ class TestEvaluateGateHumanApproval:
             "reviews_fn": reviews_fn,
             "ci_head_fn": ci_head_fn,
             "requested_fn": requested_fn,
+            "comments_fn": _proof_comment_fn_for("abc123"),
+            # p7's trusted-author set resolves self hermetically via this key
+            # (matches _proof_comment_fn_for's digest author).
+            "self_login_fn": lambda: "framework-bot",
         }
 
     def _stub_approval(self, monkeypatch, returns):
@@ -1013,7 +1046,7 @@ def _assert_no_llm(module_path: Path) -> None:
     (in either import form) and no `claude` subprocess in any invocation shape.
     Shared by the deterministic_gate.py and human_approval.py guards (Task 1.9)."""
     name = module_path.name
-    source = module_path.read_text()
+    source = module_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     for node in ast.walk(tree):
@@ -1115,13 +1148,15 @@ def test_partial_runners_does_not_leak_pr_state_fn_to_copilot(monkeypatch):
         }
 
     # ONLY pr_state_fn injected — zero copilot-relevant seams, so copilot_runners -> None.
-    # config={} forces strict defaults (expects_copilot=True) so the copilot predicate
+    # config forces strict copilot default (expects_copilot=True) so the copilot predicate
     # actually RUNS — otherwise the repo's real config (expects_copilot=false) would omit
     # p4 and this regression (which asserts what p4 received) would never exercise it.
+    # require_review_proof:False omits the (default-required) review-proof predicate so this
+    # copilot-leak regression isolates p4 without injecting an unrelated comments_fn seam.
     outcome = deterministic_gate.evaluate_gate(
         PR_URL_R59,
         runners={"pr_state_fn": pr_state_fn},
-        config={},
+        config={"review": {"require_review_proof": False}},
     )
 
     # The copilot predicate must have received None, not the pr_state_fn dict.
@@ -1374,7 +1409,11 @@ def test_optout_config_passes_the_loop_ready_pr():
         # tooling path to PASS. (require_human_approval:false also keeps p5 out of the
         # fold so this asserts exactly the loop-ready predicate set.)
         config={
-            "review": {"expects_copilot": False, "require_human_approval": False},
+            "review": {
+                "expects_copilot": False,
+                "require_human_approval": False,
+                "require_review_proof": False,
+            },
             "ci": {"expects_github_checks": False},
         },
         runners=_green_no_checks_no_copilot_runners(),
@@ -1514,8 +1553,13 @@ def test_subset_copilot_injection_no_internal_error(monkeypatch):
         # ci_head_fn and requested_fn deliberately OMITTED
     }
 
-    # config={} forces expects_copilot=True so the copilot predicate actually runs.
-    outcome = deterministic_gate.evaluate_gate(PR_URL, runners=subset_runners, config={})
+    # config forces expects_copilot=True so the copilot predicate actually runs;
+    # require_review_proof:False omits the unrelated default-required proof predicate
+    # so this copilot-subset regression isolates p4.
+    outcome = deterministic_gate.evaluate_gate(
+        PR_URL, runners=subset_runners,
+        config={"review": {"require_review_proof": False}},
+    )
 
     blocking_names = [p.name for p in outcome.blocking]
     # LOAD-BEARING: the subset injection must now reach the TRUE verdict. The old

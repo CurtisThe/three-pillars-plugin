@@ -250,6 +250,21 @@ def _ensure_pr_label(pr_url: str, label: str) -> None:
     ensure_pr_label(pr_url, label)
 
 
+def _remove_pr_label(pr_url: str, label: str) -> None:
+    """Cross-skill wrapper around `label_manager.remove_pr_label` (never raises)."""
+    import sys
+    from pathlib import Path
+
+    pr_fix_scripts = (
+        Path(__file__).resolve().parent.parent.parent / "tp-pr-fix" / "scripts"
+    )
+    if str(pr_fix_scripts) not in sys.path:
+        sys.path.insert(0, str(pr_fix_scripts))
+    from label_manager import remove_pr_label  # noqa: E402
+
+    remove_pr_label(pr_url, label)
+
+
 def _ranges_overlap(a: list[int], b: list[int]) -> bool:
     """Inclusive [a0,a1] vs [b0,b1] overlap predicate."""
     if not a or not b or len(a) < 2 or len(b) < 2:
@@ -640,6 +655,7 @@ def run_loop(
     reviewed_fn=None,
     decisions_path=None,
     codereview_fn=None,
+    proof_ok_fn=None,          # NEW: head -> bool; default wires review_proof.proof_ok
 ) -> dict:
     """Assembled PR-iteration loop driver.
 
@@ -707,6 +723,18 @@ def run_loop(
     # run_loop can write it — without a baseline the idle terminal can never fire.
     if state.get("last_comment_seen_at") is None:
         state = {**state, "last_comment_seen_at": state.get("started_at")}
+
+    # Default proof_ok_fn: bound once so it is stable for the loop (enforce-review-
+    # proof B3). Loop arm: local artifact present (root=default_proof_root) OR a
+    # posted proof comment on the live PR. Currency: ALWAYS evaluated against the
+    # head passed in by the caller (the freshly-polled head_sha), never a cached one.
+    # config feeds the comment arm's trusted-author set (review.automation_identities).
+    if proof_ok_fn is None:
+        import review_proof as _rp  # local import (C1-safe, beside this module)
+
+        def proof_ok_fn(_head):
+            return _rp.proof_ok(_head, pr_url=pr_url, root=None, comments_fn=None,
+                                config=config)
 
     while True:
         now = now_fn()
@@ -923,6 +951,11 @@ def run_loop(
         # resolved_this_round is NOT passed: run_round uses unresolved_actionable
         # (the ground-truth re-fetch) as the Copilot-threads conjunct, not the
         # in-memory snapshot. (F-C2)
+        # Currency (enforce-review-proof B3): proof_ok is computed against the
+        # CURRENT head_sha resolved this iteration (from poll_fn), NEVER a cached
+        # SHA. run_loop now passes a BOUND True/False — never None — so the
+        # proof_ok=None legacy-permissive call-sites stay undisturbed.
+        _proof_ok = proof_ok_fn(head_sha)
         _round_result = run_round(
             state,
             head_sha=head_sha,
@@ -935,6 +968,7 @@ def run_loop(
             decisions_path=decisions_path,
             pr_url=pr_url,
             label_fn=None,  # use _ensure_pr_label (default)
+            proof_ok=_proof_ok,          # NEW — was previously omitted (None default)
         )
         state = _round_result["state"]
         _terminal = _round_result["terminal"]
@@ -1019,7 +1053,7 @@ def _append_blocked_no_review_line(
 ) -> None:
     """Append the BLOCKED-no-independent-review terminal entry to decisions.md.
 
-    Format: ### [pr-readiness/terminal] BLOCKED — no independent review ran — PR #{n} @ {sha7} ({iso})
+    Format: ### [pr-readiness/terminal] BLOCKED — NEEDS REVIEW — no proof (no independent review ran) — PR #{n} @ {sha7} ({iso})
 
     Mirrors _append_readiness_terminal_line; fail-open: if decisions_path is None
     or write fails, log and continue (never raise from the convergence path).
@@ -1032,8 +1066,8 @@ def _append_blocked_no_review_line(
         sha7 = (head_oid or "unknown")[:7]
         iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         line = (
-            f"### [pr-readiness/terminal] BLOCKED — no independent review ran "
-            f"— PR #{pr_number} @ {sha7} ({iso})\n"
+            f"### [pr-readiness/terminal] BLOCKED — NEEDS REVIEW — no proof "
+            f"(no independent review ran) — PR #{pr_number} @ {sha7} ({iso})\n"
         )
         path = Path(decisions_path)
         with path.open("a") as fh:
@@ -1052,8 +1086,10 @@ def _independent_review_ran(
     reviewed: "bool | None",
     head_sha,
     cached_head_sha,
+    proof_ok: "bool | None" = None,
 ) -> bool:
-    """True iff at least one independent review arm ran clean on the current head.
+    """True iff at least one independent review arm ran clean on the current head
+    AND the round's proof-of-review is not affirmatively absent.
 
     review_available = (cached_head_sha == head_sha AND head_sha is not None)
                        AND NOT review_merge.is_degraded_review(codereview_findings)
@@ -1061,8 +1097,24 @@ def _independent_review_ran(
     The current-head match is load-bearing (M2): a review of a prior head does NOT
     satisfy the conjunct — cached_head_sha != head_sha -> review_available is False.
 
+    The proof conjunct applies to BOTH arms (round-2 finding on PR #109): it used
+    to live inside review_available only, so on expects_copilot=true repos a
+    successful Copilot review could converge a round with NO proof on the head —
+    the loop labeled ready while gate p7 refused the same head (the exact
+    loop-labels-ready/gate-refuses divergence the codebase documents as a bug
+    class). Design behavior 3's invariant — a convergence-eligible round with no
+    proof on head is BLOCKED — must hold regardless of which reviewer ran.
+
+    proof_ok three-valued semantics (invariant, pinned by the matrix test):
+      True  — proof present + non-empty → conjunct satisfied.
+      False — proof missing / degraded / empty → blocks (fail-closed), on EITHER arm.
+      None  — not enforced (legacy callers / unit tests) → preserves existing behavior.
+    Flipping to `proof_ok` (truthiness) or `proof_ok is True` would break the
+    proof_ok=None legacy-permissive case — see test_independent_review_ran_proof_*.
+
     Returns:
-        True iff (expects_copilot AND reviewed is True) OR review_available.
+        True iff ((expects_copilot AND reviewed is True) OR review_available)
+        AND proof_ok is not False.
     """
     import review_merge as _review_merge  # local import for C1 safety / no circular deps
 
@@ -1071,7 +1123,8 @@ def _independent_review_ran(
         and head_sha is not None
         and not _review_merge.is_degraded_review(codereview_findings)
     )
-    return (expects_copilot and reviewed is True) or review_available
+    ran = (expects_copilot and reviewed is True) or review_available
+    return ran and (proof_ok is not False)
 
 
 # ---------- Phase 3 Task 3.3: pure run_round step ----------
@@ -1090,6 +1143,8 @@ def run_round(
     decisions_path=None,
     pr_url: str = "",
     label_fn=None,
+    unlabel_fn=None,
+    proof_ok: "bool | None" = None,
 ) -> dict:
     """Pure per-round decision step — the heart of B1.
 
@@ -1127,6 +1182,21 @@ def run_round(
                 _ensure_pr_label(pr_url, lbl)
             except Exception:
                 pass  # fail-open for label application
+
+    # Label HYGIENE at the terminals (round-2 finding): the attention/ready
+    # labels are STICKY (nothing else removes them) and both are applied on
+    # paths a run can recover from, so each terminal clears the OPPOSING label
+    # — otherwise a recovered-then-converged EXITED+OPEN run still carries
+    # tp:needs-human-attention and fleet_watch.classify_run misreads it as
+    # trouble (false escalation + premature batch-terminal).
+    def _do_unlabel(lbl: str) -> None:
+        if unlabel_fn is not None:
+            unlabel_fn(pr_url, lbl)
+        else:
+            try:
+                _remove_pr_label(pr_url, lbl)
+            except Exception:
+                pass  # fail-open — hygiene must never break the round
 
     # --- Write the findings cache BEFORE the terminal check ---
     state = {
@@ -1179,6 +1249,7 @@ def run_round(
             reviewed=reviewed,
             head_sha=head_sha,
             cached_head_sha=cached_head_sha,
+            proof_ok=proof_ok,
         )
 
         copilot_conjunct_ok = (reviewed is True) if expects_copilot else True
@@ -1194,8 +1265,12 @@ def run_round(
             # CONVERGE
             note = "two-stable" if expects_copilot else "two-stable [code-review-only]"
             state = _transition(state, now, "awaiting-human-review", note)
-            state = {**state, "termination_reason": "two-stable"}
+            # review-integrity-enforcement: a converged round resets the mechanical
+            # degraded-review retry counter (the streak of consecutive blocked rounds).
+            state = {**state, "termination_reason": "two-stable",
+                     "degraded_review_retries": 0}
             _do_label("tp:ready-for-human-merge")
+            _do_unlabel(_NEEDS_HUMAN_LABEL)
             _append_readiness_terminal_line(
                 pr_url=pr_url,
                 head_oid=head_sha or "unknown",
@@ -1209,8 +1284,15 @@ def run_round(
             # is non-empty (degraded sentinels) — the fourth conjunct failure is
             # the load-bearing gate.
             state = _transition(state, now, "blocked-no-independent-review",
-                                "no independent review ran for this head")
+                                "NEEDS REVIEW — no proof: no independent review ran for this head")
+            # review-integrity-enforcement (Finding 4): mechanize the retry COUNT — a
+            # committed-state fact the orchestrator reads to bound its bounded re-run
+            # (default 1), NOT its own memory. Consecutive blocked-no-independent-review
+            # rounds increment; any converged / non-blocked round resets it to 0.
+            state = {**state,
+                     "degraded_review_retries": state.get("degraded_review_retries", 0) + 1}
             _do_label(_NEEDS_HUMAN_LABEL)
+            _do_unlabel("tp:ready-for-human-merge")
             _append_blocked_no_review_line(
                 pr_url=pr_url,
                 head_oid=head_sha or "unknown",
@@ -1221,5 +1303,6 @@ def run_round(
         # else: copilot expected but reviewed is False/None -> keep looping
         #       OR independent_ran=True but codereview not quiet -> keep iterating
 
-    # No terminal reached
+    # No terminal reached — a non-blocked round resets the degraded-review streak.
+    state = {**state, "degraded_review_retries": 0}
     return {"state": state, "action": action, "terminal": None}

@@ -219,3 +219,72 @@ def test_unrelated_422_does_not_trigger_spurious_create():
     # Only the view + the failed add ran — no gh label create, no retry.
     assert run.call_count == 2, f"expected 2 calls (view + add), got {run.call_count}"
     assert ["gh", "label", "create"] not in [_cmd(c)[:3] for c in run.call_args_list]
+
+
+# ---------- remove_pr_label (rounds 2-3: sticky-label hygiene, probe-first) ----------
+
+
+def _view_labels(names) -> subprocess.CompletedProcess:
+    return _ok(stdout=json.dumps({"labels": [{"name": n} for n in names]}))
+
+
+def test_remove_pr_label_probe_then_rest_delete_with_encoded_name():
+    """Present label: read probe first, then REST DELETE with the label
+    URL-encoded (tp: colon) — never `gh pr edit --remove-label` (broken on
+    classic-Projects repos)."""
+    import label_manager
+
+    with patch("label_manager.subprocess.run",
+               side_effect=[_view_labels(["tp:needs-human-attention"]), _ok()]) as run:
+        assert label_manager.remove_pr_label(PR_URL, "tp:needs-human-attention") is True
+
+    assert run.call_count == 2
+    assert _cmd(run.call_args_list[0])[:3] == ["gh", "pr", "view"]
+    cmd = _cmd(run.call_args_list[1])
+    assert cmd[:4] == ["gh", "api", "--method", "DELETE"]
+    assert cmd[4] == "repos/example/repo/issues/42/labels/tp%3Aneeds-human-attention"
+
+
+def test_remove_pr_label_absent_is_noop_zero_writes():
+    """Absent label → True after the READ probe alone (round-3 pin: no
+    write-METHOD gh invocation may fire when there is nothing to remove)."""
+    import label_manager
+
+    with patch("label_manager.subprocess.run",
+               return_value=_view_labels(["some-other-label"])) as run:
+        assert label_manager.remove_pr_label(PR_URL, LABEL) is True
+    assert run.call_count == 1
+    assert _cmd(run.call_args_list[0])[:3] == ["gh", "pr", "view"]
+
+
+def test_remove_pr_label_probe_failure_no_write_attempt():
+    """Probe failure → False with ZERO write attempts (round-3 pin,
+    fail-closed-no-write: a hermetic env without working gh must never see a
+    DELETE — this keeps the loop suite free of live write-method calls even at
+    seams monkeypatch cannot reach, e.g. the run_round.py CLI subprocess)."""
+    import label_manager
+
+    with patch("label_manager.subprocess.run", return_value=_fail("no gh")) as run:
+        assert label_manager.remove_pr_label(PR_URL, LABEL) is False
+    assert run.call_count == 1
+
+
+def test_remove_pr_label_delete_404_race_is_success():
+    """Probe saw it, DELETE 404'd (removed concurrently) → still absent → True."""
+    import label_manager
+
+    with patch("label_manager.subprocess.run",
+               side_effect=[_view_labels([LABEL]),
+                            _fail("HTTP 404: Label does not exist")]):
+        assert label_manager.remove_pr_label(PR_URL, LABEL) is True
+
+
+def test_remove_pr_label_other_failure_false_never_raises():
+    import label_manager
+
+    with patch("label_manager.subprocess.run",
+               side_effect=[_view_labels([LABEL]), _fail("HTTP 500: boom")]):
+        assert label_manager.remove_pr_label(PR_URL, LABEL) is False
+    # Bad inputs: False, no raise.
+    assert label_manager.remove_pr_label("not-a-url", LABEL) is False
+    assert label_manager.remove_pr_label(PR_URL, "") is False

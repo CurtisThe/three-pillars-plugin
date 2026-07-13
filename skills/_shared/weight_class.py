@@ -51,7 +51,7 @@ def read_class(design_dir: Path) -> tuple:
     """
     design_md = Path(design_dir) / "design.md"
     try:
-        text = design_md.read_text()
+        text = design_md.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ("full", "default")
     klass = parse_frontmatter(text).get("weight-class")
@@ -119,7 +119,7 @@ def check_consistency(design_dir: Path) -> list:
     for name in _SIBLING_ARTIFACTS:
         sibling = design_dir / name
         try:
-            text = sibling.read_text()
+            text = sibling.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         sibling_class = parse_frontmatter(text).get("weight-class")
@@ -147,7 +147,7 @@ def write_class(artifact_path: Path, klass: str) -> None:
             f"invalid weight class {klass!r}; expected one of {VALID_CLASSES}"
         )
     path = Path(artifact_path)
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     existing = parse_frontmatter(text)
     if existing:
         # Rewrite the existing block, replacing/adding the weight-class key.

@@ -47,7 +47,7 @@ def _make_temp_repo(gitignore_text: str) -> Path:
 def _real_gitignore_text() -> str:
     """Read the actual repo-root .gitignore content."""
     root = _repo_root()
-    return (root / ".gitignore").read_text()
+    return (root / ".gitignore").read_text(encoding="utf-8")
 
 
 def test_orchestration_handoff_tracked_real_gitignore():

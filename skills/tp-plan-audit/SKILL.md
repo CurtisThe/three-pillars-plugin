@@ -33,7 +33,7 @@ Three-layer verification that plan.md is consistent with its upstream design doc
 
 Validate `{design-name}` matches `[a-z0-9-]+`. Reject values containing `/`, `..`, spaces, or non-matching characters.
 
-Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. The plan audit edits `plan.md` in Step 7 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
+Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "spike-plan-audit"` when `--spike` is set, otherwise `phase: "plan-audit"`. The plan audit edits `plan.md` in Step 7 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed. In `--auto` mode, do not prompt — if the lock is held by another developer, log the conflict to `decisions.md` and stop.
 
 Set the design directory:
 ```
@@ -46,11 +46,11 @@ Read project docs per `skills/_shared/read-project-docs.md`. Council members sho
 
 ### Step 2: Run deterministic checks
 
-Locate the script via the skill's install path — it lives alongside this SKILL.md:
+Locate the script via `$TP_ROOT` (resolved in step 0 — works identically in a
+dev checkout, a project install, or a plugin cache):
 ```bash
-python3 ~/.claude/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" [--spike|--light]
+python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" [--spike|--light]
 ```
-If the skill is project-installed, use `.claude/skills/tp-plan-audit/scripts/audit_plan.py` instead.
 Pass `--spike` or `--light` matching the flag given to the skill.
 
 Capture the full output. This checks:

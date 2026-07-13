@@ -25,12 +25,14 @@ Schema:
   "design": "{design-name}",
   "branch": "tp/{design-name}",
   "owner": "<git config user.email>",
-  "phase": "design|detail|plan|implement|review|audit|spike-plan|spike-implement|cleanup-pending",
+  "phase": "design|detail|plan|implement|review|design-audit|plan-audit|implementation-audit|audit|spike-plan|spike-implement|spike-plan-audit|spike-results|cleanup-pending",
   "acquired_at": "<ISO 8601 UTC>",
   "last_touched": "<ISO 8601 UTC>",
   "previous_owners": []
 }
 ```
+
+`audit` is a **deprecated** legacy alias retained for one release for backward compatibility — no active site emits it anymore; see `skills/_shared/test_audit_phase_tokens.py` for the migrated emit sites.
 
 **Owner value grammar** — `owner` is a plain string in one of two forms:
 - `<git-email>` — a bare git user email (the standard human-developer form).
@@ -106,12 +108,17 @@ Lock-aware skills run this before executing their main work:
 
    **In-flight remote collision check (additive)** — the local + `origin/{default-branch}` checks above only see locks that have landed on the default branch. In-flight locks live on `tp/*` branches and never touch the default branch, so they are invisible to those checks until PR-merge time. To close that gap, also consult the in-flight registry built from `origin/tp/*` branches via `skills/_shared/inflight_registry.py`:
    - **Situational-awareness print** — build the registry (`build_registry`) and print `format_table` so the operator sees every in-flight design (owner, phase, branch, age, `⚠ stale`/`· unreadable` flags) before any work begins. This print is awareness-only; different design names never block.
-   - **Same-name collision verdict** — run `collision_verdict(entries, {design-name}, {git user.email})` for the design being claimed and act on the verdict:
+   - **Same-name collision verdict** — compute two identity-gate inputs BEFORE calling `collision_verdict`, each from a distinct source (never collapse them to the same value — that would reduce the gate to pure ancestry, the rejected safety inversion):
+     - `local_owner = read_local_lock_owner({design-name})` — reads the **on-disk** `three-pillars-docs/tp-designs/{design-name}/lock.json` owner (fail-open `None` if absent/malformed).
+     - `origin_is_ancestor = ref_is_ancestor("origin/tp/{design-name}", "HEAD")` — via this **fail-closed helper** (never a raw inline `git merge-base` command), so an absent/unfetched ref, a non-repo cwd, or git being missing all resolve `False`, not a crash.
+     - `{git user.email}` — from `git config user.email` (step 3), the SAME value used everywhere else in this preflight — never re-derived from `local_owner`.
+   - Then run `collision_verdict(entries, {design-name}, {git user.email}, local_owner, origin_is_ancestor)` and act on the verdict:
      - `clear` → proceed (no in-flight `origin/tp/{design-name}` lock, or it was explicitly released).
      - `self` → **non-blocking notice**: the same git email holds `origin/tp/{design-name}` from another machine. Note it (you may be working in two places) but do **not** refuse — refusing would block your own legitimate work.
-     - `conflict` → **refuse before any work** unless `--force-takeover` was passed. A `conflict` is either a different owner *or* a same-name `tp/{design-name}` ref whose lock can't be read (ownership unconfirmed — the ref's existence is itself the collision signal). On `--force-takeover`, run the same takeover procedure above (record the prior holder in `previous_owners[]`).
+     - `conflict` → **refuse before any work** unless `--force-takeover` was passed. A `conflict` is either a different owner *or* a same-name `tp/{design-name}` ref whose lock can't be read AND the identity gate didn't pass (ownership unconfirmed — the ref's existence is itself the collision signal). On `--force-takeover`, run the same takeover procedure above (record the prior holder in `previous_owners[]`).
+   - **Unreadable now softens to `self` for the true holder, and only the true holder** — an unreadable `origin/tp/{design-name}` ref resolves `self` iff BOTH `same_actor(local_owner, {git user.email})` and `origin_is_ancestor` hold; otherwise it stays `conflict`. This preflight runs (this step, 5) BEFORE the lock write (step 6), so a stranger claiming the same name has no self-owned local `lock.json` yet — the identity conjunct, not ancestry, is what stops them, even though the same-name `origin/tp/{design-name}` ref (a shared base commit) is trivially an ancestor of everyone's HEAD.
    - This check **augments, does not replace** the existing local and `origin/{default-branch}` lock checks — local semantics are unchanged; the remote same-name check just moves the in-flight collision gate from PR-merge to branch-startup.
-   - **Freshness dependency** — the collision read depends on step 2's `git fetch --quiet origin` being **unscoped** (it fetches all heads, including `tp/*`, so the lock objects `read_lock_blob` needs are present locally). If a future change scopes step 2's fetch to exclude `tp/*`, every collision verdict silently degrades to `readable=False → conflict` — i.e. it **fails *closed*** (conservatively refuses rather than missing a real collision; `--force-takeover` overrides), which is safe but noisy. (This is the opposite of the *registry build's* whole-failure behavior, which fails *open* — degrades to the local view and never blocks.) Keep step 2's fetch unscoped, or update this dependency note alongside any change to it.
+   - **Freshness dependency** — the collision read still depends on step 2's `git fetch --quiet origin` being **unscoped** (it fetches all heads, including `tp/*`, so the lock objects `read_lock_blob` needs are present locally). Per-commit push (this design's Part A) now populates `origin/tp/*` throughout a design's life, not just at creation, so the unreadable window has shrunk to push-failed or not-yet-first-pushed — precisely the case the identity gate above exists to resolve safely. Absent that gate, scoping step 2's fetch to exclude `tp/*` would still degrade every verdict to `readable=False → conflict` — i.e. it **fails *closed*** (conservatively refuses rather than missing a real collision; `--force-takeover` overrides), which is safe but noisy. (This is the opposite of the *registry build's* whole-failure behavior, which fails *open* — degrades to the local view and never blocks.) Keep step 2's fetch unscoped, or update this dependency note alongside any change to it.
 
 6. **Stage the lock**: after acquiring / refreshing / taking over, write the updated `lock.json` to disk. The lock update is rolled into the skill's artifact commit per `skills/_shared/commit-after-work.md` — never commit just a lock change on its own (the sole exception is `/tp-design-release`, where the lock change is the work).
 
@@ -167,11 +174,12 @@ Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-m
 tp-design-complete, and the worktree-management skill) from the **main checkout** while a
 `tp/<design>` worktree is live is unsupported and actively guarded. Two controls enforce this:
 
-1. **Fail-closed commit guard** — framework-check invariant #28 calls
-   `skills/_shared/worktree_write_guard.py` before every commit. If the commit is on
-   a default branch (`main`/`master`), a `tp/*` worktree is live, AND the staged set
-   contains framework code or design artifacts, the commit is refused with guidance.
-   This is the backstop control — it fires even if the preflight was bypassed.
+1. **Fail-closed commit guard** — in the three-pillars dev repo, a pre-commit
+   hook calls `skills/_shared/worktree_write_guard.py` before every commit. If
+   the commit is on a default branch (`main`/`master`), a `tp/*` worktree is
+   live, AND the staged set contains framework code or design artifacts, the
+   commit is refused with guidance. This is the backstop control — it fires
+   even if the preflight was bypassed.
 
 2. **Fail-open cwd preflight** — each of the five worktree-operating skills runs
    `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py <design>` as a numbered preflight step

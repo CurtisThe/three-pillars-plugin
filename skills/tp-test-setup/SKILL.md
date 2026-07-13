@@ -67,12 +67,17 @@ The ordering matters: picking a test runner, layout, and coverage tool before th
    - Show the user what permission is being added and why.
 
 8. **Ensure session artifacts are gitignored**:
-   - Check the project's `.gitignore` for this pattern:
+   - Check the project's `.gitignore` for these patterns:
      ```
      three-pillars-docs/tp-designs/*/handoff.md
+     three-pillars-docs/completed-tp-designs/*/handoff.md
+     three-pillars-docs/tp-designs/*/demos/scratch/
+     three-pillars-docs/completed-tp-designs/*/demos/scratch/
+     three-pillars-docs/tp-designs/*/demos/**/*.tmp
+     three-pillars-docs/completed-tp-designs/*/demos/**/*.tmp
      ```
-   - If missing, append it (with a `# three-pillars session artifacts` comment) and tell the user what was added and why (handoff.md contains per-developer session context that should stay local).
-   - **Note**: `decisions.md` and `demos/` are NOT gitignored — they are part of the design's permanent evidence record and must survive cross-machine sync, archival, and review. Only `handoff.md` is purely ephemeral.
+   - If missing, append the relevant lines (each comment on its own line — git .gitignore does NOT support inline/trailing comments) and tell the user what was added and why.
+   - **Note**: `decisions.md` and `demos/` are tracked evidence — they are part of the design's permanent record and must survive cross-machine sync, archival, and review. Only `handoff.md` is purely ephemeral. The `demos/scratch/` subdirectory and `*.tmp` files inside `demos/` are the throwaway hatch for genuine ad-hoc scratch work that must NOT be committed; everything else under `demos/` is tracked.
 
 9. **Verify**: Run the test suite once to confirm everything works.
 

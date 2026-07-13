@@ -80,7 +80,7 @@ def test_repoint_rewrites_exactly_the_cite_substring(tmp_path):
     assert "completed-tp-designs/gone-slug" in e.after
     assert e.kind == "repoint"
     # Verify file was actually changed — check via regex that it's not a bare tp-designs/ cite
-    content = (tmp_path / "skills" / "module.py").read_text()
+    content = (tmp_path / "skills" / "module.py").read_text(encoding="utf-8")
     assert "completed-tp-designs/gone-slug" in content
     # The bare (non-completed) prefix should no longer appear
     import re as _re
@@ -121,7 +121,7 @@ def test_history_lines_and_archived_dirs_untouched(tmp_path):
 
     edits = repoint_cites(tmp_path, slugs=None, apply=True)
     assert edits == []
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "tp-designs/gone-slug" in content  # untouched
 
 
@@ -155,7 +155,7 @@ def test_slugs_filter_restricts_scope(tmp_path):
     assert all(e.slug == "slug-a" for e in edits)
     assert len(edits) == 1
     # slug-b file untouched
-    content_b = (tmp_path / "skills" / "b.py").read_text()
+    content_b = (tmp_path / "skills" / "b.py").read_text(encoding="utf-8")
     assert "tp-designs/slug-b" in content_b
 
 
@@ -176,7 +176,7 @@ def test_flip_tier6_variant_to_merged_pr_nn(tmp_path):
 
     edits = flip_status(tmp_path, "my-design", pr_number=7, apply=True)
     assert len(edits) >= 1
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "merged PR #7" in content
     assert "Completion PR pending" not in content
 
@@ -193,7 +193,7 @@ def test_flip_bare_lowercase_variant(tmp_path):
 
     edits = flip_status(tmp_path, "my-design", pr_number=7, apply=True)
     assert len(edits) >= 1
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "merged PR #7" in content
 
 
@@ -209,7 +209,7 @@ def test_no_pr_number_uses_plain_merged_label(tmp_path):
 
     edits = flip_status(tmp_path, "my-design", pr_number=None, apply=True)
     assert len(edits) >= 1
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "merged" in content
     # Should not have a PR number
     assert "merged PR #" not in content
@@ -228,7 +228,7 @@ def test_flip_only_rows_naming_the_slug(tmp_path):
     from reconcile_docs import flip_status
 
     edits = flip_status(tmp_path, "slug-a", pr_number=5, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     # slug-a flipped
     lines = content.splitlines()
     slug_a_line = next(l for l in lines if "slug-a" in l)
@@ -249,7 +249,7 @@ def test_last_updated_date_bumped_on_touched_living_doc(tmp_path):
     import datetime
 
     edits = flip_status(tmp_path, "my-design", pr_number=7, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     today = datetime.date.today().isoformat()
     assert today in content
 
@@ -283,11 +283,11 @@ def test_flip_adds_no_history_line(tmp_path):
     )
     history_before = (
         tmp_path / "three-pillars-docs" / "product_roadmap.md"
-    ).read_text().split("## History")[1]
+    ).read_text(encoding="utf-8").split("## History")[1]
     from reconcile_docs import flip_status
 
     flip_status(tmp_path, "my-design", pr_number=7, apply=True)
-    content_after = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content_after = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     history_after = content_after.split("## History")[1]
     # History section unchanged
     assert history_before == history_after
@@ -314,7 +314,7 @@ def test_flip_stale_row_in_history_section_never_flipped(tmp_path):
         "rows inside ## History / ## Roadmap History must never be flipped"
     )
     # Verify file content is unchanged
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert history_row in content, "history row must survive --apply untouched"
 
 
@@ -407,7 +407,7 @@ def test_archive_cites_mode_performs_no_status_flip(tmp_path):
     assert "repoint" in kinds
     assert "status-flip" not in kinds
     # Roadmap status unchanged
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "Completion PR pending" in content
 
 
@@ -562,7 +562,7 @@ def test_repoint_does_not_double_prefix_already_correct_cite(tmp_path):
     from reconcile_docs import repoint_cites
 
     edits = repoint_cites(tmp_path, slugs=None, apply=True)
-    content = (tmp_path / "skills" / "mixed.py").read_text()
+    content = (tmp_path / "skills" / "mixed.py").read_text(encoding="utf-8")
     assert "completed-completed-" not in content, (
         "repoint_cites must not double-prefix an already-correct cite"
     )
@@ -580,7 +580,7 @@ def test_repoint_two_same_slug_cites_on_one_line(tmp_path):
     from reconcile_docs import repoint_cites
 
     edits = repoint_cites(tmp_path, slugs=None, apply=True)
-    content = (tmp_path / "skills" / "double.py").read_text()
+    content = (tmp_path / "skills" / "double.py").read_text(encoding="utf-8")
     assert "completed-completed-" not in content
     # Both should be corrected
     import re as _re
@@ -601,7 +601,7 @@ def test_repoint_prefix_sharing_slug_not_clobbered(tmp_path):
     from reconcile_docs import repoint_cites
 
     edits = repoint_cites(tmp_path, slugs=None, apply=True)
-    content = (tmp_path / "skills" / "cites.py").read_text()
+    content = (tmp_path / "skills" / "cites.py").read_text(encoding="utf-8")
     # foo cite should be repointed
     assert "completed-tp-designs/foo/" in content
     # foo-bar cite must remain as-is (live design, not dead; lookahead blocks repoint of foo)
@@ -624,7 +624,7 @@ def test_repoint_archived_prefix_slug_only_not_longer_slug(tmp_path):
     from reconcile_docs import repoint_cites
 
     edits = repoint_cites(tmp_path, slugs={"foo"}, apply=True)
-    content = (tmp_path / "skills" / "boundary.py").read_text()
+    content = (tmp_path / "skills" / "boundary.py").read_text(encoding="utf-8")
     assert "completed-completed-" not in content, (
         "double-prefix must never occur"
     )
@@ -658,7 +658,7 @@ def test_flip_status_does_not_affect_prefixed_live_design(tmp_path):
     from reconcile_docs import flip_status
 
     edits = flip_status(tmp_path, "foo", pr_number=9, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     lines = content.splitlines()
     foo_line = next(l for l in lines if "`foo`" in l and "`foo-bar`" not in l)
     foo_bar_line = next(l for l in lines if "`foo-bar`" in l)
@@ -679,7 +679,7 @@ def test_flip_status_does_not_affect_substring_in_suffix(tmp_path):
     from reconcile_docs import flip_status
 
     edits = flip_status(tmp_path, "post-merge", pr_number=42, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     lines = content.splitlines()
     short_line = next(l for l in lines if "`post-merge`" in l and "`post-merge-doc-reconcile`" not in l)
     long_line = next(l for l in lines if "`post-merge-doc-reconcile`" in l)
@@ -701,7 +701,7 @@ def test_flip_status_slug_mentioned_in_notes_not_flipped(tmp_path):
     # flip_status for foo — the bar row should NOT be flipped just because
     # it mentions "foo" in the notes column (bar is the owning slug, not foo)
     edits = flip_status(tmp_path, "foo", pr_number=5, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     assert "Completion PR pending" in content, (
         "bar row must not be flipped just because it mentions foo in notes"
     )
@@ -942,7 +942,7 @@ def test_flip_status_backtick_in_notes_owner_row_unaffected(tmp_path):
     from reconcile_docs import flip_status
 
     edits = flip_status(tmp_path, "foo", pr_number=3, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     lines_with_foo = [l for l in content.splitlines() if "foo" in l and "bar" not in l]
     lines_with_bar = [l for l in content.splitlines() if "`bar`" in l]
     assert any("merged PR #3" in l for l in lines_with_foo), "foo row must be flipped"
@@ -1202,7 +1202,7 @@ def test_repoint_cites_bumps_last_updated_on_living_doc(tmp_path):
 
     edits = repoint_cites(tmp_path, slugs=None, apply=True)
     assert len(edits) >= 1
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     today = datetime.date.today().isoformat()
     assert today in content, (
         "repoint_cites must bump *Last updated:* date when touching a living doc"

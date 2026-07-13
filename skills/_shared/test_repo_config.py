@@ -15,7 +15,7 @@ SCHEMA_PATH = Path(__file__).parent / "repo-config.schema.json"
 
 @pytest.fixture(scope="module")
 def schema():
-    return json.loads(SCHEMA_PATH.read_text())
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -188,7 +188,7 @@ def test_config_without_ci_still_validates(validator):
 def test_this_repo_opts_out_of_github_ci(validator):
     # This repo runs CI locally — its committed config must opt out and stay schema-valid.
     repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
-    cfg = json.loads(repo_cfg_path.read_text())
+    cfg = json.loads(repo_cfg_path.read_text(encoding="utf-8"))
     validator.validate(cfg)
     assert cfg.get("ci", {}).get("expects_github_checks") is False
 
@@ -226,7 +226,7 @@ def test_this_repo_opts_out_of_copilot(validator):
     # This account has no Copilot entitlement — its committed config must declare it so
     # the tp-pr-iterate loop converges on the /code-review arm instead of cap-exhausting.
     repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
-    cfg = json.loads(repo_cfg_path.read_text())
+    cfg = json.loads(repo_cfg_path.read_text(encoding="utf-8"))
     validator.validate(cfg)
     assert cfg.get("review", {}).get("expects_copilot") is False
 
@@ -312,7 +312,7 @@ def test_config_without_fleet_still_validates(validator):
 def test_this_repo_declares_require_human_approval(validator):
     # This repo opts into the strict human-approval predicate explicitly.
     repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
-    cfg = json.loads(repo_cfg_path.read_text())
+    cfg = json.loads(repo_cfg_path.read_text(encoding="utf-8"))
     validator.validate(cfg)
     assert cfg.get("review", {}).get("require_human_approval") is True
 

@@ -65,7 +65,7 @@ def test_full_auto_resolve_when_only_mechanical(tmp_path):
     assert not report.merged_clean
     assert KI in report.auto_resolved, report.to_json()
     assert KI not in report.deferred
-    content = (repo / KI).read_text()
+    content = (repo / KI).read_text(encoding="utf-8")
     assert "<<<<<<<" not in content                       # no markers left
     for needle in ["ours unique entry", "theirs entry one", "theirs entry two"]:
         assert needle in content                          # zero-drop
@@ -80,7 +80,7 @@ def test_partial_resolution_when_preamble_also_conflicts(tmp_path):
     report = merge_back(str(repo), "master")
     assert KI in report.partially_resolved, report.to_json()
     assert report.needs_human
-    content = (repo / KI).read_text()
+    content = (repo / KI).read_text(encoding="utf-8")
     # mechanical hunk pre-resolved (entries present, monotonic), semantic hunk left as markers
     for needle in ["ours unique entry", "theirs entry one", "theirs entry two"]:
         assert needle in content
@@ -144,7 +144,7 @@ def test_add_add_conflict_is_deferred_no_common_base(tmp_path):
     assert KI in report.deferred, report.to_json()
     assert any("add/add" in o["reason"] for o in report.outcomes if o["path"] == KI)
     # nothing staged; markers remain for the human
-    assert "<<<<<<<" in (repo / KI).read_text()
+    assert "<<<<<<<" in (repo / KI).read_text(encoding="utf-8")
 
 
 def test_clean_merge_reports_no_conflict(tmp_path):

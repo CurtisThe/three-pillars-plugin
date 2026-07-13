@@ -110,7 +110,7 @@ def scan_docs(repo_root, identifiers) -> list[StaleRef]:
             return []
         for path in sorted(docs_root.rglob("*.md")):
             try:
-                text = path.read_text(errors="replace")
+                text = path.read_text(encoding="utf-8", errors="replace")
                 rel = str(path.relative_to(root))
             except OSError:
                 continue

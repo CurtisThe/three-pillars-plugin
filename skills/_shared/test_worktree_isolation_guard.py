@@ -979,7 +979,7 @@ def test_framework_check_inv32_wired():
     landed alongside this design on master.)"""
     here = Path(__file__).resolve().parent
     fcs_path = here.parent.parent / "framework-check.sh"
-    content = fcs_path.read_text()
+    content = fcs_path.read_text(encoding="utf-8")
 
     # (1) Footer is DERIVED from active_count (invariant-citation-coherence added
     #     inv #38, which made the banner runtime-derived rather than a literal).

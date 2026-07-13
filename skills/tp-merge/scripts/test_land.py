@@ -47,7 +47,9 @@ class _FakeOutcome:
 
 
 def _blocked_outcome():
-    return _FakeOutcome([_FakePred("human_approved", "no current tp:human-approved on head")])
+    return _FakeOutcome([_FakePred("human_approved",
+                                   "get an APPROVED PR review on the current head from a "
+                                   "non-automation human (see human-approval-howto.md)")])
 
 
 class TestLandRefusesOnBlockedGate:
@@ -260,28 +262,23 @@ class TestLandBindingOnLivePath:
         )
 
 
-class TestLandCollisionRefusalBranch:
-    """Task 3.2: collision-signature branch in the refuse path.
+class TestLandHumanApprovedRefusalBranch:
+    """retire-approval-tags: collision-signature branch removed; single review-path message.
 
-    When human_approved blocks AND the collision signature holds (label present,
-    actor == self_login), the refusal prints flip instructions INSTEAD of the
-    generic howto line. Exit code stays 2 in both branches.
+    When human_approved blocks, the refusal now prints the review-path howto line
+    (no collision-signature branching, no label-apply instructions). Exit code stays 2.
     """
 
     def _blocked_human_approved(self):
         return _FakeOutcome([_FakePred("human_approved",
-                                       "self-login applied tp:human-approved")])
+                                       "get an APPROVED PR review on the current head from a "
+                                       "non-automation human (see human-approval-howto.md)")])
 
     def _require_fn_blocked(self, pr_url, *, config=None):
         raise MergeGateBlocked(self._blocked_human_approved())
 
-    def test_collision_branch_prints_flip_instructions(self, capsys, monkeypatch):
-        """Collision signature True -> flip instructions printed, NOT generic howto."""
-        monkeypatch.setattr(
-            land, "approval_collision_signature_live",
-            lambda pr_url, runners=None: True,
-        )
-
+    def test_human_approved_refusal_prints_howto(self, capsys):
+        """human_approved blocks -> howto pointer printed, exit 2."""
         rc = land.land(
             PR_URL,
             require_fn=self._require_fn_blocked,
@@ -289,52 +286,27 @@ class TestLandCollisionRefusalBranch:
             config={"review": {"require_human_approval": True}},
         )
         out = capsys.readouterr().out
-        assert rc == 2, "exit code must still be 2 on collision branch"
-        assert "human-approval-howto.md" in out, "howto pointer must still appear"
-        # Flip instructions must contain the collision-specific text
-        assert "single-account" in out or "machine account" in out or "flip" in out, (
-            "collision branch must print flip instructions: "
-            f"got output: {out!r}"
-        )
+        assert rc == 2, "exit code must be 2 on human_approved refusal"
+        assert "human-approval-howto.md" in out, "howto pointer must appear in refusal"
 
-    def test_no_collision_branch_prints_generic_howto(self, capsys, monkeypatch):
-        """Collision signature False -> generic howto line printed (unchanged)."""
-        monkeypatch.setattr(
-            land, "approval_collision_signature_live",
-            lambda pr_url, runners=None: False,
-        )
-
-        rc = land.land(
+    def test_human_approved_refusal_mentions_review(self, capsys):
+        """Refusal message must reference the review path (no label instruction)."""
+        land.land(
             PR_URL,
             require_fn=self._require_fn_blocked,
             merge_fn=lambda u: None,
             config={"review": {"require_human_approval": True}},
         )
         out = capsys.readouterr().out
-        assert rc == 2
-        # Generic howto line must appear
-        assert "To authorize this merge" in out or "human-approval-howto.md" in out
-
-    def test_non_human_approved_blocker_no_collision_check(self, capsys, monkeypatch):
-        """When human_approved is NOT among blockers, collision branch is never taken."""
-        collision_called = []
-        monkeypatch.setattr(
-            land, "approval_collision_signature_live",
-            lambda pr_url, runners=None: collision_called.append(1) or True,
+        assert "human-approval-howto.md" in out
+        # land.py's OWN refusal message (not just the echoed predicate detail) must
+        # surface the single-account no-gate posture. "single-account" appears only in
+        # land's dedicated line, never in the predicate detail fixture, so this isolates
+        # land's contribution — deleting that line turns this assertion red.
+        assert "single-account" in out, (
+            "land must print its own review-path / single-account no-gate guidance"
         )
-
-        # Gate blocks on threads_resolved only (not human_approved)
-        def require_fn(pr_url, *, config=None):
-            raise MergeGateBlocked(
-                _FakeOutcome([_FakePred("threads_resolved", "open threads")])
-            )
-
-        rc = land.land(
-            PR_URL,
-            require_fn=require_fn,
-            merge_fn=lambda u: None,
-            config={"review": {"require_human_approval": True}},
+        # Must NOT instruct the operator to apply a label
+        assert "tp:human-approved" not in out, (
+            "retire-approval-tags: refusal must not instruct applying the label"
         )
-        assert rc == 2
-        # Collision check must NOT be called when human_approved is not blocking
-        assert collision_called == [], "collision check must not run for non-human_approved blockers"

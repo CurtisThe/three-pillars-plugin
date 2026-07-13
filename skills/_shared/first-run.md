@@ -14,10 +14,11 @@ Before any other check, run the cheap-path probe:
 4. **Aider-install is settled** — invoke `aider_install_check.aider_on_path()`; if it returns True, this condition is satisfied (the user already has aider, no offer needed). Otherwise invoke `aider_install_check.cheap_check()` and accept either `skip-decided` (user accepted/declined — sticky) or `skip-remind-pending` (remind-later target hasn't elapsed) as satisfying.
 5. **Seat is a confirmed-healthy coordination point** — invoke `seat_resolve.sh --am-i-seat --repo .`. **Exit 0 satisfies the condition** (path-shape says seat AND the bare-bit is false → not the footgun, not a design worktree masquerading as the seat). This adds one constant-time subprocess (`git rev-parse --is-bare-repository` + a path-string test — no `worktree list`, no network) to the hot path. **Exit 1 (uncertain) does NOT early-exit** — it falls through to the `## Seat-state detection` section below, which runs the full `--detect`.
 6. **Worktree immunization is settled** — read `worktree_immunization` from the already-loaded config. Condition is satisfied if `worktree_immunization.applied_at` is non-null OR `worktree_immunization.declined` is true. This is a single config-read condition (no network, no subprocess) that rides the config read from condition 1. Cost: zero additional I/O on the hot path.
+7. **GitHub PR-author is settled** — read `github` from the already-loaded config. Condition is satisfied if `github.pr_author_account` is non-null OR `github.declined` is true OR no `origin` remote is configured. Like condition 6, this rides condition 1's config read — a single config-read condition, zero extra I/O.
 
-If **all six** conditions hold, **return immediately**. The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), no network.
+If **all seven** conditions hold, **return immediately**. The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), no network.
 
-If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state → worktree-immunization). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section; condition 6 failing routes to the `## Worktree-immunization offer` section below.
+If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state → worktree-immunization → GitHub PR-author). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section; condition 6 failing routes to the `## Worktree-immunization offer` section below; condition 7 failing routes to the `## GitHub PR-author offer` section below.
 
 ## Worktree-immunization offer
 
@@ -32,6 +33,26 @@ Invoke `python3 "$TP_ROOT"/skills/_shared/bootstrap_immunization.py` status, the
 - **`--auto`**: skip the prompt; append a `[first-run]` entry to `decisions.md` (same format as branch-protection auto-skip). Never mutate.
 
 The offer fires at most once per repo (the `worktree_immunization.applied_at` / `declined` fields suppress repeats). It never fires on a second invocation if the user already answered.
+
+## GitHub PR-author offer
+
+Runs when condition 7 fails (i.e., `github_auth_check.check(repo)` returns `needs-prompt`). The offer sets up a secondary bot GitHub account as the PR author on this repo's completion PRs, so the operator's own account is free to submit the APPROVED review the merge gate's human-approval predicate requires — see `skills/_shared/github_pr_author.py` for the chokepoint that reads this configuration.
+
+Invoke `python3 "$TP_ROOT"/skills/_shared/github_auth_check.py --repo .` (or call `check()` directly), then branch on `action`:
+
+- `skip-no-origin` — no GitHub remote; nothing to offer. No write.
+- `skip-decided` — `github.pr_author_account` is set OR `github.declined` is true. The operator has already answered.
+- `skip-gh-missing` — `gh` is not on PATH; the offer is moot (no `gh`, no PR creation at all). Silent, no write, re-checks next run.
+- `auto-skip` — under `--auto`, a `[first-run]` entry was appended to `decisions.md`. Continue.
+- `needs-prompt` — offer interactively:
+
+  > "Open design PRs as a secondary bot account so your main account can approve them? A machine account (e.g. `YourNameBot`) authors the PRs; you approve as yourself, which satisfies the merge gate's human-approval predicate. [account-name / no / skip]"
+
+  - **account-name**: run `github_auth_check.verify_account(login)` to probe the `gh` keyring. On success, call `mark_configured(repo, login, review_requests=[...])` (optionally ask for a reviewer list in the same prompt), then **commit `.three-pillars/config.json` immediately** (`config: PR-author bot account (<login>)`) — the merge gate reads config from committed HEAD (`git show HEAD:.three-pillars/config.json`), so an uncommitted write is inert to the gate. On failure (the account isn't in the keyring), print the `gh auth login` instruction and do **not** write the config — the offer re-fires next run.
+  - **no**: call `mark_declined(repo)`. Sticky — never re-asks.
+  - **skip**: no write; re-offers next run.
+
+The offer fires at most once per repo (the `github.pr_author_account` / `declined` fields suppress repeats).
 
 There is no release detection: releasing the three-pillars plugin itself is a dev-only flow documented in `three-pillars-docs/RELEASING.md`, not a per-repo concern for installed projects.
 
@@ -114,6 +135,7 @@ Concrete defaults under `--auto`:
 | Old-layout detected | Refuse the main work; log and stop. Do **not** auto-run `/tp-migrate` — migration is destructive and a human-in-the-loop is required. | High |
 | Branch protection unset, `origin` present, `gh` available | Skip the prompt; leave config untouched. The next interactive run will offer setup. | Medium |
 | Aider absent + no prior decision | Skip the prompt; leave `~/.three-pillars/aider-install.json` untouched (so the next interactive run still gets to ask). The skill's optional aider preamble will be no-ops for this run. | Medium |
+| GitHub PR-author unconfigured, `origin` present, `gh` available | Skip the prompt; leave `github.pr_author_account` untouched. PRs open with ambient `gh` auth this run; the next interactive run still gets to offer the bot-account setup. | Medium |
 
 The `decisions.md` lives in the design directory the skill is operating on (`three-pillars-docs/tp-designs/{name}/decisions.md`). If the file does not exist, create it with the Run Metadata header per `auto-mode.md` §Initialization. The first-run entry is appended chronologically alongside the calling skill's own entries.
 
@@ -169,3 +191,25 @@ When `TP_ROOT` cannot be resolved, the helper's failure class determines what to
   ```
 
 No helper's failure class flips — enforcement helpers stay blocking, convenience helpers stay fail-open. Only the skip line changes (silent skip → loud skip).
+
+### Resolve a FREE _shared script
+
+`$TP_ROOT` answers "where is *a* framework root", but on a FREE+PRO install it can land on the PRO cache, which does **not** carry FREE-only `_shared` modules — so a bare `python3 "$TP_ROOT"/skills/_shared/<name>` dies with `No such file or directory` (this failed live in PR #126). Resolve FREE `_shared` scripts through `resolve_script.py`, which prefers the repo's own copy when this checkout *is* a framework repo and falls back to the versioned plugin cache otherwise.
+
+Reach `resolve_script.py` **git-toplevel-first**, because the pro cache **lags** — a brand-new FREE module (even `resolve_script.py` itself) is absent from an already-released pro cache, so it may not exist under `"$TP_ROOT"` on a dogfood machine:
+
+```bash
+NAME=github_pr_author.py   # basename of the FREE _shared script to invoke
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then
+  RS="$TOP"/skills/_shared/resolve_script.py       # dogfood: repo copy is authoritative
+else
+  RS="$TP_ROOT"/skills/_shared/resolve_script.py   # consumer install
+fi
+TARGET="$(python3 "$RS" "$NAME")"                  # abs path on stdout, or exit 1 (fail-loud)
+python3 "$TARGET" "$@"                              # invoke the resolved script with your args
+```
+
+`resolve_script.py` prints the resolved absolute path on stdout (exit 0) or a fail-loud diagnostic naming every probed root on stderr (exit 1) — never a silent wrong path. Adopt this at any FREE `_shared` call site with the `$TP_ROOT`-vs-repo ambiguity (the `github_pr_author.py` PR-author chokepoint is the primary one).
+
+The snippet resolves off the **current cwd's** git toplevel (`git rev-parse --show-toplevel`), so a caller must run it from inside the framework checkout for the dogfood-first win — invoked from an unrelated directory the `if` branch fails and resolution falls back to `$TP_ROOT` / the versioned cache.

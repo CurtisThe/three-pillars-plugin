@@ -156,7 +156,7 @@ def _atomic_write_config(config_path: Path, data: dict) -> None:
 def _write_fail_open(repo: Path) -> None:
     config_path = repo / ".three-pillars" / "config.json"
     if config_path.exists():
-        data = json.loads(config_path.read_text())
+        data = json.loads(config_path.read_text(encoding="utf-8"))
     else:
         data = {"schema_version": 1}
     bp = data.setdefault("branch_protection", {})

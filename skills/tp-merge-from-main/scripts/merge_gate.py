@@ -86,7 +86,7 @@ if str(_LOOP_DIR) not in sys.path:
 from deterministic_gate import evaluate_gate  # noqa: E402
 
 
-def merge_gate_blocking(pr_url: str, *, runners=None, config=None):
+def merge_gate_blocking(pr_url: str, *, runners=None, config=None, repo_root=None):
     """Evaluate the pre-merge gate and RETURN its GateOutcome (does not raise).
 
     Thin re-export of deterministic_gate.evaluate_gate. Returns a GateOutcome
@@ -109,11 +109,14 @@ def merge_gate_blocking(pr_url: str, *, runners=None, config=None):
         config: optional repo-config dict (review.expects_copilot /
             ci.expects_github_checks). None → evaluate_gate reads it fail-closed from
             disk (live); inject {} for strict-default hermetic tests.
+        repo_root: optional dispatch-from-seat override (task 8.1) — passed straight
+            through to evaluate_gate's repo_root= kwarg. None → cwd-derived resolution
+            (byte-unchanged from before this kwarg existed).
 
     Returns:
         GateOutcome with .verdict, .blocking, and .label (always GATE_LABEL).
     """
-    return evaluate_gate(pr_url, runners=runners, config=config)
+    return evaluate_gate(pr_url, runners=runners, config=config, repo_root=repo_root)
 
 
 class MergeGateBlocked(Exception):
@@ -133,7 +136,7 @@ class MergeGateBlocked(Exception):
         )
 
 
-def require_merge_gate_pass(pr_url: str, *, runners=None, config=None):
+def require_merge_gate_pass(pr_url: str, *, runners=None, config=None, repo_root=None):
     """Fail-closed ENFORCING gate: raise MergeGateBlocked unless the verdict is PASS.
 
     This is the form whose name's "blocking" promise is enforced in code: a
@@ -147,6 +150,8 @@ def require_merge_gate_pass(pr_url: str, *, runners=None, config=None):
     Args:
         pr_url: the PR URL to gate.
         runners: optional dict of injected seam functions for tests.
+        repo_root: optional dispatch-from-seat override (task 8.1), passed through
+            to merge_gate_blocking / evaluate_gate. None → cwd-derived resolution.
 
     Returns:
         GateOutcome (verdict == PASS).
@@ -154,7 +159,7 @@ def require_merge_gate_pass(pr_url: str, *, runners=None, config=None):
     Raises:
         MergeGateBlocked: if the verdict is FAIL or INDETERMINATE.
     """
-    outcome = merge_gate_blocking(pr_url, runners=runners, config=config)
+    outcome = merge_gate_blocking(pr_url, runners=runners, config=config, repo_root=repo_root)
     # Import here to avoid widening the module's top-level import surface; the
     # symbol already came in via `from deterministic_gate import evaluate_gate`.
     from deterministic_gate import GateVerdict  # noqa: E402

@@ -136,22 +136,26 @@ class TestCompanionDocCoherence:
 
 
 class TestSkillPointer:
-    """Task 6.3 — SKILL.md has exactly one pointer to record-replay.md, ≤1081 lines."""
+    """Task 6.3 — SKILL.md has exactly one pointer to record-replay.md, ≤1088 lines."""
 
     def _skill_path(self) -> Path:
         root = _repo_root()
         return root / "skills" / "tp-run-full-design" / "SKILL.md"
 
     def test_skill_pointer(self):
-        """SKILL.md has exactly one reference to record-replay.md AND ≤1081 lines."""
+        """SKILL.md has exactly one reference to record-replay.md AND ≤1088 lines."""
         path = self._skill_path()
         assert path.exists(), f"SKILL.md not found at {path}"
         lines = path.read_text(encoding="utf-8").splitlines()
 
-        # Absolute line-count cap
-        assert len(lines) <= 1081, (
-            f"SKILL.md has {len(lines)} lines — exceeds 1081-line cap "
-            f"(grandfathered at 1079 + ≤2 pointer lines)"
+        # Absolute line-count cap (1079 grandfathered + 2 pointer lines + 1
+        # --mode argument + 2 worktree-agent-branch-cleanup exit-hook lines
+        # + 4 shared-script-path-resolution lines: the Tier-6 github_pr_author.py
+        # call site now resolves git-toplevel-first via resolve_script.py)
+        assert len(lines) <= 1088, (
+            f"SKILL.md has {len(lines)} lines — exceeds 1088-line cap "
+            f"(grandfathered at 1079 + 2 pointer lines + 1 --mode argument "
+            f"+ 2 exit-hook lines + 4 shared-script-path-resolution lines)"
         )
 
         # Exactly one pointer to record-replay.md

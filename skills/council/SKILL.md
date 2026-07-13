@@ -197,7 +197,7 @@ Spawn each selected council member as a subagent:
 - Run all members **IN PARALLEL**
 - Each member sees ONLY the problem statement (blind-first, no peer outputs)
 
-Prompt template for each member:
+Prompt template for each member (the coordinator fills `{project_context_block}` from `skills/_shared/project_context.py` — resolved at `"$TP_ROOT"/skills/_shared/project_context.py`; omit the block when empty to preserve today's behavior):
 ```
 You are operating as a council member in a structured deliberation.
 Follow your agent definition precisely.
@@ -205,6 +205,7 @@ Follow your agent definition precisely.
 The problem under deliberation:
 {problem}
 
+{project_context_block}
 Only access files within the current project directory. Do not read files outside the project root.
 
 Produce your independent analysis using your Output Format (Standalone).

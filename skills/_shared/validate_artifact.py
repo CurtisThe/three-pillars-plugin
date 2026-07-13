@@ -487,7 +487,7 @@ def validate_artifact(artifact_type: str, path: Path) -> Verdict:
         )
 
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except OSError as e:
         return Verdict.from_violations(
             artifact_type,

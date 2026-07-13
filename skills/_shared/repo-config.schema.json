@@ -87,12 +87,22 @@
         },
         "require_human_approval": {
           "type": "boolean",
-          "description": "Whether the deterministic merge gate requires a current human-approval (`tp:human-approved` on the PR head) as its fifth predicate. Default (absent) is true — the gate folds pred_human_approved strictly, so the autonomous path can never cross the irreversible `gh pr merge` boundary without an explicit, out-of-band human approval that is current on the head SHA. Set false only to OPT OUT of the human-approval predicate (the other four predicates still gate); the predicate is then OMITTED from evaluate_gate and the pre-change four-predicate fold is unchanged. IMPORTANT: setting false opts out of the gate predicate, but land.py still hard-refuses unattended landing at the land boundary — the opt-out never crosses the irreversible boundary without a human approving at HEAD. The flag is read from committed HEAD only (via `git show HEAD:`), so an uncommitted edit cannot change this value. The predicate is read by deterministic_gate.evaluate_gate via human_approval._require_human_approval. Deny-rule residual: the permissions.deny rule Bash(git commit --no-verify:*) uses a prefix match and cannot block '--no-verify' appearing after other arguments; prose prohibitions (CLAUDE.md, commit-after-work.md) and reviewer inspection remain the backstop for those forms."
+          "description": "Whether the deterministic merge gate requires a current human-approval (a current APPROVED human review on the head) as its fifth predicate. Default (absent) is true — the gate folds pred_human_approved strictly, so the autonomous path can never cross the irreversible `gh pr merge` boundary without an explicit, out-of-band human approval current on the head SHA. Set false only to OPT OUT of the human-approval predicate (the other four predicates still gate); the predicate is then OMITTED from evaluate_gate and the pre-change four-predicate fold is unchanged. IMPORTANT: setting false opts out of the gate predicate, but land.py still hard-refuses unattended landing at the land boundary — the opt-out never crosses the irreversible boundary without a human approving at HEAD. The flag is read from committed HEAD only (via `git show HEAD:`), so an uncommitted edit cannot change this value. The predicate is read by deterministic_gate.evaluate_gate via human_approval._require_human_approval. Deny-rule residual: the permissions.deny rule Bash(git commit --no-verify:*) uses a prefix match and cannot block '--no-verify' appearing after other arguments; prose prohibitions (CLAUDE.md, commit-after-work.md) and reviewer inspection remain the backstop for those forms."
         },
         "automation_identities": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "Optional additional automation logins (lowercased) treated as NON-human by the human-approval predicate, beyond the hardcoded floor (github-actions[bot], dependabot[bot], the Copilot REST logins) and the framework's own resolved self-login. Use this for committing CI service accounts so an approval applied by such an account never satisfies pred_human_approved (separation-of-duties / multi-account SoD). Each entry is matched case-insensitively against the labeling actor's login. A non-list value is ignored gracefully."
+          "description": "Optional additional automation logins (lowercased) treated as NON-human by the human-approval predicate, beyond the hardcoded floor (github-actions[bot], dependabot[bot], the Copilot REST logins) and the framework's own resolved self-login. Use this for committing CI service accounts so a review submitted by such an account never satisfies pred_human_approved (separation-of-duties / multi-account SoD). Each entry is matched case-insensitively against the review author's login. A non-list value is ignored gracefully."
+        },
+        "approval_survives_safe_base_sync": {
+          "type": "boolean",
+          "description": "Whether an approval / proof-of-review digest anchored on a PRE-base-sync head is still trusted after one or more CERTIFIED mechanical base-sync merges have moved the head forward. Default (absent) is false — the strict INVERSE of this block's other defaults, because here the strict default IS off (an opt-in relaxation, not a strict-default fold). True ONLY on the literal boolean `true`; absence, a corrupt/non-dict `review` block, or any truthy-non-bool value (1, \"true\", ...) all fold to false. Each certified link is independently re-proven from git objects alone (merge shape, second-parent-on-base, an allowlisted merge-tree recompute, byte-equality outside the conflict set, and a resolver byte-reproduction over a zero-drop backstop) by `skills/_shared/base_sync_cert.py` — no PR comment, local state file, or producer claim is ever an input to the verdict. Read from the COMMITTED HEAD only (via the existing `_load_repo_config` path, same as `require_human_approval`) — an uncommitted edit cannot enable the carry. See `three-pillars-docs/tp-designs/approval-survives-safe-base-sync/detailed-design.md` and `skills/_shared/repo-config.md`."
+        },
+        "base_sync_carry_max_chain": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "The maximum number of certified base-sync merges the carry's first-parent walk will cross while searching for a matching anchor (the approval's or proof digest's original head). Default (absent, out-of-range, or wrong-typed, including bool) is 5. Only consulted when approval_survives_safe_base_sync is true; a chain longer than this cap fails closed with a re-approve-on-current-head remediation, never an unsound PASS."
         }
       }
     },
@@ -152,6 +162,39 @@
           "type": "number",
           "minimum": 1,
           "description": "Multiplier vs. base diff size at which the diff-balloon guard fires and rejects the candidate. Default 5."
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "PR-author bot-account configuration. The USERNAME is non-secret and committable; the credential NEVER lands here — it stays in the operator's gh keyring and is read ephemerally (gh auth token --user).",
+      "properties": {
+        "pr_author_account": {
+          "type": ["string", "null"],
+          "description": "GitHub login the framework authors PRs as. Null = feature unconfigured (bare gh pr create, ambient auth)."
+        },
+        "used_for": {
+          "enum": ["all-prs", "autonomous-only", null],
+          "description": "Which PR-creation sites author as the bot. all-prs = tp-design-complete manual path AND tp-run-full-design Tier 6; autonomous-only = Tier 6 only."
+        },
+        "review_requests": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Human logins requested as reviewers on bot-authored PRs (gh pr create --reviewer). Empty/absent = no auto-request from the helper."
+        },
+        "verified_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when the account was last verified present in the gh keyring (gh auth token --user succeeded)."
+        },
+        "offered_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when first-run last offered this setup."
+        },
+        "declined": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if the operator declined the offer. Sticky — suppresses re-prompt."
         }
       }
     },

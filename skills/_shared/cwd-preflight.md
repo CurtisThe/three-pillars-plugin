@@ -24,16 +24,16 @@ python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py <design>
   The message names the worktree path and the `cd` fix. Stop the skill and
   show the message to the user.
 - **Fail-open**: on any git error or unreadable worktree state, the script exits 0.
-  The commit-time guard (framework-check invariant #28) is the fail-closed backstop;
+  The commit-time guard (the fail-closed worktree write guard) is the backstop;
   this preflight is the ergonomic early-refuse only.
 
 ## The problem it solves
 
 Without this check, a skill running in the main checkout can write files into
 the main checkout while a tp/<design> worktree is live. Those writes then look
-like default-branch commits. The commit-time guard (invariant #28) is the hard
-backstop, but this preflight catches the mistake earlier and more legibly —
-before any file is written.
+like default-branch commits. The commit-time guard (the fail-closed worktree
+write guard) is the hard backstop, but this preflight catches the mistake
+earlier and more legibly — before any file is written.
 
 ## Fix for the user
 

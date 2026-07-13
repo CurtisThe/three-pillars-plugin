@@ -260,7 +260,7 @@ def test_reply_precedes_resolve_in_argv(tmp_path, monkeypatch):
     """For every thread: reply_to_thread argv must appear BEFORE resolve_thread argv."""
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_MULTI)
     thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    lines = logfile.read_text().splitlines()
+    lines = logfile.read_text(encoding="utf-8").splitlines()
     # Find reply and resolve lines
     reply_indices = [i for i, l in enumerate(lines) if "replies" in l]
     resolve_indices = [i for i, l in enumerate(lines) if "resolveReviewThread" in l]
@@ -294,7 +294,7 @@ def test_second_run_skips_already_resolved(tmp_path, monkeypatch):
     assert "RT_open1" not in result["replied"]
     assert "RT_open1" not in result["resolved"]
     # No reply calls for already-resolved
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "replies" not in log, "no reply should be posted for already-resolved thread"
 
 
@@ -311,7 +311,7 @@ def test_thread_with_automation_signature_not_re_replied(tmp_path, monkeypatch):
     """
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_ALREADY_REPLIED)
     thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     reply_calls = [l for l in log.splitlines() if "replies" in l]
     assert len(reply_calls) == 0, (
         "thread already carrying automation reply in a later comment must not get a "
@@ -345,7 +345,7 @@ def test_resolve_failure_window_no_duplicate_reply(tmp_path, monkeypatch):
     assert "RT_resolvefail1" not in result1["resolved"], "run 1 resolve must fail"
     assert reply_done_flag.exists(), "reply_done flag must be set after run 1"
 
-    log_after_run1 = logfile.read_text()
+    log_after_run1 = logfile.read_text(encoding="utf-8")
     replies_run1 = [l for l in log_after_run1.splitlines() if "replies" in l]
     assert len(replies_run1) == 1, "exactly one reply posted in run 1"
 
@@ -355,7 +355,7 @@ def test_resolve_failure_window_no_duplicate_reply(tmp_path, monkeypatch):
         "run 2 must NOT post a duplicate reply — the node-comment guard must catch it"
     )
 
-    log_after_run2 = logfile.read_text()
+    log_after_run2 = logfile.read_text(encoding="utf-8")
     replies_total = [l for l in log_after_run2.splitlines() if "replies" in l]
     assert len(replies_total) == 1, (
         "total reply count across both runs must be exactly 1 — no duplicates"

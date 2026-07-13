@@ -126,9 +126,21 @@ For each structural+gated comment, the SKILL prose calls Agent() again to
 generate the actual file changes (one Agent invocation per comment or one
 combined call — the worker is flexible; the only contract is that the
 working tree contains all the proposed edits before `run_round` is invoked).
-Use `subagent_type="general-purpose"` and brief the agent with: the comment,
-its diff hunk, the surrounding file contents, and an instruction to ONLY
-modify files and not commit, push, or interact with `gh`.
+Use `subagent_type="general-purpose"` **with `model="opus"` pinned explicitly**
+and brief the agent with: the comment, its diff hunk, the surrounding file
+contents, the injected `{project_context_block}`, and an instruction to ONLY
+modify files and not commit, push, or interact with `gh`. **Pin the model** —
+fix generation is implementation/write work (the tiered opus-by-default rule),
+and this dispatch can run standalone (outside the loop driver); without an
+explicit pin it would silently inherit whatever ambient model is in effect,
+including a stale local override.
+
+Fill `{project_context_block}` from `skills/_shared/project_context.py`
+(`load_context_block()`, resolved at `"$TP_ROOT"/skills/_shared/project_context.py`) so this write-capable fix worker matches the project's
+conventions/stack/domain-rules instead of re-deriving (or hallucinating) them —
+the same injection council Round 1 and the `tp-phase-implement` worker already
+carry. **Omit the block when it is empty** (absent `project-context.md`) so the
+fix prompt degrades to today's exact behavior byte-for-byte.
 
 ### 6. Commit, push, label
 
@@ -180,16 +192,11 @@ What `run_round` does, in order:
   (read from `git config user.email`), so auditors can distinguish bot commits
   from the human author in `git log --format=%ce`.
 - Pushes the branch upstream.
-- **Auto-strips a now-stale human approval (D2, fail-OPEN).** The round-push just
-  advanced the PR head, so any prior `tp:human-approved` label was approving the OLD
-  head and is now stale. `run_round` calls `auto_strip_after_push(pr_url)` (which
-  resolves the post-push `git rev-parse HEAD` and invokes
-  `human_approval.strip_stale_approval(pr_url, new_head_oid)`), mirroring
-  `/tp-merge-from-main` step 7. This is **FAIL-OPEN**: any error is swallowed, so a
-  strip failure can NEVER block the round. The gate-time SHA-equality currency
-  re-check (`pred_human_approved` → `_approval_current_on_head`, `commit_id ==
-  headRefOid`) is the always-on fail-closed backstop, so a missed strip never defeats
-  correctness — the stale label is treated as absent at gate time.
+- The native-review approval path (Path B) is **self-cleaning** after a push: a
+  review carries an immutable server-set `commit_id`, so a real content push makes
+  `commit_id != head` and the gate fails closed automatically — no strip hook needed.
+  The gate-time currency re-check (`pred_human_approved` via `review_path_satisfied`,
+  `commit_id == headRefOid`) is the always-on fail-closed backstop.
 - Calls `label_manager.ensure_pr_label(pr_url, "tp:do-not-merge-yet")`. Idempotent
   by virtue of the `gh pr view --json labels` pre-check. Creates the label via
   `gh label create` if missing, then retries the add.

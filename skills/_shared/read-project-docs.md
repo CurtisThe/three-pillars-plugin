@@ -10,3 +10,5 @@ Read the project docs if they exist — do not require them. **Read vision first
 Treat `three-pillars-docs/vision.md` as load-bearing context — if a proposed design, plan, or recommendation conflicts with the vision's principles or non-goals, say so explicitly and ask the user whether to proceed, revise the work, or update the vision.
 
 If `three-pillars-docs/vision.md` is missing, suggest running `/tp-setup` (which creates it as its first step). If the other three are missing, suggest `/tp-docs-init`. Do not block in either case — the user may want to proceed without them.
+
+**Spawned-agent complement**: `three-pillars-docs/project-context.md` is a fifth living doc designed for *subagents*, not the main agent. It carries conventions, stack, and domain rules that would otherwise require re-derivation. The loader `skills/_shared/project_context.py` reads it, size-checks it (hard cap: 12,288 bytes), and returns a prompt-ready block injected into council Round 1 members and `tp-phase-implement` workers. Absent doc → empty block (no-op). Do not read this file through the four-doc path above — it is wired separately at dispatch time.

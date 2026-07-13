@@ -22,6 +22,25 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 
+def _proof_comment_fn_for(head):
+    """A comments_fn yielding a head-bound proof digest (enforce-review-proof p7).
+
+    All-PASS runner dicts inject this so the now-default-required review-proof
+    predicate PASSes alongside the stamp seam under test. Authored by "bot" —
+    the runner dicts' self_login_fn login — so the trusted-author fold (review
+    finding on PR #109) passes hermetically via the self arm.
+    """
+    _pri = _SHARED_DIR.parent / "tp-pr-iterate" / "scripts"
+    if str(_pri) not in sys.path:
+        sys.path.insert(0, str(_pri))
+    import review_proof
+    body = review_proof.format_proof_digest({
+        "base": "base000", "head": head, "files_changed": 3,
+        "insertions": 5, "deletions": 1, "degraded": False, "reason": None,
+    }, [("correctness", 0)])
+    return lambda _url: [{"author": "bot", "body": body}]
+
+
 # ---------------------------------------------------------------------------
 # Helpers: minimal git repo (used by TestPredCiLocalStamp)
 # ---------------------------------------------------------------------------
@@ -234,6 +253,7 @@ class TestEvaluateGateStampSeam:
         "head_fn": lambda url: {},
         "commits_fn": lambda url: [],
         "self_login_fn": lambda: "bot",
+        "comments_fn": _proof_comment_fn_for("deadbeefcafe"),
     }
 
     PASS_CONFIG = {

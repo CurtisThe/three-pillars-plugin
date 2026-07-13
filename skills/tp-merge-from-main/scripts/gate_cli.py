@@ -9,13 +9,20 @@ Prints GATE_LABEL on EVERY path (never "safe to merge").
 Prints the blocking predicate name + detail on non-PASS paths.
 
 Usage:
-  python3 skills/tp-merge/scripts/gate_cli.py <pr_url>
+  python3 skills/tp-merge/scripts/gate_cli.py [--repo <path>] <pr_url>
+
+`--repo <path>` (task 8.2, dispatch-from-seat activation) is the ONLY recognized
+option: it resolves to a git toplevel (`git -C <path> rev-parse --show-toplevel`)
+and is threaded to `evaluate_fn(pr_url, repo_root=<resolved>)`. Without it the call
+shape is UNCHANGED (`evaluate_fn(pr_url)`) — see SKILL.md step 6.7 for the full
+dispatch-from-seat invocation this flag enables.
 
 stdlib-only (C1 invariant: no `import anthropic`, no `subprocess.run(["claude", ...])`).
 """
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +55,57 @@ _EXIT_CODES = {
 }
 
 
+def _resolve_repo_toplevel(path: str) -> "str | None":
+    """Resolve `path` to its git toplevel via `git -C <path> rev-parse --show-toplevel`.
+
+    Returns None on any failure (non-zero exit, git missing, exception) — the
+    caller folds that to a usage-error INDETERMINATE (fail-closed, never guesses).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return None
+        top = result.stdout.strip()
+        return top or None
+    except Exception:
+        return None
+
+
+def _parse_argv(argv: list[str]) -> "tuple[str | None, list[str], bool]":
+    """Strict parse: `--repo <path>` is the ONLY recognized option.
+
+    Returns (repo_path_or_None, positionals, ok). ok is False on ANY usage
+    violation: an unrecognized flag, `--repo` with no following value, or a
+    duplicate `--repo`. Extra positionals are NOT a parse-time violation here —
+    the caller enforces `len(positionals) == 1` itself (mirrors the pre-existing
+    strict-positional-count check).
+    """
+    repo: "str | None" = None
+    positionals: list[str] = []
+    ok = True
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--repo":
+            if i + 1 >= len(argv) or repo is not None:
+                ok = False
+                i += 1
+                continue
+            repo = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("-"):
+            ok = False
+            i += 1
+            continue
+        positionals.append(a)
+        i += 1
+    return repo, positionals, ok
+
+
 def _indeterminate(detail: str) -> int:
     """Print the label + an INDETERMINATE block and return exit 2.
 
@@ -68,7 +126,8 @@ def main(argv: list[str], *, evaluate_fn=None) -> int:
     Args:
         argv: the argument list WITHOUT the program name — i.e. ``sys.argv[1:]``
               (which is what ``__main__`` passes and what the tests pass directly).
-              Exactly one positional <pr_url> is required; this CLI takes no options.
+              Exactly one positional <pr_url> is required; `--repo <path>` is the
+              ONLY recognized option (task 8.2).
         evaluate_fn: optional injected evaluate function for testing (default: evaluate_gate).
 
     Returns:
@@ -77,28 +136,41 @@ def main(argv: list[str], *, evaluate_fn=None) -> int:
     if evaluate_fn is None:
         evaluate_fn = evaluate_gate
 
-    # Strict parse: the CLI accepts exactly one positional (the PR URL) and no
-    # options. No program-name heuristic — argv is already program-name-free, so
-    # we never have to guess which token is the script. Extra positionals or any
-    # option token are a usage error (fail-closed at 2), never silently dropped.
-    flags = [a for a in argv if a.startswith("-")]
-    positionals = [a for a in argv if not a.startswith("-")]
-    if flags or len(positionals) != 1:
+    # Strict parse: exactly one positional (the PR URL), plus the optional
+    # `--repo <path>` flag. Any OTHER flag, `--repo` with no value, a duplicate
+    # `--repo`, or extra positionals are a usage error (fail-closed at 2), never
+    # silently dropped.
+    repo_arg, positionals, ok = _parse_argv(argv)
+    if not ok or len(positionals) != 1:
         print(
-            "Usage: gate_cli.py <pr_url>\n"
-            f"Error: expected exactly one PR URL argument; got argv={argv!r}",
+            "Usage: gate_cli.py [--repo <path>] <pr_url>\n"
+            f"Error: expected exactly one PR URL argument (+ optional --repo <path>); "
+            f"got argv={argv!r}",
             file=sys.stderr,
         )
         return _indeterminate("usage-error — exactly one <pr_url> argument is required")
 
     pr_url = positionals[0]
 
+    repo_root = None
+    if repo_arg is not None:
+        repo_root = _resolve_repo_toplevel(repo_arg)
+        if repo_root is None:
+            return _indeterminate(
+                f"usage-error — --repo {repo_arg!r} did not resolve to a git toplevel"
+            )
+
     # Evaluate the gate. evaluate_gate is total, but the CLI must honor
     # "label on every path / exit 2 when the gate cannot run" even if an injected
     # or future evaluate_fn raises. A bare escape would surface as a traceback +
     # exit 1 (mis-read as FAIL) with no label — so map any raise to INDETERMINATE.
+    # Without --repo the call shape is UNCHANGED (evaluate_fn(pr_url)) — injected
+    # single-arg test doubles keep working.
     try:
-        outcome = evaluate_fn(pr_url)
+        if repo_root is not None:
+            outcome = evaluate_fn(pr_url, repo_root=repo_root)
+        else:
+            outcome = evaluate_fn(pr_url)
     except Exception as e:  # noqa: BLE001 — fail-closed: any error → INDETERMINATE+label
         return _indeterminate(f"gate-could-not-run — {type(e).__name__}: {e}")
 

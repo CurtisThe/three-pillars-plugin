@@ -26,7 +26,7 @@ When invoked without `{design-name}`, `/tp-post-merge` scans for designs awaitin
 4. Present an interactive checklist of the **actionable** (verified-merged) designs. On confirmation, run the teardown sequence (step 5 of `## Steps`) for each selected design.
 5. List the **pending** (unverified) designs separately as "pending merge — not actionable" — they are never torn down without explicit verification.
 
-Teardown for each actionable design also removes `candidate/{name}/single` (local and remote, fail-open) in addition to the `tp/{name}` branch — see steps 5f and 5g.
+Teardown for each actionable design also reaps the design's `candidate/*` branches (any id — local and remote, fail-open) in addition to the `tp/{name}` branch — see steps 5f and 5g.
 
 ## Steps
 
@@ -72,9 +72,9 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
 
    e. `git push origin --delete tp/{name}` — delete the remote branch. **Fail-open**: if the remote branch was already deleted (e.g., GitHub auto-delete-on-merge), ignore the error and continue.
 
-   f. `git branch -D candidate/{name}/single` — local force-delete of the candidate branch. **Fail-open**: the branch is often absent on human-run designs (only orchestrator-run designs via `/tp-run-full-design` ever create it); a "branch not found" is a no-op success, not an error.
+   f. **Reap the design's candidate branches** — `python3 "$TP_ROOT"/skills/_shared/gc_candidate_branches.py --slug {name} --apply` deletes **all** of this design's `candidate/{name}/*` branches on the **local** surface (any candidate id), replacing the former single-id inline `git branch -D` so a fresh candidate id is also reaped. **Fail-open**: a reap failure never aborts teardown, and an absent branch (the norm on human-run designs, which never create candidate branches) is a no-op — the reaper is itself a reporter that exits 0.
 
-   g. `git push origin --delete candidate/{name}/single` — delete the remote candidate branch. **Fail-open**: already-absent remote ref is ignored, mirroring step e.
+   g. The same `--apply` reaper call (step f) also deletes the matching **remote** `origin/candidate/{name}/*` refs as batched `git push origin --delete`, replacing the former single-id inline remote delete; an already-absent ref is ignored (fail-open per batch). No separate remote-delete gesture is required.
 
    h. **Clear MRU** — if `.claude/last-design` exists and contains `{name}` (first line or any line), remove that line. If the file becomes empty, delete it. **Never `git add`** this file (it is gitignored).
 
@@ -99,9 +99,9 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
    git commit -m "docs(reconcile): {name} merged — flip status, re-point archived cites"
    ```
 
-   **Fail-open, loud**: script error, zero edits, or a refused commit (hooks, invariant #32 live-worktree guard) **never aborts teardown** — report the leftover working-tree edits plus the exact commit command, and continue to the report. See `skills/_shared/reconcile-protocol.md` for the amendment obligation when the script's report flags stale cites or status rows. Auto mode runs this step per verified design without prompting; verdicts ride the caller's run log.
+   **Fail-open, loud**: script error, zero edits, or a refused commit (hooks, live-worktree guard) **never aborts teardown** — report the leftover working-tree edits plus the exact commit command, and continue to the report. See `skills/_shared/reconcile-protocol.md` for the amendment obligation when the script's report flags stale cites or status rows. Auto mode runs this step per verified design without prompting; verdicts ride the caller's run log.
 
-   **#32-refusal deferral (no dirty seat state)**: when the commit is refused specifically by the live-worktree guard (invariant #32 — other `tp/*` worktrees still active, the usual mid-fleet case), do not park uncommitted living-doc edits on the seat (the "stale uncommitted seat state" incident class). Instead revert the applied edits (`git checkout -- <paths from edits[].path>`), keep the JSON report in the step-7 output, and re-run this step after the design worktrees are removed — `reconcile_docs.py` is idempotent, so the deferred re-run applies the same edits cleanly.
+   **Commit-refusal deferral (no dirty seat state)**: when the commit is refused specifically because other `tp/*` worktrees are still active (the usual mid-fleet case), do not park uncommitted living-doc edits on the seat (the "stale uncommitted seat state" incident class). Instead revert the applied edits (`git checkout -- <paths from edits[].path>`), keep the JSON report in the step-7 output, and re-run this step after the design worktrees are removed — `reconcile_docs.py` is idempotent, so the deferred re-run applies the same edits cleanly.
 
 6.5. **Post-merge tripwires (advisory)** — only on `merged == true`; runs from the resolved seat on pulled `{base}` (teardown already complete, reconcile already committed). Never blocks; the report (step 7) still runs regardless of outcome.
 
@@ -110,7 +110,8 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
      `git log --merges --first-parent -1 --format=%H origin/{base}`
    - Record `MERGED_AT` (from `gh pr view` `mergedAt` field, or current timestamp as fallback) for the time-since-merge readout.
 
-   **T1 — smoke test:**
+   **T1 — smoke test** (if `./framework-check.sh` exists at the seat root
+   (framework repo); otherwise record `skipped (consumer install)` in the report row):
    ```bash
    python3 -m pytest "$TP_ROOT"/skills/_shared/ -q
    ```
@@ -172,7 +173,7 @@ Teardown for each actionable design also removes `candidate/{name}/single` (loca
 - **No confirmation prompt** — proceed without asking in auto mode.
 - **Logging is the caller's, not this skill's**: by design, `/tp-post-merge` runs *after* `/tp-design-complete` archived the design to `completed-tp-designs/{name}/` and is in the middle of deleting the branch — there is no live `tp-designs/{name}/decisions.md` to own, and this skill performs **no commit of design artifacts** (the step-6 doc-reconcile commit on `{base}` is the sole, scoped exception — see Rules and step 6). So in auto mode it **does not write or commit a `decisions.md`** of its own (which would dirty the working tree, possibly on the default branch, with no commit/discard path). Instead it returns the per-design verdict + steps to its caller; the orchestrator (`/tp-run-full-design`) or `/tp-merge-from-main` records them in the run log it already owns and commits. This keeps the skill consistent with `skills/_shared/auto-mode.md`'s rule that `decisions.md` is a *committed* audit trail — the owning caller does the committing.
 - **The merge gate is still absolute** in auto mode — an unverified design is never torn down, only reported as pending.
-- **Candidate branch cleanup**: teardown also removes `candidate/{name}/single` (local and remote, steps 5f/5g) for each verified design — these are orchestrator-created branches and are absent on human-run designs (fail-open no-op in that case).
+- **Candidate branch cleanup**: teardown also reaps the design's `candidate/*` branches (any id — local and remote, steps 5f/5g) for each verified design — these are orchestrator-created branches and are absent on human-run designs (fail-open no-op in that case).
 - **Tripwires and gc rider run per verified design without prompting** — verdicts ride the caller's run log (this skill writes no decisions.md of its own — existing stance unchanged). Tripwire FIRED verdicts are surfaced in the report and returned to the caller for logging.
 
 Auto mode is the path used by `/tp-run-full-design` after an orchestrated completion PR merge and by `/tp-merge-from-main` step 8 — each owns its own audit log and commits the teardown verdicts this skill returns.

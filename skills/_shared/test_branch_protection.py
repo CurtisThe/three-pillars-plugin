@@ -74,7 +74,7 @@ def test_gh_missing_writes_fail_open_config_and_prints_manual_command(
 
     config_path = repo / ".three-pillars" / "config.json"
     assert config_path.exists()
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data["schema_version"] == 1
     bp = data["branch_protection"]
     assert bp["declined"] is False
@@ -100,7 +100,7 @@ def test_auto_mode_skips_protection_and_logs_decision(tmp_path: Path, capsys, mo
     assert result.config_updated is False
     assert "Apply GitHub branch protection" not in captured.out
     assert decisions.exists()
-    body = decisions.read_text()
+    body = decisions.read_text(encoding="utf-8")
     assert "[first-run]" in body
     # auto-mode.md schema: every entry has the four labelled lines.
     for label in ("**Question**:", "**Decided**:", "**Reasoning**:", "**Confidence**:"):

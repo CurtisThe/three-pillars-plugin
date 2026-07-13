@@ -126,7 +126,7 @@ def test_cli_apply_writes_config_record(tmp_git_repo):
     _run_cli("--repo", str(tmp_git_repo), "apply")
     config_path = tmp_git_repo / ".three-pillars" / "config.json"
     assert config_path.exists(), "config.json not written"
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     wi = data.get("worktree_immunization", {})
     assert wi.get("applied_at") is not None, "applied_at not recorded"
     assert wi.get("declined") is False
@@ -139,7 +139,7 @@ def test_cli_apply_installs_hooks(tmp_git_repo):
     for event in ("post-checkout", "post-merge"):
         hook_file = hooks_dir / event
         assert hook_file.exists(), f"Hook file {event} not installed"
-        assert "heal-core-bare" in hook_file.read_text() or "three-pillars" in hook_file.read_text(), (
+        assert "heal-core-bare" in hook_file.read_text(encoding="utf-8") or "three-pillars" in hook_file.read_text(encoding="utf-8"), (
             f"Sentinel content missing from {event}"
         )
 
@@ -153,7 +153,7 @@ def test_cli_apply_is_idempotent(tmp_git_repo):
     hooks_dir = tmp_git_repo / ".git" / "hooks"
     sentinel = "# three-pillars: heal-core-bare BEGIN"
     for event in ("post-checkout", "post-merge"):
-        content = (hooks_dir / event).read_text()
+        content = (hooks_dir / event).read_text(encoding="utf-8")
         assert content.count(sentinel) == 1, f"Sentinel duplicated in {event}"
 
 

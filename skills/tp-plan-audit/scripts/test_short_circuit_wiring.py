@@ -8,7 +8,7 @@ SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
 
 
 def test_skill_md_has_step_3_5():
-    body = SKILL_MD.read_text()
+    body = SKILL_MD.read_text(encoding="utf-8")
 
     # (1) The Step 3.5 heading appears verbatim.
     expected_heading = "### Step 3.5: Round-2 short-circuit (`--auto` only)"

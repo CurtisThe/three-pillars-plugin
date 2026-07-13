@@ -72,17 +72,24 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 Three layers, one source of truth:
 
 - **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
-- **The Claude Code reference implementation** — `skills/` (37 `tp-*` skills + `/council`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Claude Code reference implementation** — `skills/` (37 `tp-*` skills + `/council`, including the autonomous PR-iteration loop `/tp-pr-iterate`/`/tp-pr-fix`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
 - **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
 
-## What's coming (monthly cadence)
+## Runtime prerequisites
 
-After v1.5.0 ships, substantive additions land one per month per [CHANGELOG.md](CHANGELOG.md):
+The plugin's core features (skills, agents, session management) work with **Claude Code**, **git**, and **GitHub CLI (`gh`)** on any POSIX shell with **Python 3** available. No extra installs for core skills.
 
-- **v1.6.0** — `adoption/via-claude-code.md`, `METHODOLOGY.md` (or v1.7.0)
-- **v1.7.0** — `examples/d17-readme-rename/` (worked example, authored fresh)
-- **v1.8.0+** — `adoption/via-hermes-skills.md` (after `CurtisThe/three-pillars-hermes` exists), `adoption/via-other-agents.md`
-- **v1.9.0** — `examples/d19-hook-abandonment/` (the honest-failure essay)
+A few skills shell out to Python helpers that import the `jsonschema` package:
+
+```bash
+pip install jsonschema
+```
+
+Claude Code plugins don't install Python dependencies, so this is not declared in any manifest — install it so those skills are self-contained. (The `jsonschema` package is used by the tier-return validator and the classifier judge.)
+
+## What's been shipped
+
+As of v2.2.0, substantive additions include the autonomous PR-iteration loop (`/tp-pr-iterate`, `/tp-pr-fix`) that polls review comments, classifies them, and dispatches one structural-fix commit per round until the review settles. See [CHANGELOG.md](CHANGELOG.md) for the running record.
 
 ## How it works
 
@@ -129,7 +136,7 @@ Lock-enforcing skills (design, spike, detail, plan, audits, implement, review) r
 
 ### Commits at every phase
 
-Every skill that produces substantial work commits before returning — design.md, plan.md, per-task code, review.md, audit results, learn updates. One commit per task during `/tp-phase-implement`. Commits are scoped (never `git add -A`), conventionally named (`Design: {name} high-level`, `Plan: {name}`, `Implement: {name} 1.2 — title`, `Learn: {name} design`, etc.), and never include Co-Authored-By trailers. The working tree stays clean between phases. Pushing and opening a PR happens only at `/tp-design-complete`. See `skills/_shared/commit-after-work.md` for the full protocol.
+Every skill that produces substantial work commits before returning — design.md, plan.md, per-task code, review.md, audit results, learn updates. One commit per task during `/tp-phase-implement`. Commits are scoped (never `git add -A`), conventionally named (`Design: {name} high-level`, `Plan: {name}`, `Implement: {name} 1.2 — title`, `Learn: {name} design`, etc.), and never include Co-Authored-By trailers. The working tree stays clean between phases. Each commit is pushed to `origin` fail-open — a failed push is logged and never blocks the commit — while opening a PR is still reserved for `/tp-design-complete`. See `skills/_shared/commit-after-work.md` for the full protocol.
 
 ## What's included
 

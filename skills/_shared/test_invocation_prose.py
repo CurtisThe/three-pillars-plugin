@@ -119,7 +119,7 @@ def test_banner_derived():
     repo_root = Path(__file__).resolve().parent.parent.parent
     fcs = repo_root / "framework-check.sh"
     assert fcs.exists(), "framework-check.sh not found"
-    content = fcs.read_text()
+    content = fcs.read_text(encoding="utf-8")
     assert "framework-check: all ${_INV_N} invariants passed" in content, (
         "Banner must be the derived 'all ${_INV_N} invariants passed' form"
     )
@@ -139,7 +139,7 @@ def test_inv36_grep_regex_sync():
     repo_root = Path(__file__).resolve().parent.parent.parent
     fcs = repo_root / "framework-check.sh"
     assert fcs.exists(), "framework-check.sh not found"
-    content = fcs.read_text()
+    content = fcs.read_text(encoding="utf-8")
     # The literal grep pattern from this file must appear verbatim in framework-check.sh
     # (the shell script uses POSIX ERE syntax via grep -E, same as INV36_GREP).
     # Strip the Python raw-string delimiters for comparison — the pattern itself must match.
@@ -154,7 +154,7 @@ def test_inv36_block_present():
     repo_root = Path(__file__).resolve().parent.parent.parent
     fcs = repo_root / "framework-check.sh"
     assert fcs.exists(), "framework-check.sh not found"
-    content = fcs.read_text()
+    content = fcs.read_text(encoding="utf-8")
     assert "invariant 36" in content, (
         "framework-check.sh must contain an 'invariant 36' block"
     )
@@ -184,7 +184,7 @@ def test_floor_validator_rider_present_in_all_three_callers():
     for rel_path in _FLOOR_VALIDATOR_CALLERS:
         skill_file = repo_root / rel_path
         assert skill_file.exists(), f"Expected SKILL.md not found: {skill_file}"
-        content = skill_file.read_text()
+        content = skill_file.read_text(encoding="utf-8")
         if _RIDER_TEMPLATE not in content:
             missing.append(rel_path)
     assert not missing, (

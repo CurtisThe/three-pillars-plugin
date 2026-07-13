@@ -58,9 +58,19 @@ git commit -m "{message}"
 
 If `git commit` fails (pre-commit hook, lint, type check, etc.), stop and surface the output to the user. **Never** retry with `--no-verify`. The user must fix the underlying issue — a blocked commit means something's wrong with the work, not with the hook.
 
-### 6. Do not push
+### 6. Push after each commit
 
-Skills never push from inside the run. Pushing + opening a PR is reserved for `/tp-design-complete`. The user can push on their own schedule; the branch-per-design convention keeps their local branch isolated.
+After a commit succeeds, push it to `origin` on the design's `tp/*` branch:
+
+```bash
+git push origin {branch}
+```
+
+**Fail-open**: if the push fails (no network, diverged remote, auth issue, etc.), print one concise line reporting the failure and move on — the commit stays local. **Never** retry, and **never** pass `--force`; a failed push never blocks or reverts the commit that was just made. Autonomous / orchestrator skills report the failed push the same way (a logged line, not a fatal error) and keep running.
+
+The **PR boundary is unchanged**: opening a PR is still reserved for `/tp-design-complete`. Push-after-commit only means each artifact commit becomes visible on `origin/tp/*` as it happens, closing the window (per `skills/_shared/collaboration.md`'s branch-creation push) where the remote branch existed but sat empty until completion. It does not change who opens the PR or when.
+
+Orchestrated proof-currency flows (e.g. `/tp-run-full-design` Tier 7's head-bound proof comment) still own their own final-push ordering — push-after-commit is a commit-time convention and is orthogonal to the "proof must be the last branch action" rule those flows enforce.
 
 ## Commit message conventions
 
@@ -98,11 +108,11 @@ If during a skill run the user explicitly asks to skip the commit ("don't commit
 
 ## Autonomous mode
 
-In `--auto` modes (e.g., `/tp-spike-auto`), commits are **required** — the whole point is unattended execution. If a commit fails (hook rejection, unrelated WIP detected), the skill logs the failure to `decisions.md` and stops the autonomous pipeline rather than bypassing. See `skills/_shared/auto-mode.md` for failure-handling conventions.
+In `--auto` modes (e.g., `/tp-spike-auto`), commits are **required** — the whole point is unattended execution. If a commit fails (hook rejection, unrelated WIP detected), the skill logs the failure to `decisions.md` and stops the autonomous pipeline rather than bypassing. See `skills/_shared/auto-mode.md` for failure-handling conventions. The push in step 6 stays fail-open even here: a failed push is logged to `decisions.md` as a reported line, not treated as a pipeline-stopping failure — only a failed *commit* stops the pipeline.
 
 ## Orchestrator skills
 
-Orchestrator skills (`/tp-phase-implement`, `/tp-spike-implement`, `/tp-spike-auto`) delegate the bulk of their commits to the inner skills they invoke (`/tp-task-cycle`, etc.). At the end of the orchestrator run, check for stragglers: if `git status --short` shows any staged or unstaged changes remaining, the orchestrator commits them with a "cleanup" message. If the tree is clean, the orchestrator skips its own commit.
+Orchestrator skills (`/tp-phase-implement`, `/tp-spike-implement`, `/tp-spike-auto`) delegate the bulk of their commits to the inner skills they invoke (`/tp-task-cycle`, etc.), each of which pushes per step 6. At the end of the orchestrator run, check for stragglers: if `git status --short` shows any staged or unstaged changes remaining, the orchestrator commits them with a "cleanup" message and pushes it the same fail-open way. If the tree is clean, the orchestrator skips its own commit (and push).
 
 ## Hot-patch lane
 
@@ -134,7 +144,7 @@ git worktree remove .claude/worktrees/hot-patch-<slug> && git branch -d hot-patc
 **Eligibility (all required):**
 
 1. Trailer self-declaration: commit carries `hot-patch: <trigger>` (non-empty trigger).
-2. Hard mechanical exclusions enforced by invariant #37: the commit must not touch
+2. Hard mechanical exclusions enforced at commit time: the commit must not touch
    `.three-pillars/`, gate/enforcement files (`framework-check.sh`,
    `deterministic_gate.py`, `land.py`, `gate_cli.py`, `merge_gate.py`, etc.), or
    the lane's own modules and their tests (`hot_patch_check.py`, `hot_patch.py`,
@@ -154,9 +164,9 @@ describing the trigger event (e.g., `fix teardown order after fleet launch`).
 ```
 
 Preferred path: the entry **rides in the same commit** as the fix (paper arrives
-with the patch). Backstop: same-day UTC deadline, enforced fail-closed —
-invariant #37 hard-fails the next commit while any entry is overdue. The ledger is
-size-exempt by location (`three-pillars-docs/tp-designs/` exempt prefix); no
+with the patch). Backstop: same-day UTC deadline, enforced fail-closed — the
+hot-patch eligibility check hard-fails the next commit while any entry is
+overdue. The ledger is size-exempt by location (`three-pillars-docs/tp-designs/` exempt prefix); no
 rotation in v1.
 
 **Scan-cost expectation:** the post-baseline `--since` anomaly scan is acceptable
@@ -168,7 +178,7 @@ commit; squash is out-of-protocol and self-flags the anomaly scan). The standard
 merge gate runs un-bypassed; hooks always fire on every worktree commit. Gate
 bypass is denied.
 
-**What invariant #37 catches:** (a) overdue ledger entry; (b) trailered commits
+**What the hot-patch eligibility check catches:** (a) overdue ledger entry; (b) trailered commits
 violating the exclusion list or diff cap; (c) post-baseline non-merge master
 commits touching framework code — these are anomalies. Arm (c) keys on
 committer date, which a determined actor can backdate; the threat model is

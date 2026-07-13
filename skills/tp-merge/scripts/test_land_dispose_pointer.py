@@ -53,7 +53,9 @@ def _blocked_on_threads(extra_preds=None):
 
 
 def _blocked_on_human_only():
-    return _FakeOutcome([_FakePred("human_approved", "no current tp:human-approved on head")])
+    return _FakeOutcome([_FakePred("human_approved",
+                                   "get an APPROVED PR review on the current head from a "
+                                   "non-automation human (see human-approval-howto.md)")])
 
 
 # ---------- positive: dispose pointer printed when threads_resolved blocks ----------
@@ -127,7 +129,7 @@ def test_no_dispose_pointer_on_gate_pass(capsys):
 
 def test_skill_md_threads_resolved_documents_dispose_pointer():
     """The threads_resolved predicate line in SKILL.md must reference --dispose-only."""
-    text = SKILL_MD.read_text()
+    text = SKILL_MD.read_text(encoding="utf-8")
     # Find the threads_resolved predicate description
     assert "threads_resolved" in text, "SKILL.md must document the threads_resolved predicate"
     assert "--dispose-only" in text, (

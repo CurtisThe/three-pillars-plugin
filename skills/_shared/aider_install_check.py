@@ -113,7 +113,7 @@ def read(path: Optional[Path] = None) -> State:
     if not target.exists():
         return State()
     try:
-        data = json.loads(target.read_text())
+        data = json.loads(target.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         # Corrupt file → treat as missing. Don't try to repair silently — next
         # write will overwrite cleanly.

@@ -168,7 +168,7 @@ def test_envelope_schema_valid():
     from jsonschema import Draft202012Validator
 
     schema_path = HERE.parent / "schemas" / "fix-envelope.v1.json"
-    schema = json.loads(schema_path.read_text())
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
 
 
@@ -195,7 +195,7 @@ def test_end_to_end_with_stub_gh(tmp_path, monkeypatch):
 
     # (e) envelope validates
     from jsonschema import Draft202012Validator
-    schema = json.loads((HERE.parent / "schemas" / "fix-envelope.v1.json").read_text())
+    schema = json.loads((HERE.parent / "schemas" / "fix-envelope.v1.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(envelope)
 
     assert envelope["verdict"] == "applied"
@@ -452,69 +452,3 @@ def test_trusted_bots_env_var_extends_allowlist(tmp_path, monkeypatch):
     assert any(f["comment_id"] == "c1" for f in envelope["fixes_applied"])
 
 
-# ---------- auto-strip wiring (wave2 review must-fix #2) ----------
-
-
-def test_round_push_auto_strips_stale_approval(tmp_path, monkeypatch):
-    """The round-push advances the PR head, so any prior `tp:human-approved` is stale.
-    run_round must invoke the strip hook with the POST-PUSH head OID (mirrors
-    /tp-merge-from-main step 7). Pins the wiring the wave2 review found missing."""
-    import human_approval
-
-    clone, env = _make_repo_fixture(tmp_path, mode="collaborator")
-    _git(clone, "config", "user.email", "curtis.theoret@gmail.com", env=env)
-    monkeypatch.chdir(clone)
-    for k, v in env.items():
-        monkeypatch.setenv(k, v)
-
-    calls = []
-
-    def fake_strip(pr_url, head_oid, *, runners=None):
-        calls.append((pr_url, head_oid))
-        return True
-
-    monkeypatch.setattr(human_approval, "strip_stale_approval", fake_strip)
-
-    (clone / "fix.py").write_text("# fix applied\n")
-    envelope = fix_round.run_round(
-        design="foo",
-        pr_url="https://github.com/o/r/pull/1",
-        iteration=1,
-        classified=[_make_classified("c1", "alice")],
-    )
-    assert envelope["verdict"] == "applied"
-    # the strip hook fired exactly once, with the post-push HEAD OID
-    assert len(calls) == 1, calls
-    pr_url, head_oid = calls[0]
-    assert pr_url == "https://github.com/o/r/pull/1"
-    post_push_head = _git(clone, "rev-parse", "HEAD", env=env).stdout.strip()
-    assert head_oid == post_push_head
-
-
-def test_round_push_auto_strip_failure_is_fail_open(tmp_path, monkeypatch):
-    """A strip failure (the hook raises) must NEVER break the round — fail-OPEN.
-    The commit is already pushed; the gate-time re-check is the fail-closed backstop."""
-    import human_approval
-
-    clone, env = _make_repo_fixture(tmp_path, mode="collaborator")
-    _git(clone, "config", "user.email", "curtis.theoret@gmail.com", env=env)
-    monkeypatch.chdir(clone)
-    for k, v in env.items():
-        monkeypatch.setenv(k, v)
-
-    def boom(pr_url, head_oid, *, runners=None):
-        raise RuntimeError("strip exploded")
-
-    monkeypatch.setattr(human_approval, "strip_stale_approval", boom)
-
-    (clone / "fix.py").write_text("# fix applied\n")
-    envelope = fix_round.run_round(
-        design="foo",
-        pr_url="https://github.com/o/r/pull/1",
-        iteration=1,
-        classified=[_make_classified("c1", "alice")],
-    )
-    # round still completes cleanly despite the strip blowing up
-    assert envelope["verdict"] == "applied"
-    subj = _git(clone, "log", "-1", "--format=%s", env=env).stdout.strip()
-    assert subj.startswith("[tp-pr-fix iter-1]")

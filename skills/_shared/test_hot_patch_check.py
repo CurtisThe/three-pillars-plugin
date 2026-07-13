@@ -317,7 +317,7 @@ def test_framework_check_wiring():
     """framework-check.sh contains a #37 stanza delegating to hot_patch_check.py."""
     here = Path(__file__).resolve().parent
     fcs_path = here.parent.parent / "framework-check.sh"
-    content = fcs_path.read_text()
+    content = fcs_path.read_text(encoding="utf-8")
 
     # Banner is now DERIVED from active_count (inv #38), not a hardcoded literal.
     assert "framework-check: all ${_INV_N} invariants passed" in content, (
@@ -362,8 +362,8 @@ def test_protocol_prose_anchors():
     assert caw.exists(), "commit-after-work.md must exist"
     assert wc.exists(), "weight-class.md must exist"
 
-    caw_text = caw.read_text()
-    wc_text = wc.read_text()
+    caw_text = caw.read_text(encoding="utf-8")
+    wc_text = wc.read_text(encoding="utf-8")
 
     # commit-after-work.md anchors
     assert "hot-patch: <trigger>" in caw_text, (
@@ -399,7 +399,7 @@ def test_protocol_prose_anchors():
 def test_stanza_37_no_dev_null():
     """framework-check.sh #37 stanza must NOT suppress stderr with 2>/dev/null."""
     fcs = REPO_ROOT / "framework-check.sh"
-    content = fcs.read_text()
+    content = fcs.read_text(encoding="utf-8")
     # Find the #37 stanza block (use 800 chars to cover the full hot_patch_check invocation)
     idx37 = content.find("# 37.")
     assert idx37 != -1, "#37 stanza must be present"
@@ -418,7 +418,7 @@ def test_stanza_37_crash_branch_text():
     Verifies against a whole-elif-deletion mutant.
     """
     fcs = REPO_ROOT / "framework-check.sh"
-    content = fcs.read_text()
+    content = fcs.read_text(encoding="utf-8")
     idx37 = content.find("# 37.")
     assert idx37 != -1, "#37 stanza must be present"
     # Slice from #37 to the next major stanza boundary or end-of-file (~800 chars)

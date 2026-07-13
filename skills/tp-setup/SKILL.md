@@ -14,7 +14,7 @@ Draw out the project's **why** into `three-pillars-docs/vision.md`. This is the 
 On a fresh project, the three-pillars setup flow is:
 
 1. **`/tp-setup`** — draw out the **why** into `three-pillars-docs/vision.md` (this skill).
-2. **`/tp-docs-init`** — scaffold the **how**, **what next**, and **what's broken** into `architecture.md`, `product_roadmap.md`, and `known_issues.md`.
+2. **`/tp-docs-init`** — scaffold the **how**, **what next**, and **what's broken** into `architecture.md`, `product_roadmap.md`, and `known_issues.md`. It also stubs `three-pillars-docs/project-context.md` — the spawned-agent context doc (conventions / stack / domain rules injected into council members and workers) — for you to fill in by hand.
 3. **`/tp-test-setup`** — configure test infrastructure, informed by `architecture.md`. Deliberately runs *after* architecture so test-runner and layout choices are guided by the system's actual structure, not guessed at before the structure is documented.
 
 Do not decide on a testing framework in this skill. Test infrastructure decisions belong in `/tp-test-setup`, where `architecture.md` exists to inform them.

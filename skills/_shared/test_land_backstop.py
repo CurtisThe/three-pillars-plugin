@@ -92,8 +92,11 @@ class TestLandBoundaryBackstop:
         )
 
         out = capsys.readouterr().out
-        # Should mention how to re-enable: either the howto file or the key/label
-        assert "tp:human-approved" in out or "human-approval-howto" in out or "require_human_approval" in out
+        # Must positively assert the authorization pointer: the howto file or the config key
+        assert "human-approval-howto" in out or "require_human_approval" in out, (
+            "backstop refusal must point to the howto guide or name the config key; "
+            f"got output: {out!r}"
+        )
 
     def test_head_resolved_false_refuses(self, monkeypatch, capsys):
         """config=None with _load_repo_config monkeypatched to return false -> exit 2.
@@ -167,7 +170,7 @@ class TestLandBoundaryBackstop:
             blocking=[PredicateResult(
                 name="human_approved",
                 verdict=GateVerdict.FAIL,
-                detail="no tp:human-approved label",
+                detail="get an APPROVED PR review on the current head from a non-automation human",
             )],
             label=GATE_LABEL,
         )

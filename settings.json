@@ -10,7 +10,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/statusline.sh",
+    "command": "test -x ~/.claude/statusline.sh && ~/.claude/statusline.sh || true",
     "padding": 1
   },
   "skipDangerousModePermissionPrompt": false

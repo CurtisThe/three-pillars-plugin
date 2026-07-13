@@ -253,7 +253,7 @@ def test_preflight_refuses_oversized_diff(tmp_path):
 
 def test_no_verify_not_in_module_source():
     """--no-verify must not appear anywhere in hot_patch.py source (Behavior 6)."""
-    content = HOT_PATCH_PY.read_text()
+    content = HOT_PATCH_PY.read_text(encoding="utf-8")
     assert "--no-verify" not in content, (
         "hot_patch.py must NEVER contain '--no-verify'"
     )

@@ -10,7 +10,7 @@ SCHEMA_PATH = Path(__file__).parent.parent / "schemas" / "candidate.v1.json"
 
 
 def _load_schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text())
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 def _valid_example() -> dict:

@@ -16,7 +16,7 @@ SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def _step_5i_block(text: str) -> str:
@@ -139,6 +139,29 @@ def test_step_6_5_T1_smoke() -> None:
     block = _step_6_5_block(text)
     assert 'python3 -m pytest "$TP_ROOT"/skills/_shared/ -q' in block, (
         'Step 6.5 T1 must run `python3 -m pytest "$TP_ROOT"/skills/_shared/ -q`'
+    )
+
+
+def _t1_block(text: str) -> str:
+    """Return the text of the T1 sub-block within step 6.5 (before T2)."""
+    match = re.search(r"\*\*T1\s*—.*?(?=\*\*T2\s*—)", text, re.DOTALL)
+    assert match, "Step 6.5 T1 sub-block not found in SKILL.md"
+    return match.group(0)
+
+
+def test_step_6_5_T1_consumer_install_guard() -> None:
+    """[G1] fix: T1 must carry the SAME consumer-install guard phrase T3 already
+    has — otherwise T1 runs the framework's ~120-file pytest suite unconditionally
+    in the target repo's post-merge flow, and a spurious FAIL fires the tripwire
+    banner whose remediation advice is a REVERT of the just-landed merge."""
+    text = _read()
+    block = _t1_block(text)
+    assert re.search(
+        r"skipped.*consumer install|consumer install.*skipped",
+        block, re.IGNORECASE,
+    ), (
+        "Step 6.5 T1 must carry the same consumer-install guard wording T3 has: "
+        "'if ... exists ... otherwise record `skipped (consumer install)`'"
     )
 
 

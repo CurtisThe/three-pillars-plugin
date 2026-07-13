@@ -12,12 +12,15 @@ Execute one or more phases from the implementation plan.
 
 ## Prerequisites
 - `three-pillars-docs/tp-designs/{design-name}/plan.md` must exist. If not, tell the user to run `/tp-plan {design-name}` first and stop.
+- A **current, passing plan-audit artifact** must exist for this `plan.md` (fail-closed gate — see preflight step 0b). Absent, failing, or stale-vs-`plan.md` ⇒ refuse, naming `/tp-plan-audit {design-name}` as the remedy.
 
 ## Steps
 
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
 0a. **Run cwd preflight** per `skills/_shared/cwd-preflight.md`: `python3 "$TP_ROOT"/skills/_shared/cwd_preflight.py {design-name}`. Exit 3 → stop and show the `cd` fix. Exit 0 → continue.
+
+0b. **Run the plan-audit gate (fail-closed)**: `python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_artifact.py --check three-pillars-docs/tp-designs/{design-name}`. A **non-zero** exit means no current passing plan-audit exists for this `plan.md` — the artifact is **absent** (audit never run / failed, which writes nothing), or **stale** because `plan.md` changed after the last passing audit. In every non-zero case, **REFUSE before any task cycle** and tell the user to run `/tp-plan-audit {design-name}` (re-audit the current `plan.md`). Exit 0 → the audit is current and passing → continue.
 
 1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "implement"`. This is the highest-risk skill — verifying the branch and lock before writing code is essential. Honor `--force-takeover` if passed.
 2. **Read `plan.md`** from the design directory.
@@ -27,7 +30,7 @@ Execute one or more phases from the implementation plan.
 4. **Show the user** which phase you're about to execute and how many tasks it contains. Ask for confirmation.
 5. **For each task in the phase**, execute a red-green-refactor cycle:
 
-   **If tasks within the phase are independent** (no interdependencies), **commit all uncommitted changes first** (worktree agents branch from the last committed state — uncommitted work won't be visible to them, causing regressions). Then spawn parallel Agent workers. Each agent gets this prompt embedded directly (do NOT rely on the agent calling /tp-task-cycle):
+   **If tasks within the phase are independent** (no interdependencies), **commit all uncommitted changes first** (worktree agents branch from the last committed state — uncommitted work won't be visible to them, causing regressions). Then spawn parallel Agent workers. Each agent gets this prompt embedded directly (do NOT rely on the agent calling /tp-task-cycle). The coordinator fills `{project_context_block}` in the RULES preamble from `skills/_shared/project_context.py`; omit the block when it is empty to preserve today's behavior byte-for-byte:
 
    ```
    You are executing a TDD red-green-refactor cycle.
@@ -43,6 +46,7 @@ Execute one or more phases from the implementation plan.
    5. REPORT: Summarize what was written, test result, the commit SHA (short form), and any issues.
 
    RULES:
+   {project_context_block}
    - Never write implementation before the test.
    - Follow the project's conventions for imports, module structure, and dependency management.
    - **File-size caps are enforced** (`CLAUDE.md` §File Size Limits): never grow a file past the hard cap — when an implementation or test addition would cross the soft-warn, split by responsibility (new module; split a test file by unit/scenario) instead. The pre-commit guard blocks hard-cap violations; plan the split, don't fight the guard.
@@ -60,10 +64,12 @@ Execute one or more phases from the implementation plan.
 
    Do not leave worktrees or branches behind — they clutter the repo and confuse IDE git integrations.
 
-6. **After all tasks in the phase complete**, run the project's test suite for affected files. Discover the test command from the project config (CLAUDE.md, Makefile, package.json scripts, pyproject.toml, etc.). Redirect output to a temp file for review:
+6. **After all tasks in the phase complete**, run the end-of-phase check across affected files via the fast iteration lane (`scripts/ci-local.sh --fast` in the dev repo; the project-discovered command in a consumer repo). Redirect output to a temp file for review:
    ```
-   {project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
+   CMD=$(python3 "$TP_ROOT"/skills/_shared/iteration_lane.py --lane iteration --granularity phase)
+   $CMD 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
    ```
+   If the seam resolves nothing (non-zero exit), discover the command from CLAUDE.md / Makefile / package.json / pyproject.toml as before — never `tee` an empty command as green.
 7. **Integration review** — tests passing is necessary but not sufficient. Before marking the phase done, do a quick sanity check of the actual system behavior:
    - If the phase involves external dependencies (LLM calls, APIs, file I/O, GPU inference), check that the real artifacts are correct — not just that mocked tests pass. Look at actual output files, logs, or run a quick smoke test.
    - If the phase produces user-visible output (HTML, CLI output, reports), eyeball it for obvious issues: duplicated content, missing data, wrong labels, broken formatting.

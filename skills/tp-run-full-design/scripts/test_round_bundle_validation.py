@@ -38,7 +38,7 @@ ROUND_BUNDLE = SCHEMAS_DIR / "council-round-bundle.v1.json"
 def _registry() -> Registry:
     resources = []
     for p in SCHEMAS_DIR.glob("*.json"):
-        schema = json.loads(p.read_text())
+        schema = json.loads(p.read_text(encoding="utf-8"))
         if "$id" in schema:
             resources.append(
                 (schema["$id"], Resource.from_contents(schema, default_specification=DRAFT7))
@@ -89,7 +89,7 @@ def _as_reply(obj: dict) -> str:
 
 def _validate_member(out: dict, round_n: int) -> None:
     schema_path = ROUND1 if round_n == 1 else ROUND2
-    schema = json.loads(schema_path.read_text())
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = jsonschema.Draft7Validator(schema, registry=_registry())
     error = jsonschema.exceptions.best_match(validator.iter_errors(out))
     if error is not None:

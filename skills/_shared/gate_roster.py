@@ -33,6 +33,38 @@ from diff_balloon_guard import derive_base_ref  # noqa: E402
 _VALID_STATUSES = frozenset({"PASS", "FAIL", "INDETERMINATE", "OMITTED"})
 
 
+def _require_review_proof(config) -> bool:
+    """Whether the review-proof-on-head predicate is REQUIRED (default True).
+
+    Reads review.require_review_proof. Default True (fail-closed: every repo
+    enforces unless it opts out). A missing subsection, missing key, non-dict
+    `review`, or None/absent config ALL fold to True. ONLY an explicit
+    review.require_review_proof: false OMITS the predicate (roster note, not a
+    blocking entry). Mirrors human_approval._require_human_approval exactly.
+    """
+    review = (config or {}).get("review") if isinstance(config, dict) else None
+    if not isinstance(review, dict):
+        return True
+    return bool(review.get("require_review_proof", True))
+
+
+def _require_ci_local_stamp(config) -> bool:
+    """Whether the ci_local_stamp predicate is REQUIRED (default True) — [G3] fix.
+
+    Reads review.require_ci_local_stamp. Default True (fail-closed: every repo
+    enforces unless it opts out). A missing subsection, missing key, non-dict
+    `review`, or None/absent config ALL fold to True. ONLY an explicit
+    review.require_ci_local_stamp: false OMITS the predicate (roster note, not
+    a blocking entry) — a consumer repo with no `scripts/ci-local.sh` opts out
+    per-repo instead of permanently FAILing this predicate on every landing.
+    Mirrors `_require_review_proof` exactly (tp-merge/SKILL.md:67 precedent).
+    """
+    review = (config or {}).get("review") if isinstance(config, dict) else None
+    if not isinstance(review, dict):
+        return True
+    return bool(review.get("require_ci_local_stamp", True))
+
+
 @dataclass(frozen=True)
 class RosterEntry:
     """A single predicate's verdict in the full roster.
@@ -97,7 +129,8 @@ def build_predicates_and_roster(
     """Evaluate all gate predicates and build the roster entries list.
 
     Returns (predicates, roster_entries) in canonical order:
-      threads, mergeable, checks, diff_not_ballooned, copilot, human, ci_local_stamp.
+      threads, mergeable, checks, diff_not_ballooned, copilot, human,
+      ci_local_stamp, review_proof_on_head.
 
     Extracted from evaluate_gate in deterministic_gate.py to keep that function
     readable and to stay within the 800-line file-size cap.
@@ -122,9 +155,13 @@ def build_predicates_and_roster(
     )
     from human_approval import _require_human_approval  # noqa
 
-    # Resolve project root from the invocation cwd's repo (not the module path).
-    # Both the balloon predicate and the stamp predicate use this root.
-    _project_root = find_project_root()
+    # Resolve project root: the dispatch-from-seat `carry_repo_root` override (task
+    # 8.1's evaluate_gate(repo_root=...) — the SAME key pred_review_proof_on_head and
+    # pred_human_approved's resolve_carry consume) wins when present; otherwise fall
+    # back to the invocation cwd's repo (not the module path). Both the balloon
+    # predicate and the stamp predicate use this root.
+    _carry_root_override = r.get("carry_repo_root")
+    _project_root = Path(_carry_root_override) if _carry_root_override else find_project_root()
 
     p1 = pred_threads_resolved(threads)
     p2 = pred_mergeable(mergeable)
@@ -230,37 +267,81 @@ def build_predicates_and_roster(
             "human_approved", reason="review.require_human_approval=false",
         ))
 
-    # p6 (ci-local stamp): active when stamp key present OR pure live mode.
-    # The stamp predicate receives the project root resolved above.
+    # p6 (ci-local stamp): OMITTED when review.require_ci_local_stamp resolves
+    # false — [G3] fix, a consumer repo with no scripts/ci-local.sh opts out
+    # per-repo instead of permanently FAILing this predicate on every landing.
+    # Otherwise active when stamp key present OR pure live mode. The stamp
+    # predicate receives the project root resolved above.
     # Hermetic carve-out: when a stamp is injected the predicate evaluates entirely
     # from the injected dict (repo_root is not read), so check _stamp_key_present
     # BEFORE the _project_root-is-None guard — mirrors the balloon's injected-sizes
     # carve-out so hermetic stamp injection works from a non-repo cwd.
-    _stamp_key_present = "stamp" in r
-    if _stamp_key_present or running_live:
-        import ci_local_stamp  # noqa
-        if _stamp_key_present:
-            # Hermetic path: stamp injected directly — no repo_root access needed.
-            # Pass a sentinel repo_root so the signature is satisfied; it is never read.
-            _p_stamp = ci_local_stamp.pred_ci_local_stamp(
-                head_oid, repo_root=str(_project_root or "."), stamp=r["stamp"],
-            )
-        elif _project_root is None:
-            _p_stamp = PredicateResult(
-                name="ci_local_stamp",
-                verdict=GateVerdict.INDETERMINATE,
-                detail="could not resolve project root for ci_local_stamp",
-            )
+    if _require_ci_local_stamp(config):
+        _stamp_key_present = "stamp" in r
+        if _stamp_key_present or running_live:
+            import ci_local_stamp  # noqa
+            if _stamp_key_present:
+                # Hermetic path: stamp injected directly — no repo_root access needed.
+                # Pass a sentinel repo_root so the signature is satisfied; it is never read.
+                _p_stamp = ci_local_stamp.pred_ci_local_stamp(
+                    head_oid, repo_root=str(_project_root or "."), stamp=r["stamp"],
+                )
+            elif _project_root is None:
+                _p_stamp = PredicateResult(
+                    name="ci_local_stamp",
+                    verdict=GateVerdict.INDETERMINATE,
+                    detail="could not resolve project root for ci_local_stamp",
+                )
+            else:
+                _p_stamp = ci_local_stamp.pred_ci_local_stamp(
+                    head_oid, repo_root=str(_project_root),
+                )
+            predicates.append(_p_stamp)
+            roster_entries.append(RosterEntry.from_result(_p_stamp))
         else:
-            _p_stamp = ci_local_stamp.pred_ci_local_stamp(
-                head_oid, repo_root=str(_project_root),
-            )
-        predicates.append(_p_stamp)
-        roster_entries.append(RosterEntry.from_result(_p_stamp))
+            roster_entries.append(RosterEntry.omitted(
+                "ci_local_stamp",
+                reason="<stamp> inactive (hermetic run — no stamp key injected)",
+            ))
     else:
         roster_entries.append(RosterEntry.omitted(
-            "ci_local_stamp",
-            reason="<stamp> inactive (hermetic run — no stamp key injected)",
+            "ci_local_stamp", reason="review.require_ci_local_stamp=false",
+        ))
+
+    # p7 (review proof on head): OMITTED when require_review_proof resolves false.
+    # Reuses the head_oid already resolved by _fetch_pr_state (single-fetch
+    # discipline) — no second PR-state fetch. The predicate makes at most one
+    # comments fetch via the injectable comments_fn (live default gh pr view).
+    # Activation mirrors the stamp/balloon hermetic discipline (review finding on
+    # PR #109): active when comments_fn is injected OR in pure live mode — a
+    # hermetic run that omits comments_fn gets an inactive note, NEVER a silent
+    # fallback to live `gh pr view` mid-test. An EXPLICIT comments_fn=None in the
+    # runners counts as not-injected (round-2 finding: `"comments_fn" in r` would
+    # activate and then fall through `comments_fn or _default_comments_fn` to the
+    # live default mid-hermetic-run — the exact bypass this guard exists to stop;
+    # mirrors evaluate_gate's `v is not None` COPILOT_KEYS filter).
+    if _require_review_proof(config):
+        if r.get("comments_fn") is not None or running_live:
+            import proof_predicate  # noqa — in _shared/ beside this file
+            _p_proof = proof_predicate.pred_review_proof_on_head(
+                pr_url, head_oid,
+                comments_fn=r.get("comments_fn", None),  # injectable seam (hermetic tests)
+                config=config,
+                self_login_fn=r.get("self_login_fn", None),  # shared key with p5
+                run_git=r.get("run_git", None),  # approval-survives-safe-base-sync carry seam
+                derive_base_ref_fn=r.get("derive_base_ref_fn", None),  # shared key with p5
+                repo_root=r.get("carry_repo_root", None),  # shared key with p5
+            )
+            predicates.append(_p_proof)
+            roster_entries.append(RosterEntry.from_result(_p_proof))
+        else:
+            roster_entries.append(RosterEntry.omitted(
+                "review_proof_on_head",
+                reason="<comments> inactive (hermetic run — no comments_fn injected)",
+            ))
+    else:
+        roster_entries.append(RosterEntry.omitted(
+            "review_proof_on_head", reason="review.require_review_proof=false",
         ))
 
     return predicates, roster_entries

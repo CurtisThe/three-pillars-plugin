@@ -14,7 +14,7 @@ sys.path.insert(0, str(HERE))
 import review_merge  # noqa: E402
 
 _SCHEMA = json.loads(
-    (HERE.parent / "schemas" / "normalized-finding.v1.json").read_text()
+    (HERE.parent / "schemas" / "normalized-finding.v1.json").read_text(encoding="utf-8")
 )
 
 
@@ -553,3 +553,65 @@ def test_is_degraded_review_real_findings_only_is_not_degraded():
          "summary": "real bug", "line_range": [5, 7]},
     ]
     assert review_merge.is_degraded_review(real) is False
+
+
+# ---------- codereview-proof-of-review: Task 4.1 post_codereview_comment digest ----------
+
+
+def test_post_codereview_comment_digest_appended():
+    """With digest provided, body ends with the digest line."""
+    posted_bodies = []
+
+    def _capture(pr_url, body):
+        posted_bodies.append(body)
+        return True
+
+    review_merge.post_codereview_comment(
+        "https://github.com/o/r/pull/1",
+        [],
+        head_sha="abc123",
+        post_fn=_capture,
+        digest="<sub>proof: base `abc` · head `def` · 3 files +10 −2</sub>",
+    )
+    assert len(posted_bodies) == 1
+    body = posted_bodies[0]
+    assert body.endswith("<sub>proof: base `abc` · head `def` · 3 files +10 −2</sub>"), (
+        f"body must end with the digest line; got: {body!r}"
+    )
+    assert "\n" in body, "body must contain a newline separator before the digest"
+
+
+def test_post_codereview_comment_no_digest_byte_compat():
+    """Without digest, body is byte-identical to the pre-digest form."""
+    import review_merge as rm
+    posted_bodies_without = []
+    posted_bodies_with_none = []
+
+    def _cap_without(pr_url, body):
+        posted_bodies_without.append(body)
+        return True
+
+    def _cap_with_none(pr_url, body):
+        posted_bodies_with_none.append(body)
+        return True
+
+    findings = []
+    head = "abc123"
+
+    # Old-style call (no digest kwarg)
+    rm.post_codereview_comment(
+        "https://github.com/o/r/pull/1", findings,
+        head_sha=head, post_fn=_cap_without,
+    )
+    # Explicit digest=None
+    rm.post_codereview_comment(
+        "https://github.com/o/r/pull/1", findings,
+        head_sha=head, post_fn=_cap_with_none, digest=None,
+    )
+
+    assert posted_bodies_without == posted_bodies_with_none, (
+        "digest=None must be byte-identical to the no-digest call"
+    )
+    # Also verify the expected body matches format_codereview_comment
+    expected = rm.format_codereview_comment(findings, head_sha=head)
+    assert posted_bodies_without[0] == expected

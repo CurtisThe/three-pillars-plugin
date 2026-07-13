@@ -153,7 +153,7 @@ def test_human_authored_thread_not_touched(tmp_path, monkeypatch):
     """Human-authored thread must trigger zero gh reply or resolve mutations."""
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_HUMAN)
     result = thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "replies" not in log, "reply must NOT be posted for human thread"
     assert "resolveReviewThread" not in log, "resolve must NOT be called for human thread"
     assert result["replied"] == [] and result["resolved"] == []
@@ -166,7 +166,7 @@ def test_human_thread_filter_is_mutation_real(tmp_path, monkeypatch):
     # Patch the canonical helper to accept 'alice' as a Copilot login
     monkeypatch.setattr(rr, "is_copilot_review_author", lambda login, *, surface: login == "alice")
     thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    assert "replies" in logfile.read_text(), (
+    assert "replies" in logfile.read_text(encoding="utf-8"), (
         "widened filter must trigger reply — proves the real filter suppresses it"
     )
 
@@ -182,7 +182,7 @@ def test_tid_less_thread_no_reply(tmp_path, monkeypatch):
     """Copilot thread with null thread_id is skipped — no reply, no resolve."""
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_TID_LESS)
     result = thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "replies" not in log and "resolveReviewThread" not in log
     assert result["replied"] == [] and result["resolved"] == []
 
@@ -218,7 +218,7 @@ def test_bot_suffix_login_is_skipped(tmp_path, monkeypatch):
     """
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_SPELLING_BOT_SUFFIX)
     result = thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "replies" not in log, (
         "'copilot-pull-request-reviewer[bot]' is NOT the GraphQL login — "
         "must be skipped, not disposed"
@@ -230,6 +230,6 @@ def test_human_login_is_skipped(tmp_path, monkeypatch):
     """A plain human login must be skipped (not replied to or resolved)."""
     logfile = _make_shim(tmp_path, monkeypatch, _GH_SHIM_SPELLING_HUMAN_ONLY)
     result = thread_dispose.dispose_threads(PR, ENVELOPE_EMPTY, author="bot")
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "replies" not in log
     assert result["replied"] == [] and result["resolved"] == []

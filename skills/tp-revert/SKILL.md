@@ -142,10 +142,45 @@ Never edit `deterministic_gate.py` — gate code is untouched.
 
 ### Step 8 — Land through standard gate
 
-Push `revert/{slug}`, open a single-commit PR (body links original PR + forecast
-evidence). The operator lands via `/tp-merge` — all six predicates (including
-`pred_human_approved`, surfaced as the `tp:human-approved` label) apply unchanged.
-No direct master commit (hot-patch anomaly flag).
+Push `revert/{slug}`, then open the single-commit PR **through the shared PR-author
+chokepoint** — `skills/_shared/github_pr_author.py` resolves an optional bot account
+from `.three-pillars/config.json`'s `github` block so the PR is authored by the
+configured bot, not the operator's ambient `gh` identity. This routing is **mandatory**:
+on the recommended two-account topology a human-authored revert PR cannot be
+self-approved (GitHub bars it), so `pred_human_approved` could never be satisfied and
+the revert PR would be **permanently unlandable** through `/tp-merge` — the exact
+self-approval trap the chokepoint exists to prevent, on the one operation you reach for
+when something is already broken. [plugin-mode-parity H3]
+
+```bash
+git push -u origin revert/{slug}
+# Resolve the FREE chokepoint git-toplevel-first (see first-run.md §Resolve a FREE _shared script)
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TOP"/skills/_shared/resolve_script.py; else RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi
+GHPA="$(python3 "$RS" github_pr_author.py)"
+python3 "$GHPA" create --context manual -- \
+    --base {base} --head revert/{slug} \
+    --title "Revert: {slug} (PR #NN)" \
+    --body "$(cat <<'EOF'
+Reverts #NN. Single revert commit (git revert -m 1) with living-doc amendments
+regenerated via carve-out. The original PR link and the dry-run forecast evidence
+are in the commit body.
+EOF
+)"
+```
+
+Repos with no `github.pr_author_account` configured run plain `gh pr create` underneath
+— byte-identical to today's ambient behavior (the helper's resolve step returned `None`).
+A helper exit code of **3** means the configured bot account is unavailable
+(`BotAuthUnavailable`); surface the helper's actionable stderr and do **not** retry with
+ambient auth — a silent fallback would re-create the self-approval trap above.
+
+The operator lands via `/tp-merge` — all seven predicates (including `pred_human_approved`,
+satisfied by a current APPROVED human review) apply unchanged. `review_proof_on_head` is
+among them: run a proof-bearing review round on the **revert head** (the `/tp-pr-iterate`
+ANGLES fan-out posts the trusted-author digest comment) before landing, or the gate blocks
+INDETERMINATE with "no head-bound proof comment". No direct master commit (hot-patch
+anomaly flag).
 
 The standard gate applies: the PR must PASS before `gh pr merge` is called.
 

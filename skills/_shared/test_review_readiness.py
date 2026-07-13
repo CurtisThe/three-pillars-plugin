@@ -532,7 +532,7 @@ class TestNoLlmImportsInvariant:
 
     def test_no_llm_imports_invariant(self):
         module_path = HERE / "review_readiness.py"
-        tree = ast.parse(module_path.read_text())
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

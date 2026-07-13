@@ -1,9 +1,13 @@
 """Tests for single-account collision detection helpers — solo-operator-identity-split.
 
-Covers Tasks 1.1, 1.2, 3.1:
+Covers Tasks 1.1, 1.2:
   - pure single_account_collision(...)
   - live wrapper single_account_collision_live(...)
-  - pure approval_collision_signature(...) + live wrapper
+
+After retire-approval-tags: approval_collision_signature* functions REMOVED (they
+were pure Path-A label logic). Tests for those symbols are deleted. The collision
+advisory message now states "no distinct reviewer → no gate; use a two-account setup"
+(A8 positive no-gate message test added here).
 
 Gate-regression (Task 3.3) and advisory (Task 2.1) tests live in
 test_single_account_collision_gate.py.
@@ -256,151 +260,96 @@ class TestSingleAccountCollisionLive:
 
 
 # ---------------------------------------------------------------------------
-# Task 3.1 — pure approval_collision_signature(...) + live wrapper
+# A8 — positive no-gate-message test (advisory fires with new wording)
 # ---------------------------------------------------------------------------
 
-class TestApprovalCollisionSignaturePure:
-    """Covers approval_collision_signature (pure, no gh) truth-table cases."""
+class TestNoGateMessagePositive:
+    """A8: after retire-approval-tags, a single-account collision means the review-path
+    gate has no distinct human reviewer → no gate. The advisory message must state
+    this clearly (not the old 'label rejected' text).
 
-    HA_LABEL = "tp:human-approved"
-    HA_TAGGED = "tp:human-approved:a1b2c3d4e5f6"
+    This test pins the framework-check advisory prose (the un-numbered
+    # solo-operator-identity-split: block in framework-check.sh) by confirming
+    collision_advisory.py fires with 'COLLISION' when the collision is detected,
+    and that single_account_detect no longer exports approval_collision_signature.
+    """
 
-    def _label(self, name):
-        return {"name": name}
-
-    def _event(self, label_name, actor_login, actor_type="User"):
-        return {
-            "event": "labeled",
-            "label": {"name": label_name},
-            "actor": {"login": actor_login, "type": actor_type},
-            "created_at": "2026-06-14T00:00:00Z",
-        }
-
-    def test_label_present_actor_matches_self_login_collision(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        timeline = [self._event(self.HA_TAGGED, "CurtisThe")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login="CurtisThe"
-        ) is True
-
-    def test_label_present_actor_different_from_self_login_no_collision(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        timeline = [self._event(self.HA_TAGGED, "CurtisThe")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login="CurtisTheBot"
-        ) is False
-
-    def test_label_absent_returns_false(self):
-        from single_account_detect import approval_collision_signature
-        assert approval_collision_signature(
-            labels=[], timeline=[], self_login="CurtisThe"
-        ) is False
-
-    def test_self_login_falsy_returns_false(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        timeline = [self._event(self.HA_TAGGED, "CurtisThe")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login=""
-        ) is False
-
-    def test_self_login_none_returns_false(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        timeline = [self._event(self.HA_TAGGED, "CurtisThe")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login=None
-        ) is False
-
-    def test_case_insensitive_actor_match(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        timeline = [self._event(self.HA_TAGGED, "CURTISTHE")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login="curtisthe"
-        ) is True
-
-    def test_tagged_label_form_is_recognized(self):
-        """Tagged family label tp:human-approved:<sha7+> must be recognized."""
-        from single_account_detect import approval_collision_signature
-        tagged = "tp:human-approved:abcdef1234567"
-        labels = [self._label(tagged)]
-        timeline = [self._event(tagged, "bot1")]
-        assert approval_collision_signature(
-            labels=labels, timeline=timeline, self_login="bot1"
-        ) is True
-
-    def test_no_timeline_event_returns_false(self):
-        from single_account_detect import approval_collision_signature
-        labels = [self._label(self.HA_TAGGED)]
-        # label present but no timeline event
-        assert approval_collision_signature(
-            labels=labels, timeline=[], self_login="CurtisThe"
-        ) is False
-
-    def test_non_list_inputs_return_false(self):
-        from single_account_detect import approval_collision_signature
-        assert approval_collision_signature(
-            labels=None, timeline=None, self_login="CurtisThe"
-        ) is False
-
-
-class TestApprovalCollisionSignatureLive:
-    """Live-wrapper approval_collision_signature_live with injected runners."""
-
-    HA_TAGGED = "tp:human-approved:a1b2c3d4e5f6"
-
-    def _event(self, label_name, actor_login):
-        return {
-            "event": "labeled",
-            "label": {"name": label_name},
-            "actor": {"login": actor_login, "type": "User"},
-            "created_at": "2026-06-14T00:00:00Z",
-        }
-
-    def test_raising_runner_returns_false(self):
-        from single_account_detect import approval_collision_signature_live
-
-        def bad_labels(url):
-            raise RuntimeError("gh down")
-
-        result = approval_collision_signature_live(
-            "https://github.com/example/repo/pull/1",
-            runners={
-                "labels_fn": bad_labels,
-                "self_login_fn": lambda: "CurtisThe",
-            },
+    def test_approval_collision_signature_not_exported(self):
+        """approval_collision_signature must NOT be importable from single_account_detect
+        (the symbol was removed with the label path)."""
+        import single_account_detect
+        assert not hasattr(single_account_detect, "approval_collision_signature"), (
+            "approval_collision_signature must be removed from single_account_detect"
         )
-        assert result is False
 
-    def test_collision_signature_detected_live(self):
-        """Injected runners: label present + actor == self_login -> True."""
-        from single_account_detect import approval_collision_signature_live
-
-        tagged = self.HA_TAGGED
-        result = approval_collision_signature_live(
-            "https://github.com/example/repo/pull/1",
-            runners={
-                "labels_fn": lambda url: [{"name": tagged}],
-                "timeline_fn": lambda url: [self._event(tagged, "CurtisThe")],
-                "self_login_fn": lambda: "CurtisThe",
-            },
+    def test_approval_collision_signature_live_not_exported(self):
+        """approval_collision_signature_live must NOT be importable."""
+        import single_account_detect
+        assert not hasattr(single_account_detect, "approval_collision_signature_live"), (
+            "approval_collision_signature_live must be removed from single_account_detect"
         )
-        assert result is True
 
-    def test_different_actor_not_detected_live(self):
-        """actor != self_login -> False (not a collision signature)."""
-        from single_account_detect import approval_collision_signature_live
+    def test_single_account_collision_still_exported(self):
+        """The collaborator-set collision helper must still be importable (kept)."""
+        from single_account_detect import single_account_collision  # noqa: F401
+        assert callable(single_account_collision)
 
-        tagged = self.HA_TAGGED
-        result = approval_collision_signature_live(
-            "https://github.com/example/repo/pull/1",
-            runners={
-                "labels_fn": lambda url: [{"name": tagged}],
-                "timeline_fn": lambda url: [self._event(tagged, "CurtisThe")],
-                "self_login_fn": lambda: "CurtisTheBot",
-            },
+    def test_single_account_collision_live_still_exported(self):
+        """The live wrapper must still be importable (kept)."""
+        from single_account_detect import single_account_collision_live  # noqa: F401
+        assert callable(single_account_collision_live)
+
+    def test_collision_advisory_fires_collision_token_on_single_account(self):
+        """A8: collision_advisory.main() outputs a line containing 'COLLISION'
+        when single_account_collision_live() returns True.
+
+        This pins the advisory FIRES path with the new semantics: the single-account
+        topology means 'no distinct human reviewer → no gate; use two-account setup'.
+        The collision advisory is the mechanism that surfaces this warning to the operator.
+        """
+        import io
+        from unittest import mock
+        import collision_advisory
+
+        with mock.patch("single_account_detect.single_account_collision_live",
+                        return_value=True), \
+             mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=0, stdout="CurtisThe\n")
+            buf = io.StringIO()
+            import sys as _sys
+            old_stdout = _sys.stdout
+            _sys.stdout = buf
+            try:
+                collision_advisory.main(["."])
+            finally:
+                _sys.stdout = old_stdout
+            output = buf.getvalue()
+
+        assert "COLLISION" in output, (
+            f"Advisory must print 'COLLISION' on single-account topology; got: {output!r}"
         )
-        assert result is False
+        assert "CurtisThe" in output, (
+            f"Advisory must include the self_login; got: {output!r}"
+        )
+
+    def test_no_collision_advisory_silent_on_two_account(self):
+        """No collision -> advisory prints nothing (silent, no-gate message is absent)."""
+        import io
+        from unittest import mock
+        import collision_advisory
+
+        with mock.patch("single_account_detect.single_account_collision_live",
+                        return_value=False):
+            buf = io.StringIO()
+            import sys as _sys
+            old_stdout = _sys.stdout
+            _sys.stdout = buf
+            try:
+                collision_advisory.main(["."])
+            finally:
+                _sys.stdout = old_stdout
+            output = buf.getvalue()
+
+        assert output.strip() == "", (
+            f"Advisory must be silent on two-account topology; got: {output!r}"
+        )

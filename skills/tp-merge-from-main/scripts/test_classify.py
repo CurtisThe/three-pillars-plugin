@@ -51,6 +51,54 @@ def test_append_only_log():
     assert labels(t) == ["append-only-log"]
 
 
+def _diff3_empty_base(ours, theirs, pre=""):
+    # Real git-minimized concurrent-insertion shape: EMPTY base (no line between the base markers).
+    block = "<<<<<<< ours\n" + ours + "\n||||||| base\n=======\n" + theirs + "\n>>>>>>> theirs"
+    return (pre + "\n" + block) if pre else block
+
+
+def test_log_entry_insertion_dated_bullet_real_empty_base_shape():
+    # The REAL git-minimized shape: empty base, both sides insert a dated bold-lead-bullet entry
+    # (architecture.md `## History` form) — what `git merge-file --diff3` actually produces.
+    t = _diff3_empty_base("- **2026-07-04** — decision OURS", "- **2026-07-05** — decision THEIRS",
+                          pre="## History")
+    assert labels(t) == ["log-entry-insertion"]
+    assert "log-entry-insertion" in MECHANICAL
+
+
+def test_log_entry_insertion_name_keyed_bullet():
+    # product_roadmap.md `### Recent completions` form: name-keyed `- **`slug`** — …` bullets.
+    t = _diff3_empty_base("- **`design-a`** — Implemented (2026-07-04).",
+                          "- **`design-b`** — Done — archived (2026-07-05).",
+                          pre="### Recent completions")
+    assert labels(t) == ["log-entry-insertion"]
+
+
+def test_log_entry_insertion_wrapped_multiline_entry():
+    # An entry that WRAPS across a blank + indented continuation body must STILL classify as a log
+    # insertion (the correctness point: continuation lines are allowed — not every line is a bullet).
+    ours = "- **2026-07-04** — decision OURS\n\n  rat ours"
+    theirs = "- **2026-07-05** — decision THEIRS\n\n  rat theirs"
+    t = _diff3_empty_base(ours, theirs, pre="## History")
+    assert labels(t) == ["log-entry-insertion"]
+
+
+def test_log_entry_insertion_defers_on_nonlog_prose():
+    # Tightness: a side whose insertion is arbitrary prose (not a log bullet) is NOT a clean log
+    # insertion -> defer to a human. The bullet-block restriction still limits keep-both.
+    t = _diff3_empty_base("- **2026-07-04** — real entry", "just some concurrent prose paragraph",
+                          pre="## History")
+    assert labels(t) == ["generic-prose"]
+
+
+def test_log_entry_insertion_defers_on_file_path_bullet():
+    # Tightness: file-path description bullets (Canon-reframe style) look bold-lead but are NOT log
+    # entries — the kebab-slug arm excludes `/`/`.`, so they defer to a human.
+    t = _diff3_empty_base("- **`scripts/foo.py`** — a build helper",
+                          "- **`scripts/bar.py`** — another helper")
+    assert labels(t) == ["generic-prose"]
+
+
 def test_parse_roundtrip_multiple_hunks():
     t = "clean head\n" + _diff3("*Last updated: x*", "*Last updated: w*", "*Last updated: y*") + \
         "\nmiddle\n" + _diff3("### L4: a", "", "### L4: b")

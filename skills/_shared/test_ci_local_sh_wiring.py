@@ -193,7 +193,7 @@ class TestCiLocalShDelegation:
     def test_ci_local_sh_invokes_stamp_write(self):
         """The script contains a call to ci_local_stamp.py --write."""
         ci_local_sh = _SHARED_DIR.parent.parent / "scripts" / "ci-local.sh"
-        content = ci_local_sh.read_text()
+        content = ci_local_sh.read_text(encoding="utf-8")
         assert "ci_local_stamp.py --write" in content, (
             "ci-local.sh does not invoke ci_local_stamp.py --write"
         )
@@ -201,7 +201,7 @@ class TestCiLocalShDelegation:
     def test_stamp_step_comes_after_pytest(self):
         """The stamp step appears AFTER the pytest step in ci-local.sh."""
         ci_local_sh = _SHARED_DIR.parent.parent / "scripts" / "ci-local.sh"
-        content = ci_local_sh.read_text()
+        content = ci_local_sh.read_text(encoding="utf-8")
         pytest_pos = content.find("python -m pytest")
         stamp_pos = content.find("ci_local_stamp.py --write")
         assert pytest_pos != -1, "pytest step not found in ci-local.sh"
@@ -328,4 +328,26 @@ class TestCiLocalShDelegation:
         )
         assert dirty_capture_offset < fail_fast_cond_offset, (
             "CI_START_DIRTY conditional must appear AFTER the CI_START_DIRTY capture"
+        )
+
+    def test_plugin_parity_smoke_wired_after_clean_room_smoke(self):
+        """ci-local.sh runs plugin-parity-smoke.sh, positioned directly after
+        clean-room-smoke.sh and before the stamp write (plugin-mode-parity Task 2.6).
+        """
+        ci_local_sh = _SHARED_DIR.parent.parent / "scripts" / "ci-local.sh"
+
+        with open(ci_local_sh) as fh:
+            lines = fh.readlines()
+
+        clean_room_pos = _find_pattern_line_pos(lines, "clean-room-smoke.sh")
+        parity_pos = _find_pattern_line_pos(lines, "plugin-parity-smoke.sh")
+        stamp_pos = _find_pattern_line_pos(lines, "ci_local_stamp.py --write")
+
+        assert clean_room_pos != -1, "clean-room-smoke.sh step not found in ci-local.sh"
+        assert parity_pos != -1, "plugin-parity-smoke.sh is not wired into ci-local.sh"
+        assert stamp_pos != -1, "stamp step not found in ci-local.sh"
+        assert clean_room_pos < parity_pos < stamp_pos, (
+            "plugin-parity-smoke.sh must run AFTER clean-room-smoke.sh and BEFORE "
+            f"the stamp write (clean-room at {clean_room_pos}, parity-smoke at "
+            f"{parity_pos}, stamp at {stamp_pos})"
         )

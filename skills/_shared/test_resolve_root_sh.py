@@ -10,10 +10,15 @@ Task 2.1 tests (probes 1–2, sentinel, failure line):
 
 Task 2.2 tests (probes 3–4, mtime tiebreak, readlink -f):
   test_probe3_cache_glob
-  test_probe3_newest_mtime_wins
+  test_probe3_alphabetically_first_wins_not_mtime
   test_probe1_beats_probe3
   test_symlink_resolves_to_physical_target
   test_probe4_dev_checkout_fallback
+
+Task 3.7 tests (plugin-mode-parity, catalog G6 — deterministic multi-match
+selection + loud warning, resolve_root.sh probe 3):
+  test_probe3_multi_match_prints_warning
+  test_probe3_single_match_no_warning
 """
 from __future__ import annotations
 
@@ -201,29 +206,60 @@ class TestProbe3CacheGlob:
         assert result.returncode == 0, f"expected exit 0; stderr={result.stderr!r}"
         assert result.stdout.strip() == str(cache_entry.resolve())
 
-    def test_probe3_newest_mtime_wins(self, tmp_path):
-        """Two qualifying cache entries → newest mtime wins (explicit mtime set).
+    def test_probe3_versioned_cache_layout(self, tmp_path):
+        """The REAL Claude Code layout nests the framework under a <version>
+        segment: cache/<marketplace>/<plugin>/<version>/. Probe 3 must descend
+        into it — a versionless-only probe silently misses every real install
+        and falls through to the loud exit-1 refusal. [plugin-mode-parity H2]
+        """
+        fake_home = tmp_path / "home"
+        # cache/local/three-pillars/1.2.0/  — sentinel under the version segment
+        version_entry = (
+            fake_home / ".claude" / "plugins" / "cache"
+            / "local" / "three-pillars" / "1.2.0"
+        )
+        _mk_sentinel_tree(version_entry)
 
-        Alphabetically FIRST entry (aaa) has the NEWER mtime so the test is not
-        confounded with glob order — a last-glob-wins or >= bug cannot accidentally
-        pass here.
+        env = _base_env(home=fake_home)
+        non_repo = tmp_path / "consumer"
+        non_repo.mkdir()
+
+        result = _run([], env=env, cwd=str(non_repo))
+        assert result.returncode == 0, (
+            f"probe 3 must resolve the versioned cache layout; stderr={result.stderr!r}"
+        )
+        assert result.stdout.strip() == str(version_entry.resolve()), (
+            "probe 3 must return the <version> dir (where the sentinel lives), "
+            f"got {result.stdout.strip()!r}"
+        )
+
+    def test_probe3_alphabetically_first_wins_not_mtime(self, tmp_path):
+        """Two qualifying cache entries → deterministic (lexicographic) winner, NOT mtime.
+
+        Catalog G6 fix: mtime-based tiebreak is silently install-order-dependent
+        (the same machine can resolve a different root on two different days with
+        no visible signal). The alphabetically-SECOND entry (zzz) is given the
+        NEWER mtime here — under the pre-fix mtime-tiebreak behavior it would have
+        won; under the fixed deterministic (lexicographically-first) rule the
+        alphabetically-first entry (aaa) must win regardless of mtime, proving
+        mtime is no longer consulted for selection.
         """
         fake_home = tmp_path / "home"
 
-        # Alphabetically first entry — NEWER mtime (wins by timestamp, not glob order)
-        new_entry = fake_home / ".claude" / "plugins" / "cache" / "aaa" / "three-pillars"
-        _mk_sentinel_tree(new_entry)
-        new_sentinel = new_entry / _SENTINEL_REL
+        # Alphabetically first entry — OLDER mtime (must win anyway: not mtime-based)
+        first_entry = fake_home / ".claude" / "plugins" / "cache" / "aaa" / "three-pillars"
+        _mk_sentinel_tree(first_entry)
+        first_sentinel = first_entry / _SENTINEL_REL
 
-        # Alphabetically second entry — OLDER mtime
-        old_entry = fake_home / ".claude" / "plugins" / "cache" / "zzz" / "three-pillars"
-        _mk_sentinel_tree(old_entry)
-        old_sentinel = old_entry / _SENTINEL_REL
+        # Alphabetically second entry — NEWER mtime (must NOT win)
+        second_entry = fake_home / ".claude" / "plugins" / "cache" / "zzz" / "three-pillars"
+        _mk_sentinel_tree(second_entry)
+        second_sentinel = second_entry / _SENTINEL_REL
 
         # Explicitly set mtimes using os.utime so we don't depend on wall-clock
-        # resolution: new = epoch + 2000, old = epoch + 1000 (clearly different)
-        os.utime(str(new_sentinel), (2000, 2000))
-        os.utime(str(old_sentinel), (1000, 1000))
+        # resolution: first(aaa) = epoch + 1000 (OLDER), second(zzz) = epoch + 2000 (NEWER)
+        os.utime(str(first_sentinel), (1000, 1000))
+        os.utime(str(second_sentinel), (2000, 2000))
 
         env = _base_env(home=fake_home)
         non_repo = tmp_path / "consumer"
@@ -231,8 +267,9 @@ class TestProbe3CacheGlob:
 
         result = _run([], env=env, cwd=str(non_repo))
         assert result.returncode == 0, f"expected exit 0; stderr={result.stderr!r}"
-        assert result.stdout.strip() == str(new_entry.resolve()), (
-            f"Expected newest entry {new_entry!r}, got {result.stdout.strip()!r}"
+        assert result.stdout.strip() == str(first_entry.resolve()), (
+            f"Expected the lexicographically-first entry {first_entry!r} to win "
+            f"regardless of mtime, got {result.stdout.strip()!r}"
         )
 
     def test_probe1_beats_probe3(self, tmp_path):
@@ -293,6 +330,49 @@ class TestProbe3CacheGlob:
         )
 
 
+class TestProbe3MultiMatchWarning:
+    """Catalog G6 fix: loud stderr warning when more than one cache entry matches."""
+
+    def test_probe3_multi_match_prints_warning(self, tmp_path):
+        """Two qualifying cache entries → stderr carries a WARNING naming both paths."""
+        fake_home = tmp_path / "home"
+        entry_a = fake_home / ".claude" / "plugins" / "cache" / "aaa" / "three-pillars"
+        entry_b = fake_home / ".claude" / "plugins" / "cache" / "zzz" / "three-pillars-pro"
+        _mk_sentinel_tree(entry_a)
+        _mk_sentinel_tree(entry_b)
+
+        env = _base_env(home=fake_home)
+        non_repo = tmp_path / "consumer"
+        non_repo.mkdir()
+
+        result = _run([], env=env, cwd=str(non_repo))
+        assert result.returncode == 0, f"expected exit 0; stderr={result.stderr!r}"
+        assert result.stdout.strip() == str(entry_a.resolve())
+        assert "WARNING" in result.stderr, (
+            f"expected a multi-match WARNING on stderr, got: {result.stderr!r}"
+        )
+        assert str(entry_a) in result.stderr and str(entry_b) in result.stderr, (
+            f"WARNING must name both matching paths, got: {result.stderr!r}"
+        )
+
+    def test_probe3_single_match_no_warning(self, tmp_path):
+        """Exactly one qualifying cache entry → no warning printed (S4 no-regression)."""
+        fake_home = tmp_path / "home"
+        cache_entry = fake_home / ".claude" / "plugins" / "cache" / "local" / "three-pillars"
+        _mk_sentinel_tree(cache_entry)
+
+        env = _base_env(home=fake_home)
+        non_repo = tmp_path / "consumer"
+        non_repo.mkdir()
+
+        result = _run([], env=env, cwd=str(non_repo))
+        assert result.returncode == 0, f"expected exit 0; stderr={result.stderr!r}"
+        assert result.stdout.strip() == str(cache_entry.resolve())
+        assert result.stderr == "", (
+            f"single-match resolution must stay silent, got stderr: {result.stderr!r}"
+        )
+
+
 class TestProbe4DevCheckoutFallback:
     """Probe 4: git-toplevel of cwd, sentinel-checked."""
 
@@ -337,14 +417,14 @@ class TestFirstRunMdPreamble:
 
     def test_preamble_section_exists(self):
         """first-run.md must contain the '## Resolve-root preamble' heading."""
-        content = _FIRST_RUN_MD.read_text()
+        content = _FIRST_RUN_MD.read_text(encoding="utf-8")
         assert "## Resolve-root preamble" in content, (
             "first-run.md must contain '## Resolve-root preamble' section heading"
         )
 
     def test_preamble_bootstrap_snippet(self):
         """first-run.md must contain the bootstrap snippet form."""
-        content = _FIRST_RUN_MD.read_text()
+        content = _FIRST_RUN_MD.read_text(encoding="utf-8")
         # The canonical snippet: TP_ROOT="$(bash <skill-dir>/../../skills/_shared/resolve_root.sh --skill-dir <skill-dir>)"
         assert "resolve_root.sh --skill-dir" in content, (
             "first-run.md §Resolve-root preamble must contain the bootstrap snippet "
@@ -356,7 +436,7 @@ class TestFirstRunMdPreamble:
 
     def test_loud_skip_line_format(self):
         """first-run.md must contain the loud-skip line format for fail-open helpers."""
-        content = _FIRST_RUN_MD.read_text()
+        content = _FIRST_RUN_MD.read_text(encoding="utf-8")
         # Required format: three-pillars: skipping <helper> (framework root not found) — fail-open
         assert "framework root not found" in content, (
             "first-run.md must document the loud-skip format containing "

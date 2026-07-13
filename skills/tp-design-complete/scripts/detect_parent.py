@@ -114,7 +114,7 @@ def enumerate_siblings(repo_root: Path, current_design: str) -> list[dict]:
         if not lock_path.is_file():
             continue
         try:
-            lock = json.loads(lock_path.read_text())
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
         siblings.append({

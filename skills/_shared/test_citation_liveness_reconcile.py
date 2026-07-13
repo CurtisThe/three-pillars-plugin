@@ -58,7 +58,7 @@ def test_fenced_code_block_stale_row_not_flipped(tmp_path):
     from reconcile_docs import flip_status
 
     edits = flip_status(tmp_path, "my-design", pr_number=5, apply=True)
-    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text()
+    content = (tmp_path / "three-pillars-docs" / "product_roadmap.md").read_text(encoding="utf-8")
     # The real row outside the fence must be flipped
     assert "merged PR #5" in content
     # But the fenced copy must survive unchanged

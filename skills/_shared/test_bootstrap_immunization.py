@@ -93,7 +93,7 @@ def test_apply_installs_heal_hooks(repo):
     for event in HOOK_EVENTS:
         hook_file = hooks_dir / event
         assert hook_file.exists(), f"Hook file {event} missing"
-        content = hook_file.read_text()
+        content = hook_file.read_text(encoding="utf-8")
         assert SENTINEL_BEGIN in content, f"Sentinel missing from {event}"
 
 
@@ -115,17 +115,17 @@ def test_apply_is_idempotent(repo):
     # Record content after first apply
     contents_after_first = {}
     for event in HOOK_EVENTS:
-        contents_after_first[event] = (hooks_dir / event).read_text()
+        contents_after_first[event] = (hooks_dir / event).read_text(encoding="utf-8")
 
     apply(repo)
     # Content must be identical after second apply
     for event in HOOK_EVENTS:
-        assert (hooks_dir / event).read_text() == contents_after_first[event], (
+        assert (hooks_dir / event).read_text(encoding="utf-8") == contents_after_first[event], (
             f"Hook {event} changed on second apply (not idempotent)"
         )
     # Sentinel appears exactly once
     for event in HOOK_EVENTS:
-        content = (hooks_dir / event).read_text()
+        content = (hooks_dir / event).read_text(encoding="utf-8")
         assert content.count(SENTINEL_BEGIN) == 1, (
             f"Sentinel duplicated in {event} after re-apply"
         )
@@ -145,7 +145,7 @@ def test_apply_does_not_clobber_existing_hook(repo):
 
     apply(repo)
     for event in HOOK_EVENTS:
-        content = (hooks_dir / event).read_text()
+        content = (hooks_dir / event).read_text(encoding="utf-8")
         assert "existing hook" in content, (
             f"apply() clobbered the existing {event} hook"
         )
@@ -257,7 +257,7 @@ def test_mark_applied_writes_applied_at(repo):
     """mark_applied() writes a non-null applied_at ISO timestamp."""
     from bootstrap_immunization import mark_applied
     mark_applied(repo)
-    config = json.loads((repo / ".three-pillars" / "config.json").read_text())
+    config = json.loads((repo / ".three-pillars" / "config.json").read_text(encoding="utf-8"))
     wi = config.get("worktree_immunization", {})
     assert wi.get("applied_at") is not None
     assert "T" in wi["applied_at"], "applied_at not ISO format"
@@ -268,7 +268,7 @@ def test_mark_declined_writes_declined_true(repo):
     """mark_declined() writes declined=true and applied_at=null."""
     from bootstrap_immunization import mark_declined
     mark_declined(repo)
-    config = json.loads((repo / ".three-pillars" / "config.json").read_text())
+    config = json.loads((repo / ".three-pillars" / "config.json").read_text(encoding="utf-8"))
     wi = config.get("worktree_immunization", {})
     assert wi.get("declined") is True
     assert wi.get("applied_at") is None
@@ -278,10 +278,10 @@ def test_mark_applied_idempotent_does_not_overwrite_offered_at(repo):
     """mark_applied() preserves offered_at from the initial mark_offered call."""
     from bootstrap_immunization import mark_applied, mark_offered
     mark_offered(repo)
-    config1 = json.loads((repo / ".three-pillars" / "config.json").read_text())
+    config1 = json.loads((repo / ".three-pillars" / "config.json").read_text(encoding="utf-8"))
     offered_at_1 = config1["worktree_immunization"]["offered_at"]
     mark_applied(repo)
-    config2 = json.loads((repo / ".three-pillars" / "config.json").read_text())
+    config2 = json.loads((repo / ".three-pillars" / "config.json").read_text(encoding="utf-8"))
     # offered_at must be preserved (not reset to now)
     assert config2["worktree_immunization"]["offered_at"] == offered_at_1
 
@@ -290,7 +290,7 @@ def test_config_schema_accepts_worktree_immunization_block(repo):
     """worktree_immunization block round-trips through the repo config cleanly."""
     from bootstrap_immunization import mark_applied
     mark_applied(repo)
-    raw = (repo / ".three-pillars" / "config.json").read_text()
+    raw = (repo / ".three-pillars" / "config.json").read_text(encoding="utf-8")
     data = json.loads(raw)
     wi = data["worktree_immunization"]
     # All expected keys are present
@@ -322,5 +322,5 @@ def test_config_write_is_atomic(repo, monkeypatch):
         mark_applied(repo)
 
     # Original file must still be valid
-    data = json.loads(config_path.read_text())
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data == existing, "Original config was overwritten despite simulated crash"

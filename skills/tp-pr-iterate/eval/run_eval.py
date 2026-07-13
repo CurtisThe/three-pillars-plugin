@@ -112,7 +112,7 @@ def _classify_one(entry: dict) -> tuple[dict, str | None, str | None]:
 def _read_entries() -> list[dict]:
     return [
         json.loads(line)
-        for line in EVAL_PATH.read_text().splitlines()
+        for line in EVAL_PATH.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
 

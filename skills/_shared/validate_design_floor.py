@@ -58,7 +58,7 @@ def main(argv: list[str]) -> int:
         print(f"design.md not found: {design_md}", file=sys.stderr)
         return 2
 
-    sections = _parse_sections(design_md.read_text())
+    sections = _parse_sections(design_md.read_text(encoding="utf-8"))
     classification = _classify(sections)
 
     if any(classification[k] for k in ("missing", "empty", "placeholder_only")):

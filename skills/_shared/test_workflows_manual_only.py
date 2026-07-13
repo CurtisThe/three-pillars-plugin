@@ -27,7 +27,7 @@ _PR = re.compile(r"^\s*pull_request:", re.MULTILINE)
 
 @pytest.mark.parametrize("name", WORKFLOWS)
 def test_workflow_is_manual_only(name):
-    text = (WORKFLOWS_DIR / name).read_text()
+    text = (WORKFLOWS_DIR / name).read_text(encoding="utf-8")
     assert _DISPATCH.search(text), f"{name}: missing workflow_dispatch trigger"
     assert not _PUSH.search(text), f"{name}: still has a push: trigger (would bill minutes)"
     assert not _PR.search(text), f"{name}: still has a pull_request: trigger (would bill minutes)"

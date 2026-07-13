@@ -45,7 +45,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 _SCHEMA_PATH = Path(__file__).parent.parent / "schemas" / "classified-comment.v1.json"
-_SCHEMA: dict[str, Any] = json.loads(_SCHEMA_PATH.read_text())
+_SCHEMA: dict[str, Any] = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 _VALIDATOR = Draft202012Validator(_SCHEMA)
 
 

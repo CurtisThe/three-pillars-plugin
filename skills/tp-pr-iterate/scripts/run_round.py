@@ -58,6 +58,9 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import loop_driver  # noqa: E402
+import review_proof  # noqa: E402 — its import puts skills/_shared on sys.path
+import review_merge  # noqa: E402
+import convergence_proof  # noqa: E402 — skills/_shared (on path via review_proof)
 
 
 def _emit(envelope: dict, code: int) -> int:
@@ -227,6 +230,57 @@ def main() -> int:
 
     decisions_path = Path(decisions_path_raw) if isinstance(decisions_path_raw, str) else None
 
+    # Proof-of-review enforcement (codereview-proof-of-review + review-integrity-enforcement).
+    # Read optional new fields: review_proof_root + review_base.
+    proof_root_raw = payload.get("review_proof_root")
+    review_base = payload.get("review_base")
+    envelope_proof_enforced = None  # will be set to False on un-proofed convergence attempt
+
+    # Convergence eligibility — hoisted (Finding 7) so BOTH the root-supplied and no-root
+    # branches AND the shared convergence-proof fold below read the SAME predicate.
+    eligible = (
+        state.get("last_verdict") == "minor-only"
+        and loop_driver._ci_all_success(ci_rollup, config)
+        and unresolved_actionable == 0
+    )
+
+    if proof_root_raw is not None:
+        # Root supplied: check artifact + independently re-derive diff (closes provenance gap).
+        artifact_ok = review_proof.proof_present_and_nonempty(
+            head_sha, root=Path(proof_root_raw)
+        )
+        ground_ok = True
+        if review_base:
+            ground_ok = not review_proof.resolve_numstat(review_base, head_sha)["degraded"]
+        proof_ok: "bool | None" = bool(artifact_ok and ground_ok)
+    else:
+        # No root supplied — FAIL-CLOSED on convergence-eligible rounds.
+        if eligible:
+            proof_ok = False
+            envelope_proof_enforced = False  # loud: a convergence round ran un-proofed
+        else:
+            proof_ok = None  # non-convergence round: no spurious block
+
+    # review-integrity-enforcement: bind the convergence declaration to the SAME predicate
+    # the merge gate reads (a non-degraded, trusted-authored proof digest on head — the
+    # #104/#117 shape) AND an INDEPENDENT unparseable-angle conjunct. capture_proof / the
+    # posted digest compute `degraded` from numstat + angle_count only; they CANNOT see a
+    # garbled non-JSON angle whose posted digest is (wrongly) non-degraded — but the merged
+    # codereview_findings (already on stdin) can (is_degraded_review). NO-ANGLES
+    # (merge_codereview_angles([])) is caught by the same conjunct. Both are fail-closed
+    # ANDs, so convergence ⟹ the merge gate would PASS this head. Eligible rounds only:
+    # non-eligible rounds keep proof_ok=None (no spurious block, no spurious live gh).
+    posted_comments = payload.get("posted_comments")  # optional hermetic boundary seam
+    self_login = payload.get("self_login")
+    comments_fn = (lambda _u: posted_comments) if posted_comments is not None else None
+    self_login_fn = (lambda: self_login) if self_login is not None else None
+    proof_ok, not_converged_reason = convergence_proof.resolve_convergence_proof_ok(
+        proof_ok, eligible=eligible, pr_url=pr_url, head_sha=head_sha,
+        codereview_findings=codereview_findings, config=config,
+        comments_fn=comments_fn, self_login_fn=self_login_fn,
+    )
+    convergence_proof_ok = proof_ok if eligible else None
+
     # Call run_round — any exception escalates.
     try:
         from datetime import datetime, timezone
@@ -244,6 +298,7 @@ def main() -> int:
             decisions_path=decisions_path,
             pr_url=pr_url,
             label_fn=None,  # live label application (shells out gh)
+            proof_ok=proof_ok,
         )
     except Exception as exc:
         return _emit(
@@ -278,7 +333,32 @@ def main() -> int:
         "converged": converged,
         "head_sha": head_sha,
         "state_written": state_written,
+        "proof_ok": proof_ok,
     }
+    if envelope_proof_enforced is not None:
+        envelope["proof_enforced"] = envelope_proof_enforced
+    if convergence_proof_ok is not None:
+        envelope["convergence_proof_ok"] = convergence_proof_ok
+    if not_converged_reason is not None and not converged:
+        # deterministic action hint for the driver (Phase 3): why an eligible round
+        # refused to converge — never narration.
+        envelope["not_converged_reason"] = not_converged_reason
+        if not_converged_reason == "degraded-or-absent-proof-on-head":
+            # A mis-ordered convergence attempt self-explains: the head-bound proof
+            # COMMENT (not the gitignored local artifact) must be posted on THIS head
+            # BEFORE this round, and — because the digest embeds the exact head SHA —
+            # no commit may land after it. converge.py is the ordered finisher that
+            # does this (capture_proof → post trusted digest → shell run_round.py).
+            envelope["not_converged_hint"] = (
+                "post the head-bound proof comment on this head BEFORE this round "
+                "(the gate reads the posted comment, not the local artifact) — use "
+                "converge.py, the ordered clean-round finisher: it capture_proofs, "
+                "posts the trusted-authored proof digest as the LAST head-binding "
+                "action, then shells run_round.py; no commit may land after the post."
+            )
+    dr = updated_state.get("degraded_review_retries")
+    if dr is not None:
+        envelope["degraded_review_retries"] = dr
     # For inline-state test mode, echo the updated state.
     if state_path is None:
         envelope["state"] = updated_state

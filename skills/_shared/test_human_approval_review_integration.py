@@ -2,8 +2,12 @@
 
 Split from test_human_approval_review.py (Phase-2 integration vs Phase-1 unit helpers)
 to keep each test module under the soft-warn cap. Covers: the `reviews_fn` runner key,
-the dual-path (label OR review) `human_approved_on_head`, and the `pred_human_approved`
+the review-sole-path `human_approved_on_head`, and the `pred_human_approved`
 gate-output contract. All tests inject runners — NO live gh/git.
+
+After retire-approval-tags: label path REMOVED. human_approved_on_head is satisfied
+ONLY by a non-automation human APPROVED review current on head (review_path_satisfied).
+Label-only scenarios MUST return False; the review path is the sole path.
 """
 
 from __future__ import annotations
@@ -26,89 +30,108 @@ class TestReviewsRunnerWiring:
 
 
 # ============================================================
-# Task 2.2: human_approved_on_head dual-path (label OR review)
+# Task 2.2: human_approved_on_head — review is sole path
 # ============================================================
 
 
-def _raises(_url=None):
-    raise RuntimeError("review fetch failed")
-
-
-class TestHumanApprovedDualPath:
+class TestHumanApprovedReviewPath:
     """Integration over human_approved_on_head with fully-injected runners.
 
-    All six runner keys are provided so the F4 per-key resolution never falls back to
+    All runner keys are provided so the F4 per-key resolution never falls back to
     live gh. self_login is `curtisthebot` (lands in the automation set).
+
+    After retire-approval-tags: label presence has NO effect. The SOLE path is
+    a non-automation human APPROVED review current on the head.
     """
 
-    def _runners(self, *, labels, timeline, head, reviews):
+    def _runners(self, *, reviews, head=None):
+        h = head or {"headRefOid": "h", "commits": []}
         return {
             "self_login_fn": lambda: "curtisthebot",
-            "labels_fn": lambda u: labels,
-            "timeline_fn": lambda u: timeline,
-            "head_fn": lambda u: head,
-            "commits_fn": lambda u: [],
+            "head_fn": lambda u: h,
             "reviews_fn": (reviews if callable(reviews) else (lambda u: reviews)),
+            "labels_fn": lambda u: [],
+            "timeline_fn": lambda u: [],
+            "commits_fn": lambda u: [],
         }
 
-    # --- review-path fixtures (currency = commit_id == headRefOid, any string) ---
     def _review(self, state="APPROVED", commit_id="h", login="curtisthe"):
         return {"user": {"login": login, "type": "User"}, "state": state,
                 "submitted_at": "2026-06-16T01:00:00Z", "commit_id": commit_id}
 
     REVIEW_HEAD = {"headRefOid": "h", "commits": []}
 
-    # --- label-path fixtures (currency = hex tag prefix of headRefOid) ---
-    LABEL_HEAD = {"headRefOid": "abc1234def", "commits": []}
-
-    def _label_runner_parts(self):
-        labels = [{"name": "tp:human-approved:abc1234"}]
-        timeline = [{"event": "labeled",
-                     "label": {"name": "tp:human-approved:abc1234"},
-                     "actor": {"login": "curtisthe", "type": "User"},
-                     "created_at": "2026-06-16T01:00:00Z"}]
-        return labels, timeline
-
     def test_review_only_passes(self):
+        """APPROVED review current on head -> True (the sole path)."""
         from human_approval import human_approved_on_head
-        r = self._runners(labels=[], timeline=[], head=self.REVIEW_HEAD,
-                          reviews=[self._review()])
+        r = self._runners(reviews=[self._review()])
         assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is True
 
-    def test_label_only_passes_regression(self):
+    def test_label_only_no_review_is_false(self):
+        """Label present but no review -> False. Label path is retired."""
         from human_approval import human_approved_on_head
-        labels, timeline = self._label_runner_parts()
-        r = self._runners(labels=labels, timeline=timeline, head=self.LABEL_HEAD, reviews=[])
-        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is True
+        # Even with a label in labels_fn, the predicate returns False with no review.
+        runners = {
+            "self_login_fn": lambda: "curtisthebot",
+            "head_fn": lambda u: {"headRefOid": "abc1234def", "commits": []},
+            "reviews_fn": lambda u: [],
+            "labels_fn": lambda u: [{"name": "tp:human-approved:abc1234"}],
+            "timeline_fn": lambda u: [{
+                "event": "labeled",
+                "label": {"name": "tp:human-approved:abc1234"},
+                "actor": {"login": "curtisthe", "type": "User"},
+                "created_at": "2026-06-16T01:00:00Z",
+            }],
+            "commits_fn": lambda u: [],
+        }
+        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=runners) is False
 
     def test_neither_false(self):
+        """No review, no label -> False."""
         from human_approval import human_approved_on_head
-        r = self._runners(labels=[], timeline=[], head=self.REVIEW_HEAD, reviews=[])
+        r = self._runners(reviews=[])
         assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is False
 
-    def test_both_true(self):
+    def test_review_passes_regardless_of_label(self):
+        """Both review and label present: True — from the review alone.
+
+        (Previously test_both_true asserted the OR; now we assert the review
+        is the SOLE carrier of the True value.)
+        """
         from human_approval import human_approved_on_head
-        labels, timeline = self._label_runner_parts()
-        r = self._runners(labels=labels, timeline=timeline, head=self.LABEL_HEAD,
-                          reviews=[self._review(commit_id="abc1234def")])
-        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is True
+        runners = {
+            "self_login_fn": lambda: "curtisthebot",
+            "head_fn": lambda u: {"headRefOid": "abc1234def", "commits": []},
+            "reviews_fn": lambda u: [self._review(commit_id="abc1234def")],
+            "labels_fn": lambda u: [{"name": "tp:human-approved:abc1234"}],
+            "timeline_fn": lambda u: [{
+                "event": "labeled",
+                "label": {"name": "tp:human-approved:abc1234"},
+                "actor": {"login": "curtisthe", "type": "User"},
+                "created_at": "2026-06-16T01:00:00Z",
+            }],
+            "commits_fn": lambda u: [],
+        }
+        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=runners) is True
 
     def test_stale_review_and_no_label_false(self):
+        """Stale review (wrong commit_id) -> False."""
         from human_approval import human_approved_on_head
-        r = self._runners(labels=[], timeline=[], head=self.REVIEW_HEAD,
-                          reviews=[self._review(commit_id="old")])
+        r = self._runners(reviews=[self._review(commit_id="old")])
         assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is False
 
-    def test_reviews_fn_raises_label_path_still_carries(self):
-        # Mechanism-level isolation (Ada/Feynman E): a raising reviews_fn must be swallowed
-        # by _safe_fetch to [] (review path -> False) while the VALID label path is still
-        # evaluated and carries the True. Asserts the return is the label path's value, not
-        # merely that no exception escaped.
+    def test_reviews_fn_raises_is_false(self):
+        """A raising reviews_fn -> _safe_fetch -> [] -> review path not satisfied -> False.
+
+        After retire-approval-tags there is no label path to fall back to.
+        """
         from human_approval import human_approved_on_head
-        labels, timeline = self._label_runner_parts()
-        r = self._runners(labels=labels, timeline=timeline, head=self.LABEL_HEAD,
-                          reviews=_raises)
-        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is True
+
+        def _raises(_url=None):
+            raise RuntimeError("review fetch failed")
+
+        r = self._runners(reviews=_raises)
+        assert human_approved_on_head("https://github.com/o/r/pull/1", runners=r) is False
 
 
 # ============================================================

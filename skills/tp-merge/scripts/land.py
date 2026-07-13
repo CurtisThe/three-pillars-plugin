@@ -2,23 +2,26 @@
 
 This is the ONLY code site that crosses the irreversible boundary: it runs
 `gh pr merge` to land a PR. It refuses to do so unless the deterministic merge
-gate PASSES — `require_merge_gate_pass` (now FIVE predicates, including the
-on-head human-approval predicate `pred_human_approved`). On a blocked gate it
+gate PASSES — `require_merge_gate_pass` (FIVE predicates, including the on-head
+human-approval predicate `pred_human_approved`). On a blocked gate it
 raises/propagates `MergeGateBlocked`, prints the blocking predicate(s) and a
 pointer to the howto, and exits non-zero WITHOUT calling `gh pr merge`.
 
 This is the code enforcement of the design guarantee: the framework never
 crosses the irreversible `gh pr merge` boundary without an explicit, current
 human approval. The autonomous path cannot satisfy `pred_human_approved`
-(it never applies `tp:human-approved` on the head out-of-band), so it can never
-land through this skill.
+(it cannot produce a non-automation APPROVED review on the head out-of-band),
+so it can never land through this skill.
+
+`pred_human_approved` is satisfied by a native GitHub APPROVED PR review from a
+non-automation human, current on the head SHA (Path B). The SHA-tagged label
+path (Path A) has been retired by the retire-approval-tags design.
 
 Land-boundary backstop (Decision 7): even before the gate runs, land() resolves
 review.require_human_approval from the committed HEAD config. If it resolves
 false, land() refuses immediately — the require_fn and merge_fn are NEVER called.
-This closes the residual: a committed opt-out that passes the gate-level predicate
-omission cannot bypass the irreversible boundary without a human setting that flag
-true at HEAD via a reviewed PR, then applying tp:human-approved.
+This closes the residual: a committed opt-out cannot bypass the irreversible
+boundary without a human setting that flag true at HEAD via a reviewed PR.
 
 Exit codes:
   0 = merged (gate PASSED, gh pr merge invoked once and succeeded)
@@ -52,10 +55,8 @@ from merge_gate import (  # noqa: E402
 )
 from deterministic_gate import _load_repo_config  # noqa: E402
 from human_approval import _require_human_approval  # noqa: E402
-from single_account_detect import approval_collision_signature_live  # noqa: E402
 
 HOWTO = "skills/_shared/human-approval-howto.md"
-HOWTO_FLIP_SECTION = f"{HOWTO} §Single-account operator"
 
 
 def _print_roster(outcome) -> None:
@@ -91,6 +92,7 @@ def land(
     require_fn=None,
     merge_fn=None,
     config=None,
+    repo_root=None,
 ) -> int:
     """Gate-then-land: enforce the merge gate, then run `gh pr merge` ONLY on PASS.
 
@@ -107,6 +109,12 @@ def land(
         merge_fn: injectable irreversible-merge action for tests
             (default: _gh_pr_merge). Called at most once, ONLY on a PASS gate.
         config: optional repo-config dict threaded into the gate.
+        repo_root: optional dispatch-from-seat override (task 8.3) — threaded into
+            BOTH `require_fn(..., repo_root=...)` and the land-boundary backstop's
+            committed-HEAD config read. None → byte-unchanged (cwd-derived
+            resolution, no repo_root kwarg passed at all — preserves existing
+            require_fn test-double call shapes and the `_load_repo_config()`
+            zero-arg monkeypatch).
 
     Returns:
         0 if the gate PASSED and the merge was invoked; 2 if the gate REFUSED
@@ -134,7 +142,9 @@ def land(
         gate_config = config
     else:
         # Live path: backstop reads config independently; gate binds itself.
-        backstop_cfg = _load_repo_config()
+        # repo_root=None → the EXACT pre-task-8.3 zero-arg call (byte-unchanged;
+        # preserves the existing `_load_repo_config()` monkeypatch call shape).
+        backstop_cfg = _load_repo_config(repo_root=repo_root) if repo_root is not None else _load_repo_config()
         gate_config = None
     if not _require_human_approval(backstop_cfg):
         # _require_human_approval only returns False when review IS a dict and
@@ -146,14 +156,19 @@ def land(
         print(f"  resolved: review.require_human_approval = {_rha_raw!r}")
         print(
             "  To authorize: set review.require_human_approval = true at HEAD via a "
-            "reviewed PR, then apply tp:human-approved:<head-sha> per "
-            f"{HOWTO}."
+            f"reviewed PR; see {HOWTO} for the human-approval requirement."
         )
         return 2
     # -------------------------------------------------------------------------
 
     try:
-        outcome = require_fn(pr_url, config=gate_config)
+        # No-flag byte-unchanged: repo_root=None → the EXACT pre-task-8.3 call shape
+        # (no repo_root kwarg at all) so existing injected require_fn test doubles
+        # (which never declared a repo_root param) keep working unmodified.
+        if repo_root is not None:
+            outcome = require_fn(pr_url, config=gate_config, repo_root=repo_root)
+        else:
+            outcome = require_fn(pr_url, config=gate_config)
     except MergeGateBlocked as blocked:
         # REFUSE: do NOT cross the irreversible boundary. Print blockers + howto.
         print("REFUSED — merge gate did not PASS; NOT running `gh pr merge`.")
@@ -172,31 +187,15 @@ def land(
                 "  Hint: to reply-and-resolve open review threads out-of-band, run:\n"
                 "    /tp-pr-iterate {design} --dispose-only"
             )
-        # Collision branch: when human_approved blocks AND the collision signature holds
-        # (a tp:human-approved label is present but the labeling actor == the self-login),
-        # print identity-flip instructions instead of the generic howto line.
-        # Message-only — require_fn, the gate roster, and the return code (2) are untouched.
-        _human_approved_blocks = any(
-            getattr(p, "name", "") == "human_approved" for p in blocking_preds
+        # When human_approved blocks: print the review-path howto pointer.
+        # On a single-account setup (operator and framework share the same gh login),
+        # the review-path gate has no distinct human reviewer — you have NO gate.
+        # Use a two-account setup for a real gate; see the howto.
+        print(
+            f"To authorize this merge, get an APPROVED PR review on the current head "
+            f"from a non-automation human. See {HOWTO} for the identity floor and "
+            f"single-account (no-gate) posture."
         )
-        if _human_approved_blocks and approval_collision_signature_live(
-            pr_url, runners=None
-        ):
-            print(
-                f"  Single-account collision detected: your approval login is the "
-                f"framework's own gh-auth login. The gate rejects it because it "
-                f"cannot distinguish your human action from a framework self-apply.\n"
-                f"  Remedy — create a separate GitHub machine account for automation:\n"
-                f"    1. Create a new GitHub account (e.g. YourNameBot).\n"
-                f"    2. Add it as a repo collaborator and authenticate gh as that account.\n"
-                f"    3. Re-apply tp:human-approved:<head-sha> from your HUMAN account.\n"
-                f"  See {HOWTO_FLIP_SECTION} for the full flip walk-through."
-            )
-        else:
-            print(
-                f"To authorize this merge, see {HOWTO} "
-                "(apply tp:human-approved:<head-sha> on the current head, as a human, out-of-band)."
-            )
         return 2
 
     # Gate PASSED — print roster, then cross the irreversible boundary exactly once.
@@ -211,18 +210,76 @@ def land(
     return 0
 
 
+def _resolve_repo_toplevel(path: str) -> "str | None":
+    """Resolve `path` to its git toplevel via `git -C <path> rev-parse --show-toplevel`.
+
+    Returns None on any failure (non-zero exit, git missing, exception) — the
+    caller folds that to a usage-error exit 2 (fail-closed, never guesses).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return None
+        top = result.stdout.strip()
+        return top or None
+    except Exception:
+        return None
+
+
+def _parse_argv(argv: list[str]) -> "tuple[str | None, list[str], bool]":
+    """Strict parse: `--repo <path>` is the ONLY recognized option (task 8.3, mirrors
+    gate_cli.py's own parser). Returns (repo_path_or_None, positionals, ok)."""
+    repo: "str | None" = None
+    positionals: list[str] = []
+    ok = True
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--repo":
+            if i + 1 >= len(argv) or repo is not None:
+                ok = False
+                i += 1
+                continue
+            repo = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("-"):
+            ok = False
+            i += 1
+            continue
+        positionals.append(a)
+        i += 1
+    return repo, positionals, ok
+
+
 def main(argv: list[str]) -> int:
-    """Parse argv (exactly one positional <pr_url>), gate-then-land, return exit code."""
-    positionals = [a for a in argv if not a.startswith("-")]
-    flags = [a for a in argv if a.startswith("-")]
-    if flags or len(positionals) != 1:
+    """Parse argv (exactly one positional <pr_url>, plus optional --repo <path>),
+    gate-then-land, return exit code."""
+    repo_arg, positionals, ok = _parse_argv(argv)
+    if not ok or len(positionals) != 1:
         print(
-            "Usage: land.py <pr_url>\n"
-            f"Error: expected exactly one PR URL argument; got argv={argv!r}",
+            "Usage: land.py [--repo <path>] <pr_url>\n"
+            f"Error: expected exactly one PR URL argument (+ optional --repo <path>); "
+            f"got argv={argv!r}",
             file=sys.stderr,
         )
         return 2
-    return land(positionals[0])
+
+    pr_url = positionals[0]
+    if repo_arg is not None:
+        resolved = _resolve_repo_toplevel(repo_arg)
+        if resolved is None:
+            print(
+                f"Usage: land.py [--repo <path>] <pr_url>\n"
+                f"Error: --repo {repo_arg!r} did not resolve to a git toplevel",
+                file=sys.stderr,
+            )
+            return 2
+        return land(pr_url, repo_root=resolved)
+    return land(pr_url)
 
 
 if __name__ == "__main__":

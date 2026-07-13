@@ -84,46 +84,60 @@ fi
 # Probe 3: plugin-cache glob $HOME/.claude/plugins/cache/*/three-pillars*
 # ---------------------------------------------------------------------------
 # Both the marketplace segment (*) and the plugin name (three-pillars*) are
-# wildcarded to cover three-pillars and three-pillars-pro.
-_probe3_winner=""
-_probe3_mtime=-1  # floor -1 so mtime=0 is accepted as a valid candidate
+# wildcarded to cover three-pillars and three-pillars-pro. Selection among
+# multiple matches is DETERMINISTIC — the lexicographically-first matching
+# path wins, never sentinel mtime (mtime silently tracks install/update
+# order, so the same machine can resolve a different root on two different
+# days with no visible signal) [catalog G6 fix]. When more than one entry
+# matches, a loud warning naming every match and the chosen winner is
+# printed to stderr — side-by-side `three-pillars*` distributions on one
+# machine are worth surfacing, not silently resolving.
+_probe3_matches=()
 
 _check_cache_entry() {
-    # $1 = candidate path
+    # $1 = candidate path — record it iff the sentinel lives directly inside
     [ -d "$1" ] || return 0
     if _has_sentinel "$1"; then
-        # Get mtime (seconds since epoch) of the sentinel file for tiebreak
-        _mtime=""
-        if command -v stat >/dev/null 2>&1; then
-            # Try GNU stat first, then BSD stat
-            _mtime="$(stat -c '%Y' "$1/$SENTINEL_REL" 2>/dev/null)" \
-                || _mtime="$(stat -f '%m' "$1/$SENTINEL_REL" 2>/dev/null)" \
-                || _mtime="0"
-        else
-            _mtime="0"
-        fi
-        _mtime="${_mtime:-0}"
-        if [ "$_mtime" -gt "$_probe3_mtime" ] 2>/dev/null; then
-            _probe3_mtime="$_mtime"
-            _probe3_winner="$1"
-        fi
+        _probe3_matches+=("$1")
     fi
+}
+
+_check_cache_tree() {
+    # $1 = a three-pillars* plugin dir. The REAL Claude Code marketplace layout
+    # nests the framework one level deeper under a version segment:
+    #   cache/<marketplace>/<plugin>/<version>/skills/_shared/first-run.md
+    # so the sentinel is NOT at the plugin dir itself. Check the plugin dir
+    # (versionless/local installs) AND each immediate <version> subdir
+    # (marketplace installs) — supporting BOTH shapes so a layout change can't
+    # silently kill probe 3. [catalog G6 + plugin-mode-parity H2]
+    local _base="${1%/}"
+    _check_cache_entry "$_base"
+    local _version_dir
+    for _version_dir in "$_base"/*/; do
+        [ -d "$_version_dir" ] || continue
+        _check_cache_entry "${_version_dir%/}"
+    done
 }
 
 if [ -n "${HOME:-}" ] && [ -d "${HOME}/.claude/plugins/cache" ]; then
     # Iterate over matching paths: $HOME/.claude/plugins/cache/*/three-pillars*
+    # (then one level deeper for the versioned marketplace layout).
     for _marketplace_dir in "${HOME}/.claude/plugins/cache/"*/; do
         [ -d "$_marketplace_dir" ] || continue
         for _plugin_dir in "${_marketplace_dir}"three-pillars*/; do
             [ -d "$_plugin_dir" ] || continue
-            # Strip trailing slash for consistent sentinel check
-            _plugin_path="${_plugin_dir%/}"
-            _check_cache_entry "$_plugin_path"
+            _check_cache_tree "${_plugin_dir%/}"
         done
     done
 fi
 
-if [ -n "$_probe3_winner" ]; then
+if [ "${#_probe3_matches[@]}" -gt 0 ]; then
+    _probe3_winner="$(printf '%s\n' "${_probe3_matches[@]}" | sort | head -n 1)"
+    if [ "${#_probe3_matches[@]}" -gt 1 ]; then
+        _probe3_others="$(printf '%s, ' "${_probe3_matches[@]}" | sed 's/, $//')"
+        printf 'three-pillars: WARNING multiple plugin-cache matches for three-pillars* under %s/.claude/plugins/cache — selecting %s deterministically (lexicographically first among: %s)\n' \
+            "${HOME}" "$_probe3_winner" "$_probe3_others" >&2
+    fi
     _output_winner "$_probe3_winner"
 fi
 

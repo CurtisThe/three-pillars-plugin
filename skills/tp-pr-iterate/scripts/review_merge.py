@@ -398,6 +398,7 @@ def post_codereview_comment(
     *,
     head_sha: str | None = None,
     post_fn=None,
+    digest: "str | None" = None,
 ) -> bool:
     """MANDATORY per `/code-review` invocation: post a summary comment to the PR.
 
@@ -409,8 +410,14 @@ def post_codereview_comment(
     Fail-OPEN: returns True on success, False on any failure (a failed comment-post must
     not crash the loop) — but the comment is ALWAYS attempted. `post_fn(pr_url, body)`
     is injectable for tests; the default posts via REST.
+
+    digest: optional proof-of-review digest (from review_proof.format_proof_digest).
+    When provided, appended as `\\n` + digest to the body. Absent digest → body
+    is byte-identical to the pre-digest form.
     """
     body = format_codereview_comment(findings, head_sha=head_sha)
+    if digest is not None:
+        body = body + "\n" + digest
     poster = post_fn or _default_comment_post
     try:
         return bool(poster(pr_url, body))

@@ -29,7 +29,7 @@ C1_HELPERS = [
 
 
 def _read_skill() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_agent_call_documented_for_sonnet_judge() -> None:
@@ -49,7 +49,7 @@ def test_dry_run_flag_documented() -> None:
 
 
 def _assert_no_anthropic(py: Path) -> None:
-    tree = ast.parse(py.read_text())
+    tree = ast.parse(py.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -68,7 +68,7 @@ def _assert_no_claude_subprocess(py: Path) -> None:
     SKILL prose via Agent(), never shelled out to from a helper. AST-based so a
     docstring that merely *names* the forbidden pattern is not a false positive.
     """
-    tree = ast.parse(py.read_text())
+    tree = ast.parse(py.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -326,7 +326,7 @@ TIER7_SKILL_MD = Path(__file__).parent.parent.parent / "tp-run-full-design" / "S
 
 
 def _read_tier7_skill() -> str:
-    return TIER7_SKILL_MD.read_text()
+    return TIER7_SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_tier7_orchestrator_owns_round_loop() -> None:
@@ -407,4 +407,76 @@ def test_step_10b_blocked_no_independent_review_terminal() -> None:
         "SKILL.md honest-attribution rule must state the prohibition: "
         "'must never be signed as /code-review on the convergence path'. "
         "This pins the rule text, not just a tangentially relevant word."
+    )
+
+
+# ---------- codereview-proof-of-review: Task 5.2 capture-proof contract prose ----------
+
+PROOF_DOC = Path(__file__).parent.parent / "proof-of-review.md"
+
+
+def _read_proof_doc() -> str:
+    return PROOF_DOC.read_text(encoding="utf-8")
+
+
+def test_proof_doc_exists() -> None:
+    """Companion proof-of-review.md must exist under tp-pr-iterate/."""
+    assert PROOF_DOC.exists(), (
+        f"skills/tp-pr-iterate/proof-of-review.md must exist (Task 5.2); "
+        f"expected at {PROOF_DOC}"
+    )
+
+
+def test_proof_doc_has_capture_proof_contract() -> None:
+    """proof-of-review.md must contain the capture_proof contract literal."""
+    body = _read_proof_doc()
+    assert "capture_proof" in body, (
+        "proof-of-review.md must name capture_proof (the per-round entry point)"
+    )
+    assert "review_proof_root" in body, (
+        "proof-of-review.md must name review_proof_root (the stdin field passed to run_round.py)"
+    )
+    assert "review_base" in body, (
+        "proof-of-review.md must name review_base (the base SHA passed to run_round.py)"
+    )
+    assert "blocked-no-independent-review" in body or "blocked" in body.lower(), (
+        "proof-of-review.md must state that empty/degraded diff → blocked"
+    )
+    assert "digest" in body.lower(), (
+        "proof-of-review.md must document the digest posted to the PR"
+    )
+
+
+def test_tier7_skill_has_capture_proof_in_round_sequence() -> None:
+    """tp-run-full-design SKILL.md Tier-7/Slot-11 round sequence must contain
+    capture_proof and review_proof_root in the per-round step."""
+    body = _read_tier7_skill()
+    assert "capture_proof" in body, (
+        "Tier-7 SKILL.md must name capture_proof in the Slot-11 round sequence"
+    )
+    assert "review_proof_root" in body, (
+        "Tier-7 SKILL.md must name review_proof_root (the stdin field for run_round.py)"
+    )
+    assert "review_base" in body, (
+        "Tier-7 SKILL.md must name review_base in the per-round sequence"
+    )
+    assert "proof_enforced" in body, (
+        "Tier-7 SKILL.md must mention proof_enforced (the envelope flag for un-proofed convergence)"
+    )
+
+
+def test_tp_pr_iterate_skill_has_proof_pointer() -> None:
+    """tp-pr-iterate SKILL.md must carry a ONE-LINE pointer to proof-of-review.md."""
+    body = _read_skill()
+    assert "proof-of-review.md" in body, (
+        "tp-pr-iterate SKILL.md must contain a pointer to proof-of-review.md"
+    )
+
+
+def test_tp_pr_iterate_skill_md_under_500_lines() -> None:
+    """tp-pr-iterate SKILL.md must be ≤500 lines after the proof pointer was added."""
+    lines = SKILL_MD.read_text(encoding="utf-8").count("\n") + 1
+    assert lines <= 500, (
+        f"tp-pr-iterate SKILL.md is {lines} lines after proof pointer — must be ≤500 "
+        "(the file is NOT grandfathered; full prose would block the commit)"
     )

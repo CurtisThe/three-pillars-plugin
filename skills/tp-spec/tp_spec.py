@@ -21,26 +21,39 @@ from typing import Optional
 _SHARED = Path(__file__).resolve().parent.parent / "_shared"
 sys.path.insert(0, str(_SHARED))
 
+import project_root as _pr  # noqa: E402  (needs _SHARED on sys.path)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_DESIGNS_ROOT = _REPO_ROOT / "three-pillars-docs" / "tp-designs"
-_SPECS_DIR = _REPO_ROOT / "three-pillars-docs" / "specs"
+# Module-relative fallback root — used ONLY when the invocation cwd is not
+# inside a git repo (e.g. the dev-repo pytest lane importing this module
+# directly). In plugin mode this module lives in the plugin cache, so a
+# __file__-anchored root would point at the CACHE, not the consumer repo under
+# operation; _default_repo() therefore resolves cwd-first via
+# project_root.find_project_root() and only falls back to this constant when
+# there is no surrounding git repo. [plugin-mode-parity H1]
+_FALLBACK_ROOT = Path(__file__).resolve().parent.parent.parent
+# The scaffold template ships WITH this module, so it stays __file__-anchored.
 _TEMPLATE = Path(__file__).resolve().parent / "templates" / "spec-delta.template.md"
 
 
+def _default_repo() -> Path:
+    """The project repo under operation, resolved from cwd (plugin-safe).
+
+    Falls back to the module-relative root only when cwd is not a git repo.
+    """
+    root = _pr.find_project_root()
+    return root if root is not None else _FALLBACK_ROOT
+
+
 def _default_designs_root() -> Path:
-    return _DESIGNS_ROOT
+    return _default_repo() / "three-pillars-docs" / "tp-designs"
 
 
 def _default_specs_dir() -> Path:
-    return _SPECS_DIR
-
-
-def _default_repo() -> Path:
-    return _REPO_ROOT
+    return _default_repo() / "three-pillars-docs" / "specs"
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +89,7 @@ def cmd_add(
         )
         return 0
 
-    template_text = tpl.read_text()
+    template_text = tpl.read_text(encoding="utf-8")
     delta_path.write_text(template_text)
     print(f"created: {delta_path}")
     return 0
@@ -171,8 +184,8 @@ def cmd_merge(
         )
         return 1
 
-    base_text = base_path.read_text()
-    delta_text = delta_path.read_text()
+    base_text = base_path.read_text(encoding="utf-8")
+    delta_text = delta_path.read_text(encoding="utf-8")
 
     try:
         merged = _sd.merge(base_text, [delta_text])
@@ -214,9 +227,24 @@ def cmd_merge(
 def _usage() -> None:
     print(
         "usage: tp_spec.py {add <design> | validate <design> [--domain <dom>] "
-        "| merge <design> [--domain <dom>]}",
+        "| merge <design> [--domain <dom>]} [--repo <path>]",
         file=sys.stderr,
     )
+
+
+def _pop_flag(rest: list[str], flag: str) -> "tuple[Optional[str], list[str]]":
+    """Pop `<flag> <value>` from rest; return (value_or_None, filtered_rest)."""
+    out: list[str] = []
+    value: Optional[str] = None
+    i = 0
+    while i < len(rest):
+        if rest[i] == flag and i + 1 < len(rest):
+            value = rest[i + 1]
+            i += 2
+            continue
+        out.append(rest[i])
+        i += 1
+    return value, out
 
 
 def main(argv: list[str]) -> int:
@@ -226,46 +254,42 @@ def main(argv: list[str]) -> int:
 
     subcmd, rest = argv[0], argv[1:]
 
+    # --repo overrides the cwd-resolved project root (add/validate/merge).
+    repo_arg, rest = _pop_flag(rest, "--repo")
+    repo = Path(repo_arg).resolve() if repo_arg else _default_repo()
+    designs_root = repo / "three-pillars-docs" / "tp-designs"
+    specs_dir = repo / "three-pillars-docs" / "specs"
+
     if subcmd == "add":
         if not rest:
-            print("usage: tp_spec.py add <design>", file=sys.stderr)
+            print("usage: tp_spec.py add <design> [--repo <path>]", file=sys.stderr)
             return 2
-        return cmd_add(rest[0])
+        return cmd_add(rest[0], designs_root=designs_root)
 
     if subcmd == "validate":
         if not rest:
-            print("usage: tp_spec.py validate <design> [--domain <dom>]", file=sys.stderr)
+            print("usage: tp_spec.py validate <design> [--domain <dom>] [--repo <path>]", file=sys.stderr)
             return 2
+        domain, rest = _pop_flag(rest, "--domain")
         design_name = rest[0]
-        domain = None
-        i = 1
-        while i < len(rest):
-            if rest[i] == "--domain" and i + 1 < len(rest):
-                domain = rest[i + 1]
-                i += 2
-            else:
-                i += 1
-        dom = domain or design_name
-        delta_path = _default_designs_root() / design_name / "spec-delta.md"
+        delta_path = designs_root / design_name / "spec-delta.md"
         if not delta_path.exists():
             print(f"error: spec-delta.md not found: {delta_path}", file=sys.stderr)
             return 2
-        return cmd_validate(delta_path=delta_path)
+        return cmd_validate(delta_path=delta_path, specs_dir=specs_dir, repo=repo)
 
     if subcmd == "merge":
         if not rest:
-            print("usage: tp_spec.py merge <design> [--domain <dom>]", file=sys.stderr)
+            print("usage: tp_spec.py merge <design> [--domain <dom>] [--repo <path>]", file=sys.stderr)
             return 2
+        domain, rest = _pop_flag(rest, "--domain")
         design_name = rest[0]
-        domain = None
-        i = 1
-        while i < len(rest):
-            if rest[i] == "--domain" and i + 1 < len(rest):
-                domain = rest[i + 1]
-                i += 2
-            else:
-                i += 1
-        return cmd_merge(design_name=design_name, domain=domain)
+        return cmd_merge(
+            design_name=design_name,
+            designs_root=designs_root,
+            specs_dir=specs_dir,
+            domain=domain,
+        )
 
     print(f"unknown subcommand: {subcmd!r}", file=sys.stderr)
     _usage()

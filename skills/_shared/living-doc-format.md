@@ -5,7 +5,7 @@
 
 ## Rule: keep lines under 800 non-whitespace characters
 
-`framework-check.sh` invariant #30 scans tracked `three-pillars-docs/*.md` files
+In the three-pillars dev repo, a CI check scans tracked `three-pillars-docs/*.md` files
 (non-recursive, outside code fences) for lines exceeding 800 non-whitespace
 characters. Since the `file-size-limits` design (2026-06-10) it is **fail-on-new**:
 a violating line in a doc NOT listed in `.three-pillars/file-size-grandfather.txt`

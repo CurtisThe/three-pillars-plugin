@@ -14,7 +14,7 @@ SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

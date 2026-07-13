@@ -117,7 +117,7 @@ def test_sign_reply_prefix():
 def test_resolve_thread_uses_graphql(tmp_path, monkeypatch):
     logfile = _shim(tmp_path, monkeypatch, mode="ok")
     assert thread_resolver.resolve_thread("RT_kwA") is True
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "graphql" in log and "resolveReviewThread" in log
     assert "edit" not in log  # never `gh pr edit`
 
@@ -130,7 +130,7 @@ def test_resolve_thread_fail_open(tmp_path, monkeypatch):
 def test_list_review_threads_query_and_id_split(tmp_path, monkeypatch):
     logfile = _shim(tmp_path, monkeypatch, mode="ok")
     threads = thread_resolver.list_review_threads(PR)
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "reviewThreads(first:100)" in log
     assert len(threads) == 1
     t = threads[0]
@@ -144,7 +144,7 @@ def test_reply_to_thread_uses_comment_id_rest(tmp_path, monkeypatch):
     logfile = _shim(tmp_path, monkeypatch, mode="ok")
     ok = thread_resolver.reply_to_thread(PR, 12345, "hello")
     assert ok is True
-    log = logfile.read_text()
+    log = logfile.read_text(encoding="utf-8")
     assert "comments/12345/replies" in log
 
 

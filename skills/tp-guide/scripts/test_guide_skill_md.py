@@ -16,7 +16,7 @@ SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text()
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def test_other_worktrees_section_present() -> None:

@@ -113,7 +113,8 @@ have no scope-time — the patch IS the scope.
 Use the hot-patch lane when: an urgent narrow fix cannot wait for a full branch +
 design cycle AND it meets eligibility (trailer self-declaration + hard exclusions +
 ≤150-line diff cap). See `commit-after-work.md` §Hot-patch lane for the full lane
-contract, trailer grammar, ledger obligation, and what invariant #37 enforces.
+contract, trailer grammar, ledger obligation, and the eligibility checks enforced
+at commit time.
 
 ## Composition contract: (weight-class × slice)
 

@@ -53,7 +53,7 @@ def _extract_canonical_snippet() -> str:
     The tests below exercise it byte-identically rather than reimplementing it —
     if the snippet drifts from the doc, the tests catch it.
     """
-    text = AUTO_MODE_MD.read_text()
+    text = AUTO_MODE_MD.read_text(encoding="utf-8")
     m = _PYTHON_FENCE_RE.search(text)
     assert m is not None, "canonical python snippet missing from auto-mode.md"
     snippet = m.group(1)
@@ -120,7 +120,7 @@ def _run_auto_stub(
 
     lock = design_dir / "lock.json"
     if lock.is_file():
-        owner = json.loads(lock.read_text()).get("owner")
+        owner = json.loads(lock.read_text(encoding="utf-8")).get("owner")
         if owner and owner != current_user:
             blocked_entry = (
                 "### [tp-test-stub] BLOCKED — lock conflict\n"
@@ -309,7 +309,7 @@ class TestDecisionsLog:
         assert rc == 0
         log = design_dir / "decisions.md"
         assert log.is_file()
-        lines = log.read_text().splitlines()
+        lines = log.read_text(encoding="utf-8").splitlines()
         assert lines[0] == SCHEMA_HEADER_LINE, f"line 1 was {lines[0]!r}"
         header_count = sum(1 for ln in lines if ln == SCHEMA_HEADER_LINE)
         assert header_count == 1
@@ -332,7 +332,7 @@ class TestDecisionsLog:
                 "**Confidence**: High\n"
             ),
         ) == 0
-        lines = (design_dir / "decisions.md").read_text().splitlines()
+        lines = (design_dir / "decisions.md").read_text(encoding="utf-8").splitlines()
         header_count = sum(1 for ln in lines if ln == SCHEMA_HEADER_LINE)
         assert header_count == 1, f"header must not be rewritten; saw {header_count} copies"
         entry_count = sum(1 for ln in lines if ln.startswith("### "))
@@ -346,7 +346,7 @@ class TestDecisionsLog:
         _write_lock_owned_by(design_dir, "other@example.com")
         rc = _run_auto_stub(design_dir, current_user="me@example.com")
         assert rc != 0, "lock conflict must exit non-zero"
-        log_text = (design_dir / "decisions.md").read_text()
+        log_text = (design_dir / "decisions.md").read_text(encoding="utf-8")
         assert log_text.splitlines()[0] == SCHEMA_HEADER_LINE
         assert "BLOCKED" in log_text
         assert "lock-conflict" in log_text

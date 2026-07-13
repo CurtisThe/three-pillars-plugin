@@ -94,7 +94,7 @@ def test_apply_from_linked_worktree_installs_into_main_hooks(linked_worktree_fix
     # Dead per-worktree hooks path must NOT contain the sentinel
     wt_git_file = worktree / ".git"
     if wt_git_file.is_file():
-        gitdir_content = wt_git_file.read_text().strip()
+        gitdir_content = wt_git_file.read_text(encoding="utf-8").strip()
         if gitdir_content.startswith("gitdir:"):
             dead_hooks = Path(gitdir_content.split(":", 1)[1].strip()) / "hooks"
             if dead_hooks.exists():
@@ -167,7 +167,7 @@ def test_read_config_raises_on_corrupt_file(tmp_path):
         _read_config(tmp_path)
 
     # Original corrupt file must still be there (not rewritten)
-    assert config_path.read_text() == "this is not valid JSON {{{{", (
+    assert config_path.read_text(encoding="utf-8") == "this is not valid JSON {{{{", (
         "_read_config must not rewrite the corrupt file"
     )
 

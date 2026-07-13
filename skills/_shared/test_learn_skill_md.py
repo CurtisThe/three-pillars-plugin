@@ -22,15 +22,15 @@ ARCH_MD = _BASE / "three-pillars-docs" / "architecture.md"
 
 
 def _read_learn() -> str:
-    return LEARN_SKILL_MD.read_text()
+    return LEARN_SKILL_MD.read_text(encoding="utf-8")
 
 
 def _read_protocol() -> str:
-    return PROTOCOL_MD.read_text()
+    return PROTOCOL_MD.read_text(encoding="utf-8")
 
 
 def _read_arch() -> str:
-    return ARCH_MD.read_text()
+    return ARCH_MD.read_text(encoding="utf-8")
 
 
 # ------------------------------------------------------------------ #

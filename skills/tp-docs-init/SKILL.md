@@ -40,6 +40,7 @@ This check lives here, in docs-init, because `/tp-docs-init` is where a user fir
    - `three-pillars-docs/architecture.md`
    - `three-pillars-docs/product_roadmap.md`
    - `three-pillars-docs/known_issues.md`
+   - `three-pillars-docs/project-context.md` (the spawned-agent context doc — scaffolded as a stub in step 5b, never regenerated from analysis)
    For each that exists, tell the user and skip it unless they opt to regenerate.
 4. **Analyze the codebase** to inform scaffolding:
    - Read README, CLAUDE.md, `three-pillars-docs/vision.md`, and any existing docs
@@ -67,11 +68,18 @@ This check lives here, in docs-init, because `/tp-docs-init` is where a user fir
    - Medium (functional issues, workarounds exist)
    - Low (cosmetic, minor, tech debt)
 
+5b. **Scaffold the spawned-agent context doc (`project-context.md`) as a stub.** Unlike the three docs above, `three-pillars-docs/project-context.md` is an **operator-authored placeholder** — it carries the conventions / stack / domain-rules injected into every spawned subagent (council members, phase-implement / run-full-design workers, pr-fix / readonly-auditor dispatches), so it is filled in by hand, never generated from codebase analysis. Scaffold it **idempotently** with:
+   ```bash
+   python3 "$TP_ROOT"/skills/_shared/project_context.py scaffold
+   ```
+   This writes the fixed schema (`## Conventions` / `## Stack` / `## Domain rules`) with a one-line purpose header and fill-in guidance **only when the file is absent** — it is a **no-op that never overwrites** an existing operator-authored doc (design principle: never overwrite operator work), so it is safe to run on every `/tp-docs-init`. Tell the user whether it was created or left unchanged, and that they should replace the placeholders with their project's real rules. The loader `skills/_shared/project_context.py` size-checks the doc against a ~12 KB injected cap at dispatch time.
+
 6. **Present each scaffolded doc** to the user for review before writing.
-7. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage (include only docs actually created/updated in step 6):
+7. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage (include only docs actually created/updated in steps 5–6):
    - `three-pillars-docs/architecture.md`
    - `three-pillars-docs/product_roadmap.md`
    - `three-pillars-docs/known_issues.md`
+   - `three-pillars-docs/project-context.md` (only if step 5b created the stub)
    Commit message: `Docs: init project docs` (or `Docs: init {file1},{file2}` if only a subset was scaffolded).
 8. **Tell the user the next step**: Once the three docs are in place, the natural next step on a fresh project is `/tp-test-setup` — it configures test infrastructure informed by the `architecture.md` you just scaffolded. This sequencing is deliberate: testing-framework choices belong *after* the architecture is documented, not before.
 

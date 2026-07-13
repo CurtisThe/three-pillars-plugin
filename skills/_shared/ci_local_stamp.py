@@ -206,7 +206,7 @@ def read_stamp(repo_root: Path) -> "dict | None":
         return None
 
     try:
-        data = json.loads(stamp_file.read_text())
+        data = json.loads(stamp_file.read_text(encoding="utf-8"))
     except Exception as e:
         raise StampError(f"stamp file unreadable or unparseable: {e}") from e
     if not isinstance(data, dict):

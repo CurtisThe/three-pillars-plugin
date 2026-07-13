@@ -20,7 +20,7 @@ Comprehensive review of a completed implementation against both design documents
 0. **Run first-run preflight** per skills/_shared/first-run.md.
 
 ### 0. Preflight
-Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "audit"`. This verifies the branch and refreshes the lock so the final audit artifact is written by the rightful owner. Honor `--force-takeover` if passed.
+Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implementation-audit"`. This verifies the branch and refreshes the lock so the final audit artifact is written by the rightful owner. Honor `--force-takeover` if passed.
 
 ### 0b. Repo-map preamble (optional)
 Per `skills/_shared/repo-map-preamble.md`. If `aider` is on PATH, generate a structural map of the codebase before walking design vs. implementation. Use it to focus interface-fidelity checks in Step 3 on files PageRank surfaces as load-bearing.
@@ -147,7 +147,7 @@ This prompt is **interactive-only**. In `--auto` mode it does not fire — the a
 
 In `--auto`:
 - **Per-finding self-assessment.** While compiling findings in step 8, self-assess **Confidence: High | Medium | Low** for each finding per the auto-mode convention. Confidence drives the verdict, not severity. Record confidence alongside the finding in the Gaps / Unintended Additions / Cross-Phase Drift sections of `implementation-audit.md`.
-- **Deterministic verdict rule.** Compute the verdict from the confidence mix via `skills/_shared/auto_verdict.py::compute_verdict(confidences)`:
+- **Deterministic verdict rule.** Compute the verdict from the confidence mix via `"$TP_ROOT"/skills/_shared/auto_verdict.py::compute_verdict(confidences)`:
   - **PASS** — empty findings list. Exit 0.
   - **PASS WITH NOTES** — all findings are High confidence; no Medium or Low present. Exit 0.
   - **NEEDS WORK** — any Medium or Low finding present. Exit non-zero.

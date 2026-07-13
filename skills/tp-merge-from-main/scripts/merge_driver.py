@@ -23,21 +23,20 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from resolve import resolve_file, RESOLVED  # noqa: E402
 from verify import verify  # noqa: E402
 
-DEFAULT_LIVING_DOCS = (
-    "three-pillars-docs/known_issues.md",
-    "three-pillars-docs/known_issues_resolved.md",  # append-only RESOLVED archive (same conflict class)
-    "three-pillars-docs/product_roadmap.md",
-    "three-pillars-docs/architecture.md",
-    "three-pillars-docs/vision.md",
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
+from auto_safe_resolution import (  # noqa: E402
+    AUTO_SAFE_PATHS as DEFAULT_LIVING_DOCS,
+    RESOLVED,
+    decode_blob_strict,
+    resolve_conflict_bytes,
 )
+
 CONFLICT_MARKERS = ("<<<<<<<", "=======", ">>>>>>>")
 
 
@@ -84,44 +83,33 @@ def _stage_blob(repo: str, stage: int, path: str) -> str | None:
 
     Distinguishing absent (stage missing → add/add or add/delete) from present-but-empty
     (a legitimately empty file) matters: the former must defer, the latter is a normal merge.
+    Binary subprocess capture (never `text=True` — no universal-newline translation) then
+    strict-UTF-8 decode via the shared `auto_safe_resolution` policy; undecodable (non-UTF-8)
+    content raises `UnicodeDecodeError` — the caller defers the file.
     """
-    r = _git(repo, "show", f":{stage}:{path}", check=False)
-    return r.stdout if r.returncode == 0 else None
-
-
-def diff3_text(ours: str, base: str, theirs: str) -> str:
-    """Build a `git merge-file --diff3` conflict block from the three versions."""
-    with tempfile.TemporaryDirectory() as d:
-        po, pb, pt = Path(d) / "ours", Path(d) / "base", Path(d) / "theirs"
-        po.write_text(ours); pb.write_text(base); pt.write_text(theirs)
-        r = subprocess.run(
-            ["git", "merge-file", "-p", "--diff3", str(po), str(pb), str(pt)],
-            capture_output=True, text=True,
-        )
-        return r.stdout
+    r = subprocess.run(["git", "-C", repo, "show", f":{stage}:{path}"], capture_output=True)
+    if r.returncode != 0:
+        return None
+    return decode_blob_strict(r.stdout)
 
 
 def resolve_living_doc(repo: str, path: str) -> FileOutcome:
-    base = _stage_blob(repo, 1, path)
-    ours = _stage_blob(repo, 2, path)
-    theirs = _stage_blob(repo, 3, path)
+    try:
+        base = _stage_blob(repo, 1, path)
+        ours = _stage_blob(repo, 2, path)
+        theirs = _stage_blob(repo, 3, path)
+    except UnicodeDecodeError:
+        return FileOutcome(path, "living-doc", "deferred",
+                           reason="undecodable (non-UTF-8) content — needs human")
     if ours is None or theirs is None:   # add/delete or rename — a content side is absent
         return FileOutcome(path, "living-doc", "deferred",
                            reason="add/delete conflict (a side is absent) — needs human")
     if base is None:                     # add/add — both sides created the file, no common ancestor
         return FileOutcome(path, "living-doc", "deferred",
                            reason="add/add conflict (no common base) — needs human")
-    conflict = diff3_text(ours, base, theirs)
-    status, lines, results = resolve_file(conflict)
-    merged = "\n".join(lines)
-    if not merged.endswith("\n"):
-        merged += "\n"
-    classes = [r.label for r in results]
-    # Bucket by actual hunk outcome — a gated/low-confidence mechanical hunk DEFERS, so label
-    # membership in MECHANICAL is not the right signal; the resolver's status is.
-    resolved_classes = sorted({r.label for r in results if r.status == RESOLVED})
-    deferred_classes = sorted({r.label for r in results if r.status != RESOLVED})
-    renumbered = {k: v for r in results for k, v in r.renumbered.items()}
+
+    # ONE shared byte-production path — the same function the Phase-2 verifier re-runs.
+    status, merged = resolve_conflict_bytes(base=base, ours=ours, theirs=theirs)
 
     # Zero-drop is the hard gate — checked on whatever we are about to write to the worktree.
     ok, dropped = verify(ours, theirs, merged)
@@ -129,22 +117,19 @@ def resolve_living_doc(repo: str, path: str) -> FileOutcome:
         # Refuse to touch the file; leave git's original markers for the human.
         return FileOutcome(path, "living-doc", "deferred",
                            reason="verifier flagged content drop — left untouched for human",
-                           classes=classes, dropped=[f"{k}:{s}" for k, s in dropped])
+                           dropped=[f"{k}:{s}" for k, s in dropped])
 
     if status == RESOLVED and not any(m in merged for m in CONFLICT_MARKERS):
         # Every hunk mechanical and clean -> fully auto-resolve and stage.
         Path(repo_path(repo, path)).write_text(merged)
         _git(repo, "add", "--", path)
-        return FileOutcome(path, "living-doc", "auto-resolved", classes=classes,
-                           resolved_classes=resolved_classes, renumbered=renumbered)
+        return FileOutcome(path, "living-doc", "auto-resolved")
 
-    # Mixed file: pre-resolve the mechanical hunks in place, leave semantic hunks as markers.
-    # Written to the worktree (shrinks the human's job) but NOT staged — markers remain.
+    # Mixed file: mechanical hunks pre-resolved, semantic hunks left as markers by the shared
+    # resolver. Written to the worktree (shrinks the human's job) but NOT staged — markers remain.
     Path(repo_path(repo, path)).write_text(merged)
     return FileOutcome(path, "living-doc", "partially-resolved",
-                       reason=f"mechanical hunks pre-resolved; human must finish: {deferred_classes}",
-                       classes=classes, resolved_classes=resolved_classes,
-                       deferred_classes=deferred_classes, renumbered=renumbered)
+                       reason="mechanical hunks pre-resolved; human must finish the remaining conflict")
 
 
 def repo_path(repo: str, path: str) -> str:

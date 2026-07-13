@@ -215,7 +215,7 @@ def _read_config(repo: Path) -> dict:
     if not config_path.exists():
         return {"schema_version": 1}
     try:
-        return json.loads(config_path.read_text())
+        return json.loads(config_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError(
             f"Corrupt config at {config_path}: {exc}. "
@@ -325,7 +325,7 @@ def apply(repo: Path) -> None:
     hooks.mkdir(parents=True, exist_ok=True)
 
     # Read the heal script body from the tracked copy
-    heal_body = _HEAL_SCRIPT.read_text()
+    heal_body = _HEAL_SCRIPT.read_text(encoding="utf-8")
 
     for event in HOOK_EVENTS:
         hook_file = hooks / event

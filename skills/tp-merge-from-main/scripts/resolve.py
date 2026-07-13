@@ -187,10 +187,24 @@ def resolve_append_log(h: Hunk) -> HunkResult:
     return HunkResult("append-only-log", RESOLVED, h.base + tail)
 
 
+def resolve_log_entry_insertion(h: Hunk) -> HunkResult:
+    """Both sides concurrently inserted dated log entries at the same location — classification
+    guarantees an EMPTY base (no deletions). Keep BOTH insertion blocks VERBATIM, ours' then
+    theirs' (deterministic; the cert re-runs this and byte-compares).
+
+    Deliberately NO line-dedup: two DISTINCT dated entries can legitimately share a body line, and
+    dropping it would CORRUPT an entry (a zero-drop violation). Verbatim concatenation keeps every
+    line; the only degenerate case — both sides added the byte-identical entry — yields a visible
+    duplicate, the fail-SAFE direction, since nothing is ever lost. `h.base` is empty by
+    construction, so there is no shared tail to re-attach."""
+    return HunkResult("log-entry-insertion", RESOLVED, list(h.ours) + list(h.theirs))
+
+
 MECH_RESOLVERS = {
     "id-renumber-collision": resolve_id_renumber,
     "design-inventory-row-merge": resolve_inventory,
     "append-only-log": resolve_append_log,
+    "log-entry-insertion": resolve_log_entry_insertion,
 }
 
 
@@ -235,7 +249,7 @@ def resolve_file(conflict_text: str, force: bool = False):
 def _main(argv: list[str]) -> int:
     force = "--force" in argv
     for path in [a for a in argv if not a.startswith("--")]:
-        status, _lines, results = resolve_file(Path(path).read_text(), force=force)
+        status, _lines, results = resolve_file(Path(path).read_text(encoding="utf-8"), force=force)
         print(f"\n{path}  -> FILE {status}{'  (force)' if force else ''}")
         for n, r in enumerate(results, 1):
             extra = f"  renumber={r.renumbered}" if r.renumbered else ""
