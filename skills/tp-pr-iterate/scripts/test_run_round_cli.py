@@ -41,7 +41,9 @@ def _run(payload: dict, *, state_path: Path | None = None, extra_env=None):
 
 def _minimal_state(last_verdict: str = "minor-only") -> dict:
     """Minimal valid iterate-state for testing."""
-    now = datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc)
+    # A fresh started_at: run_round.py's round_budget.tick checks the wall clock
+    # against the real now (iterate-convergence-budget A11).
+    now = datetime.now(tz=timezone.utc)
     started = (now - timedelta(hours=1)).isoformat()
     return {
         "phase": "awaiting-copilot",
@@ -245,57 +247,35 @@ def test_run_round_cli_missing_state_and_state_path():
     assert env.get("status") == "escalate"
 
 
-def test_run_round_cli_unreadable_state_path(tmp_path):
-    """state_path points to a non-existent file → escalate, exit 2."""
+def test_run_round_cli_corrupt_state_path(tmp_path):
+    """state_path EXISTS but is not valid JSON → escalate, exit 2.
+
+    An *absent* state_path is no longer the escalate case — it is the documented
+    cold-start condition and is bootstrapped (see test_run_round_state_bootstrap.py).
+    The refusal survives for a file that exists and cannot be read, which is the case
+    where the loop's real state is unknown and a human must look.
+    """
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{ truncated", encoding="utf-8")
     payload = {
-        "state_path": str(tmp_path / "does_not_exist.json"),
+        "state_path": str(corrupt),
         "head_sha": "abc",
         "codereview_findings": [],
     }
     rc, env = _run(payload)
     assert rc == 2
     assert env.get("status") == "escalate"
+    assert env.get("event_token") == "state-read-failed"
 
 
-def test_run_round_cli_unwritable_state_path(tmp_path):
-    """state_path exists but is not writable → escalate, exit 2."""
-    import os
-
-    state = _minimal_state()
-    state_file = tmp_path / "state.json"
-    state_file.write_text(json.dumps(state))
-    # Make the file read-only.
-    state_file.chmod(0o444)
-
-    payload = {
-        "state_path": str(state_file),
-        "head_sha": "abc1234",
-        "codereview_findings": [],
-        "reviewed": None,
-        "unresolved_actionable": 0,
-        "ci_rollup": [],
-        "config": _clean_config(),
-        "pr_url": "https://github.com/o/r/pull/1",
-    }
-
-    rc, env = _run(payload)
-
-    # Restore permissions so tmp_path cleanup works.
-    state_file.chmod(0o644)
-
-    assert rc == 2, f"expected exit 2 on write failure; got {rc}: {env}"
-    assert env.get("status") == "escalate"
-
-
-def test_run_round_cli_exit_1_never_used(tmp_path):
-    """Confirm exit 1 is never returned — the wrapper only uses 0 and 2."""
-    # We can check this by running a case that would be retry in run_tier_3_5 but
-    # is escalate here (non-existent state path).
-    missing = tmp_path / "subdir_that_does_not_exist" / "x.json"
-    payload = {"state_path": str(missing), "head_sha": "h"}
-    rc, env = _run(payload)
-    assert rc != 1, "exit 1 must never be used by run_round.py"
-    assert rc in (0, 2)
+# The exit-code contract for a FAILING state write — bootstrap OR per-round
+# write-back — lives in test_run_round_bootstrap_exit_codes.py (exit 2 + a
+# well-formed envelope, never exit 1 / traceback); this file is at its 500-line cap.
+# Do NOT re-add an absent-state-path version here: absence exits 0 via the
+# bootstrap, so it guards nothing. The old chmod-0444 `unwritable_state_path` test
+# moved there too, as an errno injection: the write-back now stages to a tmp and
+# os.replace()s, so the target file's own mode no longer gates the write (and the
+# mode fixture was a no-op under root anyway).
 
 
 # ---------- C1: no anthropic import / no claude subprocess ----------

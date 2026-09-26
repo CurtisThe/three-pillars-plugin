@@ -24,7 +24,8 @@
         "convergence-failure",
         "errored",
         "awaiting-copilot",
-        "blocked-no-independent-review"
+        "blocked-no-independent-review",
+        "budget-exhausted"
       ]
     },
     "iteration": {
@@ -135,7 +136,13 @@
         "two-stable",
         "idle-timeout",
         "human-push",
-        "all-conflicting"
+        "all-conflicting",
+        "round-cap",
+        "growth-lines",
+        "test-code-ratio",
+        "budget-error",
+        "wall-clock",
+        "k-consecutive"
       ]
     },
     "reviewed_head_shas": {
@@ -150,6 +157,69 @@
     "last_codereview_head_sha": {
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "consecutive_codereview_structural_rounds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "budget_pr_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budget_baseline_head": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budget_baseline_split": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "test_added": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "code_added": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "budget_last_head": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budget_last_round": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budget_last_action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "degraded",
+        "fix",
+        "noop"
+      ]
+    },
+    "budget_head_blocking": {
+      "type": [
+        "boolean",
         "null"
       ]
     }

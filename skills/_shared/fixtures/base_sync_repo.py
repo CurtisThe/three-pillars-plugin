@@ -140,11 +140,24 @@ def diverge_last_line(scenario: ScenarioRepo, path: str, *, base_line: str, desi
 
 
 def diverge_living_doc(scenario: ScenarioRepo, *, path: str = LIVING_DOC_PATH,
-                       base_line: str = "### Z1: base-side change\n",
-                       design_line: str = "### Z1: design-side change\n") -> tuple[str, str]:
-    """`diverge_last_line` specialized for the living doc -- an id-renumber-collision on
-    merge (both new lines carry the same `### Z1:` heading id)."""
-    return diverge_last_line(scenario, path, base_line=base_line, design_line=design_line)
+                       base_line: str = "- **2026-01-01** — base-side change\n",
+                       design_line: str = "- **2026-01-02** — design-side change\n") -> tuple[str, str]:
+    """APPEND a distinct line to `path` on each side -- by default a `log-entry-insertion` on merge
+    (both new lines are dated log bullets) with an EMPTY diff3 base, which that class resolves
+    mechanically. Two different appends at one end-of-file point always conflict under git's
+    merge. Returns (base_tip_sha, design_tip_sha).
+
+    Round 20: the default used to append two `### Z1:` headings, an `id-renumber-collision` --
+    a class now GATED (`classify.GATED`), so that shape defers and no longer builds a mechanical
+    merge. Before round 18 it REPLACED the last line on both sides (`diverge_last_line`), a
+    modify/modify of `seed body line.` no keep-both class admits."""
+    base_before = (scenario.origin_dir / path).read_text(encoding="utf-8")
+    base_sha = _write_and_commit(scenario.origin_dir, path, base_before + base_line,
+                                 "base: append entry")
+    design_before = (scenario.repo_dir / path).read_text(encoding="utf-8")
+    design_sha = _write_and_commit(scenario.repo_dir, path, design_before + design_line,
+                                   "design: append entry")
+    return base_sha, design_sha
 
 
 def diverge_base_only(scenario: ScenarioRepo, *, path: str = LIVING_DOC_PATH,

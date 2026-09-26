@@ -227,3 +227,46 @@ def test_iterate_state_rejects_unknown_field():
     instance["totally_unknown_field_xyz"] = "oops"
     with pytest.raises(jsonschema.ValidationError):
         Draft202012Validator(schema).validate(instance)
+
+
+def test_normalized_finding_class_fields():
+    """iterate-convergence-budget Task 1.3: class/blocking/reproducer/downgrade/schema_note."""
+    import jsonschema
+    v = Draft202012Validator(_load(NORMALIZED_FINDING_PATH))
+    base = {"source": "code-review", "file": "a.py", "line_range": [1, 2],
+            "summary": "x", "verdict": "minor"}
+    for cls in ("P", "X", "T", "C"):
+        v.validate(dict(base, **{"class": cls, "blocking": False}))
+    v.validate(dict(base, verdict="structural", **{"class": "P"}, blocking=True,
+                    reproducer={"kind": "command", "argv": ["true"], "expect": {"exit": 1}},
+                    downgrade={"reason": "inconclusive", "output": "timeout"},
+                    schema_note="legacy-no-reproducer"))
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate(dict(base, **{"class": "Z"}))
+
+
+def test_iterate_state_budget_fields():
+    """iterate-convergence-budget Task 3.2: budget phase, reasons and fields; no grant field."""
+    import jsonschema
+    schema = _load(ITERATE_STATE_PATH)
+    v = Draft202012Validator(schema)
+    inst = _base_instance()
+    inst.update(phase="budget-exhausted", budget_pr_url="https://github.com/o/r/pull/1",
+                budget_baseline_head="abc",
+                budget_baseline_split={"test_added": 3, "code_added": 9},
+                budget_last_head="def", budget_last_round="r3.1",
+                budget_last_action="fix", budget_head_blocking=True,
+                consecutive_codereview_structural_rounds=2)
+    for reason in ("round-cap", "growth-lines", "test-code-ratio", "budget-error",
+                   "wall-clock", "k-consecutive"):
+        v.validate(dict(inst, termination_reason=reason))
+    nulls = {f: None for f in ("budget_pr_url", "budget_baseline_head",
+                               "budget_baseline_split", "budget_last_head",
+                               "budget_last_round", "budget_last_action",
+                               "budget_head_blocking")}
+    v.validate(dict(_base_instance(), **nulls))
+    for action in ("degraded", "noop"):
+        v.validate(dict(inst, budget_last_action=action))
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate(dict(inst, budget_last_action="grant"))
+    assert not [k for k in schema["properties"] if "grant" in k]

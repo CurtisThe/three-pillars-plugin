@@ -8,6 +8,8 @@ Verifies:
   3. Interface coverage: every detailed-design interface mentioned in plan
   4. Phase alignment: plan phases match detailed-design phases
   5. File existence: modified files exist, new file parents exist
+  6. Targets: a malformed **Targets** field is an ERROR; a missing one is a NOTE
+     (non-canonical, not runnable), never a failure (audit_targets.py)
 
 Usage: python3 audit_plan.py <design-dir> [--spike|--light]
   --spike: Spike mode — expects Hypothesis/Try/Evaluate fields instead of
@@ -29,6 +31,7 @@ from collections import defaultdict, namedtuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
 from weight_class import check_consistency as weight_class_consistency  # noqa: E402
 from audit_artifact import write_pass_artifact  # noqa: E402
+from audit_targets import check_targets  # noqa: E402
 
 
 def read_file(path):
@@ -75,7 +78,9 @@ def extract_bold_names(text):
     return names
 
 
-STANDARD_FIELDS = ("File", "Test", "Red", "Green", "Refactor", "Done when", "Status")
+STANDARD_FIELDS = ("File", "Test", "Targets", "Red", "Green", "Refactor", "Done when",
+                   "Status")
+_OPTIONAL_FIELDS = ("Refactor", "Status", "Targets")  # Targets: audit_targets.py
 SPIKE_FIELDS = ("Hypothesis", "Try", "Evaluate", "Status")
 
 # Mode enum (audit finding M2): each mode derives the three decisions the old
@@ -245,7 +250,7 @@ def check_completeness(tasks, spike_mode=False, fields=None):
     boolean is kept for callers/tests that predate the mode enum.
     """
     field_set = fields or (SPIKE_FIELDS if spike_mode else STANDARD_FIELDS)
-    required = tuple(f for f in field_set if f not in ("Refactor", "Status"))
+    required = tuple(f for f in field_set if f not in _OPTIONAL_FIELDS)
     issues = []
     for t in tasks:
         missing = [f for f in required if f not in t["fields"]]
@@ -401,21 +406,11 @@ def check_file_existence(tasks):
         for path in backtick_paths(ff):
             p = Path(path)
             if "modify" in ff.lower() and not p.exists():
-                issues.append(
-                    (
-                        "WARN",
-                        f"Task {t['id']}",
-                        f"`{path}` marked for modification does not exist",
-                    )
-                )
+                issues.append(("WARN", f"Task {t['id']}",
+                               f"`{path}` marked for modification does not exist"))
             elif "new" in ff.lower() and not p.parent.exists():
-                issues.append(
-                    (
-                        "WARN",
-                        f"Task {t['id']}",
-                        f"Parent dir for new file `{path}` does not exist",
-                    )
-                )
+                issues.append(("WARN", f"Task {t['id']}",
+                               f"Parent dir for new file `{path}` does not exist"))
     return issues
 
 
@@ -520,8 +515,13 @@ def main():
             + check_interface_coverage(tasks, extract_interface_names(detailed))
             + check_phase_alignment(tasks, extract_design_phases(detailed))
         )
+    notes = []
     if mode != "spike":
         all_issues += check_file_existence(tasks) + check_budget_annotations(plan)
+        target_issues, notes = check_targets(tasks)
+        all_issues += target_issues
+    for _typ, ctx, msg in notes:  # reported, never failing: non-canonical tasks
+        print(f"  NOTE [{ctx}] {msg}")
     # All modes: divergent/missing weight-class stamps are hard failures (the
     # class drives which ceremony this audit runs). Legacy frontmatter-free dirs
     # pass vacuously — the helper gates on design.md frontmatter (F3/F5).

@@ -20,17 +20,17 @@ FRAMEWORK_CHECK = REPO_ROOT / "framework-check.sh"
 
 
 # ------------------------------------------------------------------ #
-# Parse against the real framework-check.sh — 41/41/{1..41} today
-# (plugin-mode-parity's ambient-state check appended inv #41).
+# Parse against the real framework-check.sh — 43/43/{1..43} today
+# (audit-pass-does-not-bind appended inv #43).
 # ------------------------------------------------------------------ #
 
 
 def test_parse_real_framework_check():
     m = parse_invariant_map(FRAMEWORK_CHECK)
-    # Today there are exactly 41 active header keys (inv #41 appended).
-    assert len(m) == 41
-    assert active_count(m) == 41
-    assert valid_numbers(m) == set(range(1, 42))
+    # Today there are exactly 43 active header keys (inv #43 appended).
+    assert len(m) == 43
+    assert active_count(m) == 43
+    assert valid_numbers(m) == set(range(1, 44))
 
 
 def test_map_values_are_invariant_dataclass():
@@ -48,7 +48,7 @@ def test_no_sidecar_path_read():
     sidecar = REPO_ROOT / "skills" / "_shared" / "invariant_map.json"
     assert not sidecar.exists()
     # Parsing succeeds from headers alone.
-    assert len(parse_invariant_map(FRAMEWORK_CHECK)) == 41
+    assert len(parse_invariant_map(FRAMEWORK_CHECK)) == 43
 
 
 # ------------------------------------------------------------------ #
@@ -73,10 +73,10 @@ def test_retirement_gap_synthetic(tmp_path):
     assert m[99].status == "retired"
     assert m[99].title == "An old, withdrawn rule"
 
-    # active_count excludes the retired one — still 41 active.
-    assert active_count(m) == 41
+    # active_count excludes the retired one — still 43 active.
+    assert active_count(m) == 43
     # But the total set of header numbers grew by one.
-    assert len(valid_numbers(m)) == 42
+    assert len(valid_numbers(m)) == 44
 
 
 def test_active_header_synthetic_increments_active_count(tmp_path):
@@ -85,7 +85,7 @@ def test_active_header_synthetic_increments_active_count(tmp_path):
     m = parse_invariant_map(synthetic)
     assert 99 in valid_numbers(m)
     assert m[99].status == "active"
-    assert active_count(m) == 42
+    assert active_count(m) == active_count(parse_invariant_map(FRAMEWORK_CHECK)) + 1
 
 
 def test_retired_marker_requires_exact_position(tmp_path):
@@ -96,4 +96,4 @@ def test_retired_marker_requires_exact_position(tmp_path):
     )
     m = parse_invariant_map(synthetic)
     assert m[99].status == "active"
-    assert active_count(m) == 42
+    assert active_count(m) == active_count(parse_invariant_map(FRAMEWORK_CHECK)) + 1

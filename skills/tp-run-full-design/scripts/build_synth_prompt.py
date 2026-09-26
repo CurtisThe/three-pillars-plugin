@@ -15,6 +15,24 @@ from __future__ import annotations
 import json
 
 
+# Slots 4/6 carry the state-space map-check angle; its findings are tagged so the
+# orchestrator can exempt them from retry-with-advice (they go to the operator).
+MAP_CHECK_SLOTS = frozenset({"design-audit", "plan-audit"})
+MAP_CHECK_CATEGORY = "map-check"
+
+# Slots 4/8 return guard claims for Step 2b (skills/_shared/certification-protocol.md):
+# the synthesizer names claims only; the tp-certifier agent authors every RED/GREEN.
+GUARD_CLAIM_SLOTS = frozenset({"design-audit", "impl-audit"})
+# The claim keys the brief asks for: audit-return.v1.json `guard_claims.items.properties`
+# (a test keeps the two equal). `subjects` is the certifier's allowlist.
+GUARD_CLAIM_KEYS = ("id", "guard", "property", "parameters", "subjects")
+# Wording the Step 2b fold counts as certifying (cert_phrase_scan [R8]): affirmative,
+# negated, or about a guard not yet written. Quoted in the brief so the synthesizer
+# never writes one untagged; a test keeps each example a real scan hit.
+CERT_PHRASE_EXAMPLES = ("the test binds", "the check is non-vacuous", "no test catches X",
+                        "the new guard will catch it")
+
+
 def build_synth_prompt(
     artifact_paths: list[str],
     round1: list[dict],
@@ -34,8 +52,8 @@ def build_synth_prompt(
     diff's name-only touched-file paths. The prompt names the REFS and PATHS only
     — never the diff body; the synthesizer re-derives any line it needs via its
     own ``git diff {base}...{candidate}`` / ``git show {candidate}:<file>``. When
-    ``code_input is None`` (every Slot-4/6 dispatch) the output is byte-identical
-    to the pre-change signature.
+    ``code_input is None`` (every Slot-4/6 dispatch) no code section is added, but a
+    ``GUARD_CLAIM_SLOTS`` slot (Slot 4 ``design-audit``) still gets its guard-claims line.
     """
     if not round1:
         raise ValueError("round1 must be a non-empty list of Round-1 verdict dicts")
@@ -130,5 +148,30 @@ def build_synth_prompt(
         "from the confidence/verdict mix exactly as the standalone audit skill "
         "would, and emit the audit-return.v1 envelope."
     )
+    if slot in MAP_CHECK_SLOTS:
+        lines.append(
+            "Map-check findings (the state-space Check-mode angle: a better locus or "
+            f"alternative dismissed without evidence) MUST carry `category: \"{MAP_CHECK_CATEGORY}\"` "
+            "exactly, whatever their confidence (keep a member's tag; add it if a member "
+            "omitted it). They question design.md's own framing, so the orchestrator never "
+            "turns them into retry advice; it escalates them straight to the operator."
+        )
+    if slot in GUARD_CLAIM_SLOTS:
+        lines.append(
+            "Guard claims: where a finding or verdict rests on a guard (test, check, lint, "
+            "gate, script) *enforcing* a property, return it in `guard_claims[]` as "
+            "`{" + ", ".join(GUARD_CLAIM_KEYS) + "}` only (`guard` = `path[::node]`, "
+            "`property` one line, `subjects` the repo-relative files the guard checks: the only "
+            "files the certifier may perturb, so a claim without them certifies `unverified`; "
+            "no RED/GREEN inputs, no status: an independent certifier authors and runs "
+            "those). Set `guards_certified` to the `## Guards certified` body: one line per claim "
+            "tagged `[cert:<id>]`, or exactly `No guard claims.` alone. Never write a "
+            "certifying phrase unless the same field carries `[cert:<id>]` for a returned "
+            "claim (the tag alone binds; the field need not name the guard path); an untagged "
+            "one counts as `unverified`. "
+            "Negated wording and wording about a guard not yet written count too: "
+            + ", ".join(f'"{e}"' for e in CERT_PHRASE_EXAMPLES)
+            + " are all certifying phrases. Describe such a guard without that wording."
+        )
 
     return "\n".join(lines)

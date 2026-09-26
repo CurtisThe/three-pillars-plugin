@@ -59,6 +59,7 @@ Capture the full output. This checks:
 - Interface coverage (every detailed-design interface mentioned in plan)
 - Phase alignment (plan phases vs detailed-design Implementation Order)
 - File existence (modified files exist, new file parent dirs exist)
+- **Targets** (the machine-read oracle, `skills/tp-plan/SKILL.md` §Targets field): malformed → ERROR; missing → a NOTE only (the task is non-canonical: not runnable, Opus-only, unverified in the Tier 3.5 re-run); a target that neither exists nor is marked `(new)` → WARN
 
 Save the script results — you will merge them with council findings in Step 5.
 
@@ -67,6 +68,8 @@ Save the script results — you will merge them with council findings in Step 5.
 Spawn three council member agents **in parallel**. Each agent reads the design files independently using their own tools.
 
 **CRITICAL**: Do NOT paste file contents into the agent prompts. Give them file paths — they read the files themselves. This preserves context isolation.
+
+**Map-check angle (every mode):** append to every member's prompt (standard, spike, light) the Check-mode angle of `skills/_shared/state-space-protocol.md`: "Read design.md's `## State space`. Was a better locus or alternative dismissed without evidence? File it as INCONSISTENT (never MISALIGNMENT); it is recorded for the operator, never applied to plan.md." With no `## State space`, interactive runs ask instead whether Scope/Constraints leave an unconsidered locus; `--auto` skips the angle.
 
 **In `--spike` mode**, use the spike-flavored prompts below. **In `--light` mode**, use the merged light-mode prompts below. **In standard mode**, use the standard prompts.
 
@@ -292,7 +295,7 @@ Organize by category:
 ### Step 6: Present findings
 
 - **Normal mode**: Walk through each issue with the user. For MISSING and INCONSISTENT issues, propose concrete fixes (new tasks or task edits). Get user approval before making changes.
-- **`--auto` mode**: For each finding, decide whether to accept the council's recommendation or dismiss it. Log each resolution to `decisions.md` with the finding, the resolution, and reasoning. Accept recommendations that fix clear gaps or inconsistencies. Dismiss findings that are stylistic or where the plan's interpretation is reasonable.
+- **`--auto` mode**: For each finding, decide whether to accept the council's recommendation or dismiss it. Log each resolution to `decisions.md` with the finding, the resolution, and reasoning. Accept recommendations that fix clear gaps or inconsistencies — except a map-check finding (a better locus or alternative dismissed without evidence), which is never applied to plan.md: log it as `map-check — escalated to operator` and leave plan.md unchanged. Dismiss findings that are stylistic or where the plan's interpretation is reasonable.
 
 ### Step 7: Update plan.md
 

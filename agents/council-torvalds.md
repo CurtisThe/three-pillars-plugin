@@ -1,7 +1,7 @@
 ---
 name: council-torvalds
 description: "Council member. Use standalone for pragmatic engineering & shipping analysis, or via /council for multi-perspective deliberation."
-model: sonnet
+model: opus
 color: yellow
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

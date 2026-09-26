@@ -101,8 +101,8 @@ def _case_attack2_hand_resolution(tmp_path, monkeypatch):
     diverge_living_doc(s)
     h0 = s.head()
     hand_resolved = (
-        "# Fixture Living Doc\n\n### Z0: seed entry\n"
-        "### Z97: design-side change\n### Z98: base-side change\n"
+        "# Fixture Living Doc\n\n### Z0: seed entry\nseed body line.\n"
+        "- **2026-01-01** — base-side change\n- **2026-01-02** — design-side change\n"
     )
     tampered = force_merge_commit(s, {LIVING_DOC_PATH: hand_resolved})
     _seat(s, monkeypatch)

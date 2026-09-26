@@ -34,6 +34,7 @@ Create or revise the high-level design for a TDD project through conversation wi
    - **Constraints** — performance, compatibility, dependencies, resource limits, plus any principles from the vision that constrain the solution space.
    - **Open questions** — things the user isn't sure about yet.
    Ask clarifying questions. Push back on vague requirements. Suggest trade-offs. When two approaches are technically viable, use the vision's principles as tie-breakers.
+   **State-space map first:** for any class above just-do-it, build the map per the Build mode of `skills/_shared/state-space-protocol.md` before asking questions (self-resolve, loci, dimensions, flip test), and ask only the derived questions, in its format.
 7. **Write `three-pillars-docs/tp-designs/{design-name}/design.md`** with this structure. Stamp the step-5b class as the file's leading frontmatter block (`weight-class: {class}` — via `python3 "$TP_ROOT"/skills/_shared/weight_class.py` `write_class` or written directly):
 
 ```markdown
@@ -70,6 +71,8 @@ Non-functional requirements, dependencies, compatibility needs.
 Unresolved items to address during detailed design.
 ```
 
+   Include the step-6 map as a `## State space` section (compact for light; see the protocol). Then run the lint as an advisory, warn-only step — show any `WARN` lines, never block: `python3 "$TP_ROOT"/skills/_shared/state_space_lint.py three-pillars-docs/tp-designs/{design-name}`.
+
 7b. **Light mode.** When the declared class is `light`, the same sitting also produces a **thin plan.md** (single phase, a handful of tasks) in the design directory — and the downstream `/tp-design-detail` and `/tp-plan` invocations are **skipped** entirely. The collapsed design.md (design + detail merged, ~60 lines) **must keep all floor-required `##` sections** — it still has to pass `validate_design_floor.py` unchanged. Stamp the thin plan.md with the same `weight-class: light` frontmatter. The audit step for a light design is `/tp-plan-audit {design-name} --light`.
 
 8. **Register in Design Inventory**: If `three-pillars-docs/product_roadmap.md` exists and contains a Design Inventory table, check whether `{design-name}` already has a row. If not, propose appending a row with status "Designed", the dependencies from the design conversation, and any parent/spike linkage. Show the proposed row and get user confirmation before writing. If the roadmap doesn't exist or has no Design Inventory table, skip this step silently.
@@ -87,7 +90,7 @@ Unresolved items to address during detailed design.
 - The design should be **implementation-agnostic** — describe *what*, not *how*. No file paths, function names, or class hierarchies yet.
 - **Vision is the tie-breaker.** When two approaches are technically equivalent, pick the one that better advances the vision's principles. Record the choice and why in the Problem or Constraints section.
 - **Refuse non-goal designs.** If the design as proposed obviously lands in the vision's non-goals, push back. Ask the user whether the design should be dropped, reshaped, or whether the vision itself needs updating (via `/tp-docs-update`). Never quietly write a design that contradicts the vision.
-- Keep it under 80 lines. Dense, not verbose.
+- Keep it under 80 lines, not counting the `## State space` section. Dense, not verbose.
 - Don't proceed to detailed design in the same invocation — stop after writing design.md.
 - This is a conversation, not a monologue. Ask questions before writing.
 
@@ -98,7 +101,8 @@ Unresolved items to address during detailed design.
 In `--auto`:
 - **Skip steps 4–6 (the design conversation).** Do not prompt the user, do not read existing content for revision, do not draft new sections.
 - **Run the validator**: `python3 "$TP_ROOT"/skills/_shared/validate_design_floor.py three-pillars-docs/tp-designs/{design-name}` and read its exit code + stderr.
-- **PASS (exit 0)**: append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` with title `design.md accepted at floor schema v1`, **Confidence: High**, **Decided: accepted**, **Reasoning: validate_design_floor.py exited 0**. Use `[tp-design]` as the bare skill-name prefix per the auto-mode convention. Exit 0.
+- **State-space lint (advisory)**: when the validator exits 0, run `python3 "$TP_ROOT"/skills/_shared/state_space_lint.py three-pillars-docs/tp-designs/{design-name}` *before* writing the PASS entry, so its `WARN` lines can go into that entry. It exits 0 on every read/parse path and never changes this skill's exit code.
+- **PASS (exit 0)**: append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` with title `design.md accepted at floor schema v1`, **Confidence: High**, **Decided: accepted**, **Reasoning: validate_design_floor.py exited 0** (plus any state-space lint `WARN` lines). Use `[tp-design]` as the bare skill-name prefix per the auto-mode convention. Exit 0.
 - **BLOCKED (exit 1)**: append a BLOCKED entry with **Cause: floor-validator** and **Details:** the JSON verdict emitted by the validator on stderr. Exit non-zero so the orchestrator escalates.
 - Any other exit or failure to launch → BLOCKED with Cause: floor-validator-crash, Details: captured stderr (truncated to 500 chars). Never treat a non-0/1 exit as PASS.
 - Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).

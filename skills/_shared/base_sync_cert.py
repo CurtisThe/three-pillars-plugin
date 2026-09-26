@@ -5,15 +5,16 @@ merge (or a chain of them) is a mechanical no-op certified against the shared
 `auto_safe_resolution` AUTO-SAFE allowlist -- see
 `three-pillars-docs/completed-tp-designs/approval-survives-safe-base-sync/detailed-design.md`.
 
-Phase 2 scope: `git_version_ok`, the config interpreters, the `merge-tree -z` parser, RME
+Phase 2 scope: `git_version_ok`, the config interpreters, RME
 conditions 1-5 (`certify_link`/`_certify_link_unchecked`), and the chain walk
 (`find_certified_anchor`/`certified_noop_chain`). The independent-oracle guard
 (`oracle_independent`) lives in `base_sync_oracle.py` (Phase 3) and is re-exported here;
 public `certify_link` guards at entry and `find_certified_anchor` guards once per walk.
 
-This module builds up section by section (task 2.2: config/version guards; task 2.3: the
-merge-tree parser; task 2.4/2.5: RME conditions; task 2.6: the chain walk; task 3.4: the
-oracle guard wiring).
+This module builds up section by section (task 2.2: config/version guards; task 2.4/2.5: RME
+conditions; task 2.6: the chain walk; task 3.4: the oracle guard wiring). The pure git-plumbing
+output parsers (`merge-tree -z`, `ls-tree`, `--name-only -z`) live in `base_sync_plumbing.py`
+and are re-imported here.
 """
 from __future__ import annotations
 
@@ -29,6 +30,17 @@ if str(_SHARED_DIR) not in sys.path:
 
 from auto_safe_resolution import AUTO_SAFE_PATHS, RESOLVED, resolve_conflict_bytes  # noqa: E402
 from base_sync_oracle import oracle_independent  # noqa: E402
+# Pure git-plumbing output parsers, split out per CLAUDE.md §File Size Limits. Re-imported into
+# THIS namespace so `base_sync_cert._parse_ls_tree_line` (and the suite's monkeypatch seams)
+# keep resolving exactly as before the split.
+from base_sync_plumbing import (  # noqa: E402,F401
+    _MODE_RE,
+    _OID_RE,
+    _parse_dashz_names,
+    _parse_ls_tree_line,
+    _parse_merge_tree_z,
+    _redecode_strict_utf8,
+)
 
 _MERGE_SCRIPTS = _SHARED_DIR.parent / "tp-merge-from-main" / "scripts"
 if str(_MERGE_SCRIPTS) not in sys.path:
@@ -39,8 +51,6 @@ GIT_MIN_VERSION = (2, 38)          # git merge-tree --write-tree floor
 _DEFAULT_MAX_CHAIN = 5
 
 _VERSION_RE = re.compile(r"git version (\d+)\.(\d+)")
-_OID_RE = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
-_MODE_RE = re.compile(r"^[0-7]{6}$")
 
 
 @dataclass(frozen=True)
@@ -56,6 +66,7 @@ class ChainResult:
     anchor: "str | None" = None         # matched anchor (full sha) when certified
     links: int = 0                      # certified links crossed
     reason: str = ""                    # "" when certified; fail-closed reason otherwise
+    carry_paths: tuple = ()             # F3: aggregated K, ONLY from relaxed (hand-res) links
 
 
 # ============================================================
@@ -115,57 +126,6 @@ def git_version_ok(*, run_git=None) -> bool:
         return (int(m.group(1)), int(m.group(2))) >= GIT_MIN_VERSION
     except Exception:
         return False
-
-
-def _redecode_strict_utf8(surrogate_str: str) -> str:
-    """Re-derive true UTF-8 text from a seam string decoded with `errors="surrogateescape"`.
-    Raises `UnicodeDecodeError` iff the original bytes were not valid UTF-8 -- the SAME
-    strict-decode policy `auto_safe_resolution.decode_blob_strict` applies, expressed over the
-    str-shaped seam channel instead of raw bytes."""
-    return surrogate_str.encode("utf-8", "surrogateescape").decode("utf-8")
-
-
-# ============================================================
-# Task 2.3: merge-tree -z parser -- fail-closed SHAPE invariant
-# ============================================================
-
-
-def _parse_merge_tree_z(out: str):
-    """Parse `git merge-tree --write-tree -z --no-messages` stdout into `(tree_oid,
-    conflicts)` where `conflicts` is `{path: {stage: (mode, oid)}}`. ANY shape anomaly --
-    missing trailing NUL / trailing garbage, missing tree oid, malformed mode/oid, a
-    non-integer or out-of-range (not 1-3) stage, a stanza missing its TAB-separated filename
-    field, or an undecodable path -- returns None. The parser never guesses: an unrecognized
-    shape is the caller's fail-closed "merge-tree output shape unrecognized"."""
-    parts = out.split("\x00")
-    if not parts or parts[-1] != "":
-        return None
-    parts = parts[:-1]
-    if not parts:
-        return None
-    tree = parts[0]
-    if not _OID_RE.match(tree):
-        return None
-    conflicts: dict = {}
-    for stanza in parts[1:]:
-        if "\t" not in stanza:
-            return None
-        head_part, path = stanza.split("\t", 1)
-        fields = head_part.split(" ")
-        if len(fields) != 3:
-            return None
-        mode, oid, stage_s = fields
-        if not _MODE_RE.match(mode) or not _OID_RE.match(oid) or not stage_s.isdigit():
-            return None
-        stage = int(stage_s)
-        if stage not in (1, 2, 3):
-            return None
-        try:
-            path = _redecode_strict_utf8(path)
-        except UnicodeDecodeError:
-            return None
-        conflicts.setdefault(path, {})[stage] = (mode, oid)
-    return tree, conflicts
 
 
 # ============================================================
@@ -228,32 +188,6 @@ class _GitOpError(Exception):
 # ============================================================
 # Task 2.5: certify_link RME conditions 3-5 (allowlist, containment, resolver re-run)
 # ============================================================
-
-
-def _parse_dashz_names(out: str):
-    """Parse a NUL-terminated `--name-only -z` path list. Empty stdout -> `[]`."""
-    if out == "":
-        return []
-    if not out.endswith("\x00"):
-        return None
-    try:
-        return [_redecode_strict_utf8(n) for n in out.split("\x00")[:-1]]
-    except UnicodeDecodeError:
-        return None
-
-
-def _parse_ls_tree_line(out: str):
-    line = out.rstrip("\n")
-    if not line or "\t" not in line:
-        return None
-    head_part, _path = line.split("\t", 1)
-    fields = head_part.split(" ")
-    if len(fields) != 3:
-        return None
-    mode, _type, oid = fields
-    if not _MODE_RE.match(mode) or not _OID_RE.match(oid):
-        return None
-    return mode, oid
 
 
 def _hash_object_stdin_real(data: bytes, repo_root=None):
@@ -323,8 +257,14 @@ def _cond5_resolve(git, conflicts: dict, h1: str, repo_root=None) -> str:
         status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt)
         if status != RESOLVED:
             return "resolver could not deterministically reproduce a resolution"
-        ok, _dropped = _verify.verify(ours_txt, theirs_txt, merged)
-        if not ok:
+        # Only reached after `status == RESOLVED`, so a mechanical resolution WAS applied here
+        # and the fact is a constant True.
+        r = _verify.verify(ours_txt, theirs_txt, merged, mechanical_applied=True)
+        if r.verdict == _verify.UNVERIFIABLE:
+            # Zero atoms parsed on a file the resolver DID resolve: the verifier examined
+            # nothing, so it cannot certify zero-drop. Fail the conjunct with its own reason.
+            return "zero-drop verifier could not verify this file's shape"
+        if not r.ok:
             return "zero-drop verifier detected a content drop"
         merged_oid = _hash_object_stdin_real(merged.encode("utf-8"), repo_root)
         h1_oid = parsed[1]
@@ -372,9 +312,13 @@ _oracle_guard = oracle_independent
 
 
 def certify_link(repo_root, h0: str, h1: str, *, base_ref: str, head_oid=None,
-                 run_git=None, run_cmd=None) -> LinkCheck:
+                 run_git=None, run_cmd=None, carry_handres: bool = False) -> LinkCheck:
     """Public single-link RME check: guards the independent-oracle precondition at entry
-    (`oracle_independent`), then delegates to `_certify_link_unchecked`."""
+    (`oracle_independent`), then delegates to `_certify_link_unchecked`. When strict fails and
+    `carry_handres` is set, falls back to the relaxed living-doc-hand-resolution certifier
+    (`living_doc_carry.certify_link_carry`, function-local import — breaks the load cycle),
+    behind the SAME already-run oracle guard. `carry_handres` defaults False = strict-only,
+    byte-unchanged for existing callers."""
     try:
         ok, reason = _oracle_guard(repo_root, head_oid if head_oid is not None else h1,
                                    base_ref=base_ref, run_git=run_git, run_cmd=run_cmd)
@@ -382,7 +326,15 @@ def certify_link(repo_root, h0: str, h1: str, *, base_ref: str, head_oid=None,
             return LinkCheck(False, reason)
     except Exception:
         return LinkCheck(False, "internal error during oracle guard")
-    return _certify_link_unchecked(repo_root, h0, h1, base_ref=base_ref, run_git=run_git)
+    lc = _certify_link_unchecked(repo_root, h0, h1, base_ref=base_ref, run_git=run_git)
+    if lc.ok or not carry_handres:
+        return lc
+    try:  # a broken sibling module must fail closed, not raise (never-raises contract)
+        import living_doc_carry  # noqa: E402 — function-local, in _shared/ beside this file
+        return living_doc_carry.certify_link_carry(repo_root, h0, h1, base_ref=base_ref,
+                                                   run_git=run_git)
+    except Exception:
+        return LinkCheck(False, "internal error during carry fallback")
 
 
 # ============================================================
@@ -415,11 +367,15 @@ def _first_parent(git, sha: str):
 
 
 def find_certified_anchor(repo_root, head, candidates, *, base_ref, max_links=None,
-                          run_git=None, run_cmd=None) -> ChainResult:
+                          run_git=None, run_cmd=None, carry_handres: bool = False) -> ChainResult:
     """First-parent walk from `head`, re-proving each link via `_certify_link_unchecked`.
     Entry guards (git version -> shallow probe -> oracle guard -> head existence), each fails
     closed with a distinct reason; `candidates` matched as lowercased full SHAs. Total, never
-    raises."""
+    raises. When `carry_handres` is set, a strict-failing link falls back to the relaxed
+    living-doc-hand-resolution certifier; `ChainResult.carry_paths` aggregates the K hand-res
+    files (F3: ONLY from links where `certify_link_carry` actually fired — a strict link's own
+    mechanical `conflicted_paths` are never mislabeled). The oracle guard still runs once per
+    walk before the loop; the relaxed path inherits it."""
     try:
         try:
             cand_lower = {c.lower() for c in candidates} if candidates else set()
@@ -444,6 +400,7 @@ def find_certified_anchor(repo_root, head, candidates, *, base_ref, max_links=No
 
         max_n = max_links if (isinstance(max_links, int) and not isinstance(max_links, bool)) else _DEFAULT_MAX_CHAIN
         links = 0
+        carry_acc: set = set()
         while True:
             if links >= max_n:
                 # `>=`, not `==`: defensive against a non-positive/garbage `max_n` (would
@@ -455,19 +412,26 @@ def find_certified_anchor(repo_root, head, candidates, *, base_ref, max_links=No
             if err:
                 return ChainResult(False, None, links, "history incomplete")
             lc = _certify_link_unchecked(repo_root, p1, cur, base_ref=base_ref, run_git=run_git)
+            if not lc.ok and carry_handres:
+                import living_doc_carry  # noqa: E402 — function-local, breaks the load cycle
+                lc = living_doc_carry.certify_link_carry(repo_root, p1, cur, base_ref=base_ref,
+                                                         run_git=run_git)
+                if lc.ok:
+                    carry_acc |= set(lc.conflicted_paths)   # F3: only a relaxed-fired link's K
             if not lc.ok:
                 return ChainResult(False, None, links, lc.reason)
             cur = p1
             links += 1
             if cur.lower() in cand_lower:
-                return ChainResult(True, cur, links, "")
+                return ChainResult(True, cur, links, "", tuple(sorted(carry_acc)))
     except Exception:
         return ChainResult(False, None, 0, "internal error during chain walk")
 
 
 def certified_noop_chain(repo_root, anchor, head, *, base_ref, max_links=None,
-                         run_git=None, run_cmd=None) -> ChainResult:
+                         run_git=None, run_cmd=None, carry_handres: bool = False) -> ChainResult:
     """`certified_noop_chain(anchor, head)` == `find_certified_anchor(head, {anchor})`."""
     candidates = {anchor} if isinstance(anchor, str) else set()
     return find_certified_anchor(repo_root, head, candidates, base_ref=base_ref,
-                                 max_links=max_links, run_git=run_git, run_cmd=run_cmd)
+                                 max_links=max_links, run_git=run_git, run_cmd=run_cmd,
+                                 carry_handres=carry_handres)

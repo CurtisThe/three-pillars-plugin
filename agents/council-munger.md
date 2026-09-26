@@ -1,7 +1,7 @@
 ---
 name: council-munger
 description: "Council member. Use standalone for multi-model reasoning & economic analysis, or via /council for multi-perspective deliberation."
-model: sonnet
+model: opus
 color: gold
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

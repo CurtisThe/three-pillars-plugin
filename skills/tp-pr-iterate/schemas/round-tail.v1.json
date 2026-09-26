@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tp-pr-iterate/round-tail.v1",
+  "title": "tp-pr-iterate round-tail envelope (v1)",
+  "description": "What the round-tail subagent (reproducer runner -> fix -> converge) writes to R/tail/envelope.json and returns. The orchestrator keeps only this object. design: iterate-convergence-budget.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "round", "head_reviewed", "head_after", "tally", "downgraded", "notes",
+               "action", "fix_commit", "terminal", "converged", "budget", "summary"],
+  "properties": {
+    "schema": {"const": "tp-pr-iterate/round-tail/v1"},
+    "round": {"type": "integer", "minimum": 1},
+    "head_reviewed": {"type": "string", "minLength": 1},
+    "head_after": {"type": "string", "minLength": 1},
+    "tally": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["P", "X", "T", "C", "blocking", "degraded"],
+      "properties": {
+        "P": {"type": "integer", "minimum": 0},
+        "X": {"type": "integer", "minimum": 0},
+        "T": {"type": "integer", "minimum": 0},
+        "C": {"type": "integer", "minimum": 0},
+        "blocking": {"type": "integer", "minimum": 0},
+        "degraded": {"type": "integer", "minimum": 0}
+      }
+    },
+    "downgraded": {"type": "integer", "minimum": 0},
+    "notes": {"type": "integer", "minimum": 0},
+    "action": {"enum": ["fix", "noop", "rerun-review"]},
+    "fix_commit": {"type": ["string", "null"]},
+    "terminal": {"type": ["string", "null"]},
+    "converged": {"type": "boolean"},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iteration", "round_cap", "signal", "holding"],
+      "properties": {
+        "iteration": {"type": "integer", "minimum": 0},
+        "round_cap": {"type": "integer", "minimum": 1},
+        "signal": {"type": ["string", "null"]},
+        "holding": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "summary": {"type": "string", "maxLength": 400}
+  }
+}

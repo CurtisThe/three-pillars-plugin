@@ -6,6 +6,10 @@ findings + per-finding confidence + argument_summary) and every Round-2
 rebuttal dict (including challenged_finding_indices, F4). No I/O, no dispatch.
 """
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from build_synth_prompt import build_synth_prompt
@@ -235,3 +239,84 @@ def test_code_input_empty_touched_files():
     assert "empty" in prompt.lower()
     # Still has the Candidate-code heading; no exception was raised reaching here.
     assert "## Candidate code under audit" in prompt
+
+
+@pytest.mark.parametrize("slot", ["design-audit", "plan-audit"])
+def test_map_check_slots_require_the_category_tag(slot):
+    from build_synth_prompt import MAP_CHECK_CATEGORY
+    out = build_synth_prompt(["a/design.md"], [{"member": "ada", "findings": []}], None, slot)
+    assert f'`category: "{MAP_CHECK_CATEGORY}"`' in out
+    assert "straight to the operator" in out
+
+
+def test_impl_audit_has_no_map_check_tag():
+    out = build_synth_prompt(["a/design.md"], [{"member": "ada", "findings": []}], None, "impl-audit")
+    assert "map-check" not in out
+
+
+SCHEMA = Path(__file__).resolve().parent.parent / "schemas" / "audit-return.v1.json"
+
+
+def schema_claim_keys() -> set[str]:
+    """Every key a guard claim may carry, read from the audit-return envelope schema."""
+    doc = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    return set(doc["properties"]["guard_claims"]["items"]["properties"])
+
+
+def brief_claim_keys(out: str) -> set[str]:
+    """The keys of the claim shape the brief gives right after `guard_claims[]`: the first
+    backticked `{...}` there, split on commas (order and spacing are free)."""
+    after = out[out.index("`guard_claims[]`"):]
+    shape = re.search(r"`\{([^`}]*)\}`", after)
+    assert shape, "the brief gives no `{...}` claim shape after `guard_claims[]`"
+    return {key.strip() for key in shape.group(1).split(",")}
+
+
+@pytest.mark.parametrize("slot", ["design-audit", "impl-audit"])
+def test_guard_claims_brief(slot):
+    # audit-pass-does-not-bind 7.3: Slots 4/8 return claims only; the certifier authors RED/GREEN.
+    from build_synth_prompt import GUARD_CLAIM_SLOTS
+    assert slot in GUARD_CLAIM_SLOTS
+    out = build_synth_prompt(["a/design.md"], [{"member": "ada", "findings": []}], None, slot)
+    # The claim shape asks for every key the envelope schema declares (a claim without
+    # `subjects` certifies nothing), and no other.
+    assert brief_claim_keys(out) == schema_claim_keys()
+    # Contract tokens the envelope schema and the Step 2b fold read, never prose (their
+    # code-span quoting is formatting, so it is not pinned).
+    for needle in ("guard_claims[]", "guards_certified", "No guard claims.", "[cert:<id>]"):
+        assert needle in out, needle
+
+
+def test_the_brief_claim_shape_tracks_the_schema():
+    """The brief's claim shape is read as a key set (order and spacing free) and equals the
+    schema's; a key dropped from the brief's source is caught by that same key-set check."""
+    import build_synth_prompt as bsp
+    args = (["a/design.md"], [{"member": "ada", "findings": []}], None, "impl-audit")
+    assert brief_claim_keys(bsp.build_synth_prompt(*args)) == schema_claim_keys()
+    for key in schema_claim_keys():
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(bsp, "GUARD_CLAIM_KEYS",
+                          tuple(k for k in bsp.GUARD_CLAIM_KEYS if k != key))
+            assert brief_claim_keys(bsp.build_synth_prompt(*args)) == schema_claim_keys() - {key}
+
+
+def test_cert_phrase_examples_in_the_brief_are_what_the_fold_counts():
+    """Every certifying-phrase example the brief warns about is an unmatched scan hit when
+    untagged, and a `[cert:<id>]` tag alone (no guard path) certifies it [R8][R9]."""
+    from build_synth_prompt import CERT_PHRASE_EXAMPLES
+    from skills._shared import cert_phrase_scan as scan
+
+    out = build_synth_prompt(["a/design.md"], [{"member": "ada", "findings": []}], None,
+                             "impl-audit")
+    claims = [{"id": "c1", "guard": "skills/x/test_y.py::test_z"}]
+    for example in CERT_PHRASE_EXAMPLES:
+        assert example in out, example
+        hits = scan.scan_field(f"Note: {example}.", "summary", claims)
+        assert hits and not any(h["matched"] for h in hits), example
+        tagged = scan.scan_field(f"Note: {example} [cert:c1].", "summary", claims)
+        assert tagged and all(h["matched"] for h in tagged), example
+
+
+def test_plan_audit_has_no_guard_claims_brief():
+    out = build_synth_prompt(["a/plan.md"], [{"member": "ada", "findings": []}], None, "plan-audit")
+    assert "guard_claims" not in out

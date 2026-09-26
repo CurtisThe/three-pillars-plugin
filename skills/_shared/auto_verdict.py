@@ -33,3 +33,30 @@ def compute_verdict(confidences: list[str]) -> tuple[str, int]:
     if any(c in ("Medium", "Low") for c in confidences):
         return ("NEEDS WORK", 1)
     return ("PASS WITH NOTES", 0)
+
+
+# Certification join (design audit-pass-does-not-bind). Rank order, lowest
+# first; the code is the exit code the orchestrator branches on.
+VERDICT_ORDER = ("PASS", "PASS WITH NOTES", "KNOWN BYPASS", "UNVERIFIED", "NEEDS WORK")
+VERDICT_CODE = {"PASS": 0, "PASS WITH NOTES": 0, "KNOWN BYPASS": 0,
+                "UNVERIFIED": 2, "NEEDS WORK": 1}
+STATUS_VERDICT = {"binds": "PASS", "known-bypass": "KNOWN BYPASS",
+                  "unverified": "UNVERIFIED", "not-binding": "NEEDS WORK",
+                  "false-red": "NEEDS WORK"}
+
+
+def combine_verdict(base: str, statuses: list[str]) -> tuple[str, int]:
+    """Join `base` with each claim status over VERDICT_ORDER; return (verdict, code).
+
+    `combine_verdict(v, [])` is `(v, code(v))`. The join is commutative and
+    idempotent, so fold order never matters. Unknown inputs raise ValueError.
+    """
+    if base not in VERDICT_CODE:
+        raise ValueError(f"unknown base verdict {base!r}; expected one of {VERDICT_ORDER}")
+    unknown = [s for s in statuses if s not in STATUS_VERDICT]
+    if unknown:
+        raise ValueError(
+            f"unknown claim status(es) {unknown!r}; expected one of {tuple(STATUS_VERDICT)}"
+        )
+    verdict = max([base] + [STATUS_VERDICT[s] for s in statuses], key=VERDICT_ORDER.index)
+    return (verdict, VERDICT_CODE[verdict])

@@ -2,12 +2,21 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "urn:tp-run-full-design:audit-return:v1",
   "title": "tp-run-full-design audit tier return",
-  "description": "Return envelope for audit-class slots (design-audit, plan-audit, impl-audit). Extends the base tier-return via allOf and adds a verdict plus structured findings the orchestrator uses for retry-with-advice and escalation.",
+  "description": "Return envelope for audit-class slots (design-audit, plan-audit, impl-audit). Extends the base tier-return via allOf and adds a verdict plus structured findings the orchestrator uses for retry-with-advice and escalation. The certification fields (guard_claims, guards_certified, certifications, uncertified_phrases, certification_base) and the unverified / known-bypass verdicts are optional extensions; envelopes without them validate unchanged. The `verdict: unverified` conditional governs the post-fold envelope (the one the orchestrator branches on): the certification fold strips any model-supplied certification arrays and always leaves a non-empty certifications or uncertified_phrases array when it yields unverified.",
   "allOf": [
     {"$ref": "urn:tp-run-full-design:tier-return:v1"},
     {
       "if": {"required": ["verdict"], "properties": {"verdict": {"const": "needs-work"}}},
       "then": {"properties": {"findings": {"minItems": 1}}}
+    },
+    {
+      "if": {"required": ["verdict"], "properties": {"verdict": {"const": "unverified"}}},
+      "then": {
+        "anyOf": [
+          {"required": ["certifications"], "properties": {"certifications": {"minItems": 1}}},
+          {"required": ["uncertified_phrases"], "properties": {"uncertified_phrases": {"minItems": 1}}}
+        ]
+      }
     }
   ],
   "type": "object",
@@ -22,7 +31,7 @@
     },
     "verdict": {
       "type": "string",
-      "enum": ["pass", "pass-with-notes", "needs-work"]
+      "enum": ["pass", "pass-with-notes", "needs-work", "unverified", "known-bypass"]
     },
     "findings": {
       "type": "array",
@@ -37,6 +46,60 @@
           "suggested_fix": {"type": "string"}
         }
       }
+    },
+    "guard_claims": {
+      "description": "Auditor-authored guard claims (claim shape only; path[::node] guard; subjects = the repo-relative files under guard, the only files a certifier may perturb — a claim without them certifies unverified).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "guard", "property", "parameters"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "guard": {"type": "string", "minLength": 1},
+          "property": {"type": "string", "minLength": 1},
+          "parameters": {"type": "array", "items": {"type": "string"}},
+          "subjects": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "guards_certified": {
+      "description": "The Guards certified section body (records with [cert:id] tags, or exactly 'No guard claims.' and nothing else).",
+      "type": "string"
+    },
+    "certifications": {
+      "description": "Fold-written: one entry per certified claim, keyed (file, id).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "id", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "file": {"type": "string", "minLength": 1},
+          "id": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["binds", "not-binding", "false-red", "unverified", "known-bypass"]},
+          "reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "uncertified_phrases": {
+      "description": "Fold-written: certifying phrases with no matching record, plus a model-asserted verdict.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["text", "field"],
+        "additionalProperties": true,
+        "properties": {
+          "text": {"type": "string"},
+          "field": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "certification_base": {
+      "description": "Fold-written for traceability: the verdict before the certification join. Never read.",
+      "type": "string",
+      "enum": ["PASS", "PASS WITH NOTES", "NEEDS WORK", "UNVERIFIED", "KNOWN BYPASS"]
     }
   }
 }

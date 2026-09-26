@@ -18,17 +18,42 @@ reply/resolve, and is injectable (`post_fn`) so the pure core stays test-isolate
 
 from __future__ import annotations
 
-import difflib
 import json
 import re
 import subprocess
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
-# Dedup tunables (detailed-design §Decisions). Conservative on purpose: a
-# false-merge silently drops a real finding, an over-keep just costs one extra
-# fix attempt.
-_PROXIMITY_SLACK = 3
-_SIMILARITY_THRESHOLD = 0.6
+# The dedupe family (collapse predicate, survivor rules, tunables) lives in the
+# sibling `review_merge_dedupe` module — split out for the file-size cap only.
+# Every name is RE-EXPORTED here, so `review_merge.dedupe(...)` and the private
+# `review_merge._is_duplicate(...)` call sites are unchanged.
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+from review_merge_dedupe import (  # noqa: E402,F401
+    _NO_RANGE,
+    _PROXIMITY_SLACK,
+    _SIMILARITY_THRESHOLD,
+    _VERDICT_RANK,
+    _carry_reproducers,
+    _distinct_threads,
+    _is_duplicate,
+    _is_exact_duplicate,
+    _line_proximity,
+    _matches_cluster,
+    _more_specific,
+    _norm_range,
+    _promote_verdict,
+    _same_file,
+    _summary_similar,
+    _survives,
+    _verdict_rank,
+    dedupe,
+)
+from finding_class import coerce  # noqa: E402
 
 _JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _ANY_FENCED_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
@@ -53,17 +78,14 @@ def normalize_copilot(comment: dict) -> dict:
         "file": comment.get("file", comment.get("path", "")),
         "line_range": [start, end],
         "summary": str(comment.get("summary") or comment.get("body") or "")[:500],
-        "verdict": comment.get("verdict", "unclear"),
+        "verdict": _coerce_verdict(comment.get("verdict"), "unclear"),
         "merged_from": None,
     }
 
 
 def normalize_codereview(finding: dict) -> dict:
-    """A `/code-review` finding dict → normalized-finding.v1 (source='code-review').
-
-    `/code-review` is local and has no GitHub thread, so `thread_id` and
-    `comment_id` are None.
-    """
+    """A `/code-review` finding → normalized-finding.v1 (local: no thread/comment id).
+    Reviewer `class`/`blocking`/`reproducer` tags go through `finding_class.coerce`."""
     start, end = _coerce_range(finding.get("line_range"), finding.get("line"))
     out = {
         "source": "code-review",
@@ -76,13 +98,35 @@ def normalize_codereview(finding: dict) -> dict:
         # str()-coerce before slicing: untrusted LLM output may carry a non-str
         # summary (e.g. an int), which would crash `[:500]`.
         "summary": str(finding.get("summary") or finding.get("body") or "")[:500],
-        "verdict": finding.get("verdict", "structural"),
+        "verdict": _coerce_verdict(finding.get("verdict"), "structural"),
         "merged_from": None,
     }
     conf = _coerce_confidence(finding.get("confidence"))
     if conf is not None:
         out["confidence"] = conf
+    out.update(coerce(finding))
     return out
+
+
+_VERDICT_ENUM = {"structural", "minor", "unclear"}
+
+
+def _coerce_verdict(value, default: str) -> str:
+    """Canonicalize a free-text verdict to the schema's lowercase enum.
+
+    The severity rules compare case-insensitively (`_verdict_rank` lowercases)
+    but downstream consumers test the STORED string exactly (`loop_driver`'s
+    `_detect_conflicts` and the `has_structural` behind the `minor-only` round
+    verdict both do `== "structural"`), and `/code-review` output arrives here
+    unvalidated — so a `"Structural"` ranked as structural, won its collision, then
+    read as NOT structural downstream, flipping a round holding a structural finding
+    to minor-only. Canonicalizing once here keeps the two readings agreeing; casing
+    and whitespace only — anything else falls back to the CALLER's own default.
+    """
+    if not isinstance(value, str):
+        return default
+    lowered = value.strip().lower()
+    return lowered if lowered in _VERDICT_ENUM else default
 
 
 _CONFIDENCE_ENUM = {"High", "Medium", "Low"}
@@ -111,7 +155,7 @@ def _coerce_range(line_range, line) -> tuple[int, int]:
         if not isinstance(a, bool) and not isinstance(b, bool):
             try:
                 return int(a), int(b)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
     if isinstance(line, int) and not isinstance(line, bool):
         return line, line
@@ -423,66 +467,6 @@ def post_codereview_comment(
         return bool(poster(pr_url, body))
     except Exception:
         return False
-
-
-# ---------- dedupe ----------
-
-
-def _line_proximity(a: list[int], b: list[int], slack: int = _PROXIMITY_SLACK) -> bool:
-    """True when two same-file line ranges overlap after padding each by `slack`."""
-    a0, a1 = min(a), max(a)
-    b0, b1 = min(b), max(b)
-    return (a0 - slack) <= b1 and (b0 - slack) <= a1
-
-
-def _summary_similar(a: str, b: str, threshold: float = _SIMILARITY_THRESHOLD) -> bool:
-    """difflib ratio on lowercased / whitespace-collapsed summaries ≥ threshold."""
-    na = " ".join((a or "").lower().split())
-    nb = " ".join((b or "").lower().split())
-    if not na or not nb:
-        return False
-    return difflib.SequenceMatcher(None, na, nb).ratio() >= threshold
-
-
-def _is_duplicate(x: dict, y: dict) -> bool:
-    return (
-        x.get("file") == y.get("file")
-        and x.get("file") != ""
-        and _line_proximity(x.get("line_range", [0, 0]), y.get("line_range", [0, 0]))
-        and _summary_similar(x.get("summary", ""), y.get("summary", ""))
-    )
-
-
-def dedupe(findings: list[dict]) -> list[dict]:
-    """Collapse near-duplicate findings across sources, order-stable.
-
-    Collapse key: same file AND line-proximity AND summary-similarity. On a
-    collision the Copilot finding is KEPT (it carries the `thread_id` the
-    reply-and-resolve step needs); the dropped twin's `finding_id` is recorded
-    in the kept finding's `merged_from`. If neither is Copilot, the
-    first-seen finding wins.
-    """
-    kept: list[dict] = []
-    for f in findings:
-        match_idx = next((i for i, k in enumerate(kept) if _is_duplicate(k, f)), None)
-        if match_idx is None:
-            kept.append(dict(f))
-            continue
-        existing = kept[match_idx]
-        # Decide which survives: prefer the copilot finding.
-        if existing.get("source") == "copilot" or f.get("source") != "copilot":
-            survivor, dropped = existing, f
-        else:
-            survivor, dropped = dict(f), existing
-            kept[match_idx] = survivor
-        # Carry the dropped twin's OWN provenance too, not just its id — in a
-        # 3+-way collision the dropped finding may already have absorbed others.
-        merged = list(survivor.get("merged_from") or [])
-        for mid in list(dropped.get("merged_from") or []) + [dropped.get("finding_id")]:
-            if mid not in (None, "") and mid not in merged:
-                merged.append(mid)
-        survivor["merged_from"] = merged or None
-    return kept
 
 
 # ---------- Phase 1: degraded-review predicate ----------

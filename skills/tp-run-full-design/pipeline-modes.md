@@ -91,6 +91,11 @@ directory.
 | `design` | none (Slot 2 authors them)|
 | `plan`   | `design.md`, `detailed-design.md` |
 | `build`  | `design.md`, `detailed-design.md`, `plan.md` |
+| `build` + `light` weight class | `design.md`, `plan.md` |
+
+The orchestrator passes the Tier-1 weight class to `check_preconditions()`;
+a `light` design has no `detailed-design.md`, so `light` + `build` starts at
+Slot 7 with only `design.md` + `plan.md` (any other class is treated as `full`).
 
 On a missing artifact the orchestrator appends:
 

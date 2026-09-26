@@ -36,7 +36,8 @@ Turn a detailed design into a concrete, executable task list.
 
 ### Task 1.1: <Task Title>
 **File**: `<path/to/file>` (new|modify)
-**Test**: `<path/to/test_file> <test identifier>`
+**Test**: <prose: what the test proves; documentation only, never parsed>
+**Targets**: `<path/to/test_file.py>::<test_name>`, `<path/to/new_test.py>` (new)
 **Red**: Write test that <describes what the test asserts>.
 **Green**: Implement <describes minimal implementation>.
 **Refactor**: <optional — what to clean up, or "None expected">.
@@ -48,6 +49,15 @@ Turn a detailed design into a concrete, executable task list.
 ## Phase 2: <Phase Name> (~Nk)
 ...
 ```
+
+**Targets field — the task's machine-read oracle.** `**Targets**` is the only field tooling runs (the `--local` eligibility table, `task_verify`, the Tier 3.5 re-run); the **Test** line is prose for humans. The grammar is strict, one parser (`skills/_shared/task_targets.py`), and `/tp-plan-audit` validates it:
+- a comma-separated list of backticked pytest targets: `path` (the whole file) or `path::name[::name]` (a node, e.g. `pkg/test_a.py::TestB::test_c`);
+- `path` is repo-relative and POSIX (no leading `/`, no `.`/`..` segment) and ends in `.py`; each `name` is a Python identifier (no parametrize ids, no globs);
+- append ` (new)` after the closing backtick when this task creates the file; every item of that file carries it, or none does;
+- write `none` when the task has no runnable test (a docs-only or shell-verified task): it then goes to Opus and is reported unverified;
+- order never matters, a whole-file item covers that file's nodes, and a duplicate item is an error.
+
+A malformed field is an audit ERROR. A missing field is only a NOTE, but the task is then non-canonical: not runnable, always Opus, unverified in the re-run.
 
 **Per-phase budget annotation.** Each phase header carries a `(~Nk)` token-budget annotation — a rough estimate of the tokens implementing that phase will cost. Keep each phase **under the per-phase cap of 200k**: when `/tp-run-full-design` drives the plan it dispatches every plan phase under a single `phase-implement` slot, whose **200k soft budget** comes from that orchestrator's static **budget table** (`skills/tp-run-full-design/SKILL.md` → ## Per-slot budget table). Reference that table value as the authoritative source rather than re-deriving the number here — if the slot budget changes, this annotation target tracks it. A phase whose estimate exceeds 200k should be split into smaller phases so each fits one dispatch. The annotation is a sizing hint (for the human reviewer and for the orchestrator's pre-split decision), not a hard gate this skill enforces.
 
@@ -62,6 +72,7 @@ Turn a detailed design into a concrete, executable task list.
 - **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the preflight step can refuse to proceed if another developer holds this design.
 - Every task MUST have a test. No "write boilerplate" or "create empty file" tasks.
+- Every task carries a **Targets** line (`none` if nothing is runnable) naming exactly the tests its Red writes.
 - **Cap per-file test size at planning time** (caps: `CLAUDE.md` §File Size Limits): a task whose test additions would push a test file past the soft-warn names a split — tests distributed across files by unit/scenario. The plan emits split files, never monoliths.
 - Tasks within a phase can run in parallel (no interdependencies). Tasks across phases are sequential.
 - Keep task count realistic — a phase of 3-7 tasks is healthy. More than 10 suggests the phase should split.

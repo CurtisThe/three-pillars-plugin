@@ -1,7 +1,7 @@
 ---
 name: council-sun-tzu
 description: "Council member. Use standalone for adversarial strategy & competitive analysis, or via /council for multi-perspective deliberation."
-model: sonnet
+model: opus
 color: red
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

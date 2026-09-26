@@ -101,29 +101,30 @@ def test_attack1_smuggled_hunk_in_non_conflicted_region_refuses(tmp_path, monkey
 def test_attack2_hand_resolution_byte_inequality_yet_verify_clean(tmp_path, monkeypatch):
     """A conflicted AUTO-SAFE hunk hand-resolved to bytes the deterministic resolver does NOT
     reproduce -> condition 5 fails on the hash-object byte-inequality check. The hand
-    resolution keeps every content atom from BOTH sides (renumbered to IDs the real resolver
-    would never pick), so `verify.verify(ours, theirs, merged)` is independently CLEAN --
+    resolution keeps every content atom from BOTH sides (in theirs-then-ours order, the reverse
+    of the resolver's keep-both), so `verify.verify(ours, theirs, merged)` is independently CLEAN --
     both are asserted, isolating byte-equality as the load-bearing discriminator (a fixture
     that only tripped the verify backstop would never exercise it). This is also the
     primitive-level core of attack 8b (a tampered resolver output never byte-reproduces the
     honest resolver's)."""
     s = build_scenario(tmp_path)
-    diverge_living_doc(s)   # base: "### Z1: base-side change"; design: "### Z1: design-side change"
+    diverge_living_doc(s)   # base: "- **2026-01-01** — base-side change"; design: "... 2026-01-02 ..."
     h0 = s.head()
     p2 = s.origin_head()
     ours_txt = s.git("show", f"{h0}:{LIVING_DOC_PATH}", check=True).stdout
     theirs_txt = s.origin_git("show", f"{p2}:{LIVING_DOC_PATH}", check=True).stdout
 
-    # Same two entries the honest resolver would keep, deliberately renumbered -- verify() is
-    # ID-independent (title-signature only), so every atom from ours/theirs still survives.
+    # Same two entries the honest resolver would keep, deliberately reordered -- verify() is
+    # order-independent (a set of log signatures), so every atom from ours/theirs still survives.
     hand_resolved = (
         "# Fixture Living Doc\n\n"
         "### Z0: seed entry\n"
-        "### Z97: design-side change\n"
-        "### Z98: base-side change\n"
+        "seed body line.\n"
+        "- **2026-01-01** — base-side change\n"
+        "- **2026-01-02** — design-side change\n"
     )
-    ok_verify, dropped = _verify.verify(ours_txt, theirs_txt, hand_resolved)
-    assert ok_verify is True, dropped
+    r = _verify.verify(ours_txt, theirs_txt, hand_resolved, mechanical_applied=True)
+    assert r.ok is True, r.dropped
 
     tampered = force_merge_commit(s, {LIVING_DOC_PATH: hand_resolved})
     _seat_oracle_on_base(s, monkeypatch)
@@ -280,3 +281,85 @@ def test_attack5_regex_disjointness_cert_comment_vs_proof_digest():
 
     digest_body = _digest_body("c" * 40)
     assert "basesync-cert.v1" not in digest_body
+
+
+# ============================================================
+# Task 1.4: cond 5 fails the link on an UNVERIFIABLE shape
+# ============================================================
+
+_BASE_TXT = ("*Last updated: 2026-05-01*\n\n# Known issues\n\n| ID | Name | Severity |\n"
+             "| --- | --- | --- |\n| L1 |  | high |\n")
+_OURS_TXT = _BASE_TXT + "| L4 |  | low |\n"
+_THEIRS_TXT = _BASE_TXT + "| L5 |  | med |\n"
+
+
+def _blob_seam(blobs: dict, h1_oid: str):
+    """A `run_git` seam serving canned plumbing output, so cond 5 can be driven with no repo on
+    disk (the same seam shape the other cond-5 fixtures use)."""
+    def _git(args):
+        if args[0] == "ls-tree":
+            return 0, f"100644 blob {h1_oid}\t{LIVING_DOC_PATH}\n", ""
+        if args[0] == "cat-file":
+            return 0, blobs[args[2]], ""
+        raise AssertionError(f"unexpected plumbing call: {args}")
+    return _git
+
+
+def test_unverifiable_fails_cond5():
+    """A conflict the resolver DOES resolve mechanically but the verifier parses zero atoms
+    from must fail condition 5 with its OWN distinct reason — not "" (a pass), and not the
+    existing drop reason. `LinkCheck.ok` then goes False and the approval-carry conjunct fails.
+
+    The blobs are a table whose Name cell is empty on every row: `classify.INV_ROW` keys on the ID
+    cell alone, so `design-inventory-row-merge` still resolves mechanically, while `verify.ROW`
+    signs the Name cell and yields no atom at all. (Before round 20 the fixture was an entry whose
+    title had moved off its `### L<n>:` heading — an `id-renumber-collision`, a class now gated,
+    which defers before any verifier runs.)
+    """
+    from auto_safe_resolution import RESOLVED as _R
+    from auto_safe_resolution import resolve_conflict_bytes_detail
+    from base_sync_cert import _cond5_resolve
+
+    # Precondition: the resolver really does apply a mechanical resolution here...
+    status, merged, mechanical = resolve_conflict_bytes_detail(
+        base=_BASE_TXT, ours=_OURS_TXT, theirs=_THEIRS_TXT)
+    assert status == _R and mechanical is True
+    # ...and the verifier finds NOTHING to check — the silent-pass class this design closes.
+    r = _verify.verify(_OURS_TXT, _THEIRS_TXT, merged, mechanical_applied=True)
+    assert r.verdict == _verify.UNVERIFIABLE and r.pre_atoms == 0
+
+    blobs = {"1" * 40: _BASE_TXT, "2" * 40: _OURS_TXT, "3" * 40: _THEIRS_TXT}
+    conflicts = {LIVING_DOC_PATH: {1: ("100644", "1" * 40),
+                                   2: ("100644", "2" * 40),
+                                   3: ("100644", "3" * 40)}}
+    reason = _cond5_resolve(_blob_seam(blobs, "a" * 40), conflicts, "h1")
+    assert reason == "zero-drop verifier could not verify this file's shape"
+    assert reason != ""                                             # never a silent pass
+    assert reason != "zero-drop verifier detected a content drop"   # distinct from a real drop
+
+
+def test_a_resolved_merge_the_verifier_finds_a_drop_in_fails_cond5_even_when_h1_matches():
+    """Round 25: cond 5's zero-drop conjunct, reached. The row merge resolves mechanically and takes
+    theirs' renamed Name cell for D1, so ours' `alpha` row atom is gone and `verify` reports
+    DROPS_DETECTED. h1's blob IS the merged bytes, so the byte-match conjunct after it would pass:
+    only the zero-drop conjunct can fail the link here."""
+    import hashlib
+
+    from auto_safe_resolution import RESOLVED as _R
+    from auto_safe_resolution import resolve_conflict_bytes_detail
+    from base_sync_cert import _cond5_resolve
+
+    base = "# Roadmap\n\n| ID | Design | Status |\n| --- | --- | --- |\n| D1 | alpha | Complete |\n"
+    ours = base + "| D2 | beta | In progress |\n"
+    theirs = base.replace("| alpha |", "| alpha-renamed |") + "| D3 | gamma | In progress |\n"
+    status, merged, mechanical = resolve_conflict_bytes_detail(base=base, ours=ours, theirs=theirs)
+    assert status == _R and mechanical is True
+    r = _verify.verify(ours, theirs, merged, mechanical_applied=True)
+    assert r.verdict == _verify.DROPS_DETECTED and r.dropped == [("row", "alpha")]
+
+    data = merged.encode("utf-8")
+    merged_oid = hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
+    blobs = {"1" * 40: base, "2" * 40: ours, "3" * 40: theirs}
+    conflicts = {LIVING_DOC_PATH: {s: ("100644", str(s) * 40) for s in (1, 2, 3)}}
+    assert _cond5_resolve(_blob_seam(blobs, merged_oid), conflicts, "h1") == \
+        "zero-drop verifier detected a content drop"

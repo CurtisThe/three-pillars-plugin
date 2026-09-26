@@ -45,7 +45,7 @@ def test_verify_archive_staged_runs_between_staging_and_commit() -> None:
     the STAGED index blobs) and BEFORE PR-open.
     """
     text = _read()
-    git_add_pos = text.find("git add three-pillars-docs/tp-designs/{design-name}")
+    git_add_pos = text.find("git add three-pillars-docs/completed-tp-designs/{design-name}/design.md")
     guard_pos = text.find("verify_archive_staged.py")
     commit_pos = text.find('git commit -m "Complete design:')
     pr_pos = text.find("gh pr create")
@@ -155,3 +155,60 @@ def test_auto_mode_inherits_staged_blob_guard() -> None:
     assert re.search(r"abort|BLOCK|escalat", block, re.IGNORECASE), (
         "## Auto Mode must state the guard aborts / escalates on failure"
     )
+
+
+# ---------------------------------------------------------------------------
+# design-complete-staging-loses-stamp Task 1.1: the dead old-path pathspec
+# ---------------------------------------------------------------------------
+
+BUNDLED_ADD = (
+    "git add three-pillars-docs/tp-designs/{design-name} "
+    "three-pillars-docs/completed-tp-designs/{design-name}/design.md"
+)
+ARCHIVED_DESIGN_ADD = (
+    "git add three-pillars-docs/completed-tp-designs/{design-name}/design.md"
+)
+
+
+def _step_6f_bash_block(text: str) -> str:
+    """Return the step-6f fenced ```bash block that carries the `git add` staging."""
+    for match in re.finditer(r"```bash\n(.*?)```", text, re.DOTALL):
+        body = match.group(1)
+        if "git add" in body and "git status --short" in body:
+            return body
+    raise AssertionError("step 6f staging ```bash block not found")
+
+
+def _add_pathspecs(line: str) -> list[str]:
+    """Pathspec tokens of a `git add` line — flags, redirections and `|| true` dropped."""
+    stripped = line.strip()
+    # Drop shell redirections and boolean tails; they are not pathspecs.
+    stripped = re.sub(r"\s*2>/dev/null.*$", "", stripped)
+    stripped = re.sub(r"\s*(\|\||&&|;).*$", "", stripped)
+    tokens = stripped.split()
+    assert tokens[:2] == ["git", "add"], line
+    return [t for t in tokens[2:] if not t.startswith("-")]
+
+
+def test_6f_no_bundled_add_old_path_gone() -> None:
+    """Step 6c's `git mv` makes `tp-designs/{design-name}` unmatchable, and git aborts
+    the WHOLE invocation on the first non-matching pathspec — so bundling it with the
+    archived design.md silently suppressed the stamp's add. One add per line."""
+    text = _read()
+    assert BUNDLED_ADD not in text, (
+        "the bundled add is dead: after 6c's git mv the old path cannot match, and a "
+        "non-matching pathspec aborts the whole invocation, suppressing the design.md add"
+    )
+    assert ARCHIVED_DESIGN_ADD in text, (
+        "step 6f must stage the archived design.md on its own line "
+        f"({ARCHIVED_DESIGN_ADD})"
+    )
+    block = _step_6f_bash_block(text)
+    for line in block.splitlines():
+        if not line.strip().startswith("git add"):
+            continue
+        specs = _add_pathspecs(line)
+        assert len(specs) <= 1, (
+            f"step 6f `git add` line carries {len(specs)} pathspecs ({specs}); "
+            "one missing path would suppress every other add in the same command"
+        )

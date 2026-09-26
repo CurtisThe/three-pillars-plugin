@@ -1,7 +1,7 @@
 ---
 name: tp-phase-implement
 description: Execute a phase from plan.md by running red-green-refactor cycles for each task. Spawns subagents for independent tasks within a phase.
-argument-hint: "{design-name} [phase-number] [--auto] [--force-takeover]"
+argument-hint: "{design-name} [phase-number] [--auto] [--local] [--force-takeover]"
 ---
 
 # Phase Implement
@@ -9,6 +9,8 @@ argument-hint: "{design-name} [phase-number] [--auto] [--force-takeover]"
 Execute one or more phases from the implementation plan.
 
 **Argument**: `{design-name}` (required), optionally followed by a phase number (e.g., `my-feature 2` for Phase 2 only). Without a phase number, executes the next incomplete phase.
+
+`--local` (opt-in, needs `local_implement.enabled` in `.three-pillars/config.json`) runs each task through the per-task tier ladder in `skills/_shared/local-dispatch.md`: cheap-model `tp-task-worker` attempts first, verified mechanically, escalating to Opus. Without it, dispatch is unchanged.
 
 ## Prerequisites
 - `three-pillars-docs/tp-designs/{design-name}/plan.md` must exist. If not, tell the user to run `/tp-plan {design-name}` first and stop.
@@ -22,12 +24,17 @@ Execute one or more phases from the implementation plan.
 
 0b. **Run the plan-audit gate (fail-closed)**: `python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_artifact.py --check three-pillars-docs/tp-designs/{design-name}`. A **non-zero** exit means no current passing plan-audit exists for this `plan.md` — the artifact is **absent** (audit never run / failed, which writes nothing), or **stale** because `plan.md` changed after the last passing audit. In every non-zero case, **REFUSE before any task cycle** and tell the user to run `/tp-plan-audit {design-name}` (re-audit the current `plan.md`). Exit 0 → the audit is current and passing → continue.
 
+0c. **Local preflight**: run `python3 "$TP_ROOT"/skills/_shared/agent_override_warn.py --root .` on **every** run, with or without `--local` (it always exits 0; show any warning about a project-local `tp-worker` / `tp-task-worker` override pinning a non-Opus model). Then, under `--local` only: `python3 "$TP_ROOT"/skills/_shared/local_implement_config.py --check interactive` (exit 1 → refuse `--local` and print its line) and `python3 "$TP_ROOT"/skills/_shared/task_verify.py sweep --design-dir three-pillars-docs/tp-designs/{design-name}` (clears this design's leftover attempts; a `landed[]` task is recorded done, per `local-dispatch.md` §1).
+
 1. **Run collaboration preflight** per `skills/_shared/collaboration.md` with `phase: "implement"`. This is the highest-risk skill — verifying the branch and lock before writing code is essential. Honor `--force-takeover` if passed.
 2. **Read `plan.md`** from the design directory.
 3. **Determine which phase to execute**:
    - If a phase number was given, use that.
    - Otherwise, find the first phase with unfinished tasks (check if the test files/functions exist and pass).
 4. **Show the user** which phase you're about to execute and how many tasks it contains. Ask for confirmation.
+
+4b. **Local ladder (`--local` only).** Show the tier table (`task_eligibility.py`, `local-dispatch.md` §1) with step 4's confirmation, then run every task per `skills/_shared/local-dispatch.md` (attempt worktree → spawn or inline cycle → `task_verify` check → land or discard → `tier_ladder`, one `[tier]` entry per task in `decisions.md` **interactive only** (full-design (`--auto` under `tp-worker`) returns each record as `telemetry` instead; the orchestrator writes the entry), halt on `env-error`) **instead of** step 5; steps 6-10 run unchanged. Without `--local`, skip this step.
+
 5. **For each task in the phase**, execute a red-green-refactor cycle:
 
    **If tasks within the phase are independent** (no interdependencies), **commit all uncommitted changes first** (worktree agents branch from the last committed state — uncommitted work won't be visible to them, causing regressions). Then spawn parallel Agent workers. Each agent gets this prompt embedded directly (do NOT rely on the agent calling /tp-task-cycle). The coordinator fills `{project_context_block}` in the RULES preamble from `skills/_shared/project_context.py`; omit the block when it is empty to preserve today's behavior byte-for-byte:
@@ -81,6 +88,7 @@ Execute one or more phases from the implementation plan.
     Artifact paths to stage:
     - `three-pillars-docs/tp-designs/{design-name}/plan.md`
     - `three-pillars-docs/tp-designs/{design-name}/lock.json` (if changed)
+    - `three-pillars-docs/tp-designs/{design-name}/decisions.md` (if changed — e.g. the `--local` `[tier]` entries)
 
     Commit message: `Implement: {design-name} phase-{n} done`.
 
@@ -110,6 +118,6 @@ In `--auto`:
 - Use the canonical init/append snippet in `skills/_shared/auto-mode.md` to write `decisions.md` (create with schema-v1 header if missing, otherwise append).
 - **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
 
-**Under orchestrator dispatch (`/tp-run-full-design` Slot 7):** this `--auto` invocation is itself running inside a subagent, and a subagent cannot spawn task sub-subagents (L23 — see `tp-run-full-design` `## Phase-implement dispatch`). Therefore step 5's parallel-worktree branch is unavailable and all tasks in the phase run serially within the single phase subagent. It also does **not** auto-advance across phase boundaries (the `## Auto Mode` "Auto-advance across phase boundaries" rule above): under orchestrator dispatch the orchestrator dispatches a **fresh subagent per plan phase** (`tp-run-full-design` `## Phase-implement dispatch`), so each dispatch runs its single target phase and returns — phase sequencing belongs to the orchestrator, not the subagent. Auto-advance applies only to standalone (human-invoked) `--auto`, which is otherwise unaffected here too — it may still parallelize when tasks are independent.
+**Under orchestrator dispatch (`/tp-run-full-design` Slot 7):** this `--auto` invocation runs inside the phase's `tp-worker` subagent, where nested dispatch is allowed only as `skills/_shared/local-dispatch.md` defines it: with a tier table in the prompt (`--local`), each `local`/`sonnet` task goes to a `tp-task-worker` spawn, one at a time; without one, every task runs serially inline and step 5's parallel-worktree branch is not used (`tp-run-full-design` `## Phase-implement dispatch — nested per task`). It also does **not** auto-advance across phase boundaries (the `## Auto Mode` "Auto-advance across phase boundaries" rule above): under orchestrator dispatch the orchestrator dispatches a **fresh subagent per plan phase**, so each dispatch runs its single target phase and returns — phase sequencing belongs to the orchestrator, not the subagent. Auto-advance applies only to standalone (human-invoked) `--auto`, which is otherwise unaffected here too — it may still parallelize when tasks are independent.
 
 **Contract: in `--auto`, this skill runs the red-green-refactor cycle without prompting; failures are retried up to 3× by simplifying the implementation (never the test), and judgment calls are logged to `decisions.md`.**

@@ -77,6 +77,18 @@ _TRUSTED_REVIEWER_BOTS = frozenset(
 )
 
 
+# The framework's own local review arm. `review_merge.normalize_codereview`
+# stamps every `/code-review` finding with `source == "code-review"` and no GitHub
+# identity, so the collaborators gate 404s on it and would defer the entire local
+# half of the dual-source loop as "non-collaborator". The arm is framework-
+# dispatched (SKILL.md step 2.5), so its findings are legitimate input, exactly
+# like a requested-reviewer bot. Keyed on `source` — set only by the framework's
+# normalizers — NEVER on `reviewer`, which for GitHub-sourced comments is the raw
+# author login (`structured_extract` copies `comment.user`), and "code-review" is a
+# legal GitHub login a drive-by account could carry.
+_LOCAL_REVIEW_SOURCE = "code-review"
+
+
 def _trusted_reviewer_bots() -> frozenset[str]:
     extra = os.environ.get("TP_PR_FIX_TRUSTED_BOTS", "")
     if not extra.strip():
@@ -177,9 +189,10 @@ def _summary_from_classified(structural: list[dict]) -> str:
     return f"{n} fixes from PR review"
 
 
-def _has_working_tree_changes() -> bool:
+def _has_working_tree_changes(paths: list[str] | None = None) -> bool:
+    scope = ["--", *paths] if paths is not None else []
     result = subprocess.run(
-        ["git", "status", "--porcelain"], capture_output=True, text=True, check=False
+        ["git", "status", "--porcelain", *scope], capture_output=True, text=True, check=False
     )
     return bool(result.stdout.strip())
 
@@ -247,6 +260,7 @@ def run_round(
     classified: list[dict],
     head_ref: str | None = None,
     loop_mode: bool = False,
+    paths: list[str] | None = None,
 ) -> dict:
     """Execute one end-to-end fix round. See module docstring for contract.
 
@@ -255,7 +269,13 @@ def run_round(
     `gh pr view --json headRefName`. `loop_mode=True` (loop driver / `--auto`)
     auto-checks-out the head on a mismatch; standalone refuses via
     HeadRefMismatch rather than mutating the operator's branch.
+
+    `paths` (the loop's round tail) scopes the change check and the commit to
+    those paths (`git status --porcelain -- <paths>`, `git add -- <paths>`); `[]`
+    returns `no-applicable-fixes` before any gh/git call. `None`: `git add -A`.
     """
+    if paths == []:  # [Q3] first statement: nothing to stage, touch nothing
+        return _make_envelope(iteration, [], [], "no-applicable-fixes", 0)
     fixes_deferred: list[dict] = []
     gated: list[dict] = []
 
@@ -264,10 +284,11 @@ def run_round(
     #    are legitimate reviewers (F3).
     trusted_bots = _trusted_reviewer_bots()
     for c in classified:
-        if c["reviewer"].lower() in trusted_bots:
+        reviewer = str(c.get("reviewer") or "").lower()
+        if reviewer in trusted_bots or c.get("source") == _LOCAL_REVIEW_SOURCE:
             gated.append(c)
             continue
-        verdict = _check_collaborator(pr_url, c["reviewer"])
+        verdict = _check_collaborator(pr_url, reviewer)
         if verdict == "collaborator":
             gated.append(c)
         elif verdict == "non-collaborator":
@@ -296,7 +317,7 @@ def run_round(
     # No actionable comments OR no changes in the working tree → return cleanly.
     # This early-exit is BEFORE the head-ref resolution/checkout below, so a
     # no-op round never touches the branch or makes a network call (F1).
-    if not structural or not _has_working_tree_changes():
+    if not structural or not _has_working_tree_changes(paths):
         return _make_envelope(iteration, [], fixes_deferred, "no-applicable-fixes", 0)
 
     # 2.5. Target the PR head ref, not the currently-checked-out branch (F1).
@@ -309,7 +330,8 @@ def run_round(
     summary = _summary_from_classified(structural)
     msg = _commit_message(iteration, summary)
     env = {**os.environ, **_resolve_committer_env()}
-    subprocess.run(["git", "add", "-A"], check=True)
+    subprocess.run(["git", "add", *(["--", *paths] if paths is not None else ["-A"])],
+                   check=True)
     subprocess.run(["git", "commit", "-m", msg], env=env, check=True)
     diff_lines = _count_diff_lines()
 

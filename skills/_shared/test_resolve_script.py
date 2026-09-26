@@ -66,26 +66,33 @@ def _make_plain_repo(root: Path) -> Path:
     return root
 
 
+def _cache_install(cache_root: Path, *parts: str) -> Path:
+    """A REAL cache install root: <cache>/<mkt>/<...>/ carrying the sentinel.
+
+    A cache entry is sentinel-qualified exactly like probes 1-4 (and exactly
+    like resolve_root.sh's `_check_cache_entry`), so a fixture that lays down
+    only `<name>` is not a cache install — it is a bare directory that happens
+    to hold a file, and the resolver must refuse to execute it. Every cache
+    fixture in this suite goes through here so none of them can drift back into
+    testing the unqualified shape.
+    """
+    root = cache_root.joinpath("marketplace", *parts)
+    _write(root / "skills" / "_shared" / "first-run.md", "# sentinel\n")
+    return root
+
+
 def _make_cache_versioned(
     cache_root: Path, plugin: str, version: str, name: str
 ) -> Path:
     """Lay out cache/<mkt>/<plugin>/<version>/skills/_shared/<name>; return it."""
-    target = (
-        cache_root
-        / "marketplace"
-        / plugin
-        / version
-        / "skills"
-        / "_shared"
-        / name
-    )
-    return _write(target, f"# {plugin} {version} copy\n")
+    root = _cache_install(cache_root, plugin, version)
+    return _write(root / "skills" / "_shared" / name, f"# {plugin} {version} copy\n")
 
 
 def _make_cache_versionless(cache_root: Path, plugin: str, name: str) -> Path:
     """Lay out cache/<mkt>/<plugin>/skills/_shared/<name> (local/versionless)."""
-    target = cache_root / "marketplace" / plugin / "skills" / "_shared" / name
-    return _write(target, f"# {plugin} versionless copy\n")
+    root = _cache_install(cache_root, plugin)
+    return _write(root / "skills" / "_shared" / name, f"# {plugin} versionless copy\n")
 
 
 def _same(a, b) -> bool:
@@ -101,7 +108,9 @@ def test_dogfood_repo_copy_wins(tmp_path):
     empty_cache = tmp_path / "cache"
     empty_cache.mkdir()
 
-    result = resolve_shared_script(name, cwd=repo, cache_root=empty_cache)
+    result = resolve_shared_script(
+        name, cwd=repo, cache_root=empty_cache, self_root=None, plugin_root=None
+    )
 
     assert _same(result, repo / "skills" / "_shared" / name)
     assert result.is_file()
@@ -114,7 +123,9 @@ def test_dogfood_wins_even_when_cache_also_has_module(tmp_path):
     cache_root = tmp_path / "cache"
     _make_cache_versioned(cache_root, "three-pillars", "1.0.0", name)
 
-    result = resolve_shared_script(name, cwd=repo, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=repo, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, repo / "skills" / "_shared" / name)
 
@@ -135,7 +146,9 @@ def test_dogfood_wins_regardless_of_mtime_order(tmp_path):
     os.utime(dogfood_copy, (1_000, 1_000))
     os.utime(cache_copy, (9_000_000_000, 9_000_000_000))
 
-    result = resolve_shared_script(name, cwd=repo, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=repo, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, dogfood_copy)
 
@@ -151,7 +164,9 @@ def test_missing_everywhere_raises_naming_probed_roots(tmp_path):
     empty_cache.mkdir()
 
     with pytest.raises(SharedScriptNotFound) as exc:
-        resolve_shared_script(name, cwd=plain, cache_root=empty_cache)
+        resolve_shared_script(
+            name, cwd=plain, cache_root=empty_cache, self_root=None, plugin_root=None
+        )
 
     msg = str(exc.value)
     assert name in msg
@@ -168,7 +183,9 @@ def test_never_returns_nonexistent_path(tmp_path):
     empty_cache.mkdir()
 
     with pytest.raises(SharedScriptNotFound):
-        resolve_shared_script(name, cwd=repo, cache_root=empty_cache)
+        resolve_shared_script(
+            name, cwd=repo, cache_root=empty_cache, self_root=None, plugin_root=None
+        )
 
 
 def test_no_third_party_imports():
@@ -176,7 +193,7 @@ def test_no_third_party_imports():
     import ast
 
     tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
-    stdlib_ok = {"os", "subprocess", "sys", "pathlib", "__future__", "ast"}
+    stdlib_ok = {"os", "stat", "subprocess", "sys", "pathlib", "__future__", "ast"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -195,7 +212,9 @@ def test_consumer_repo_falls_back_to_versioned_cache(tmp_path):
     cache_root = tmp_path / "cache"
     cache_copy = _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
 
-    result = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, cache_copy)
     assert result.is_file()
@@ -208,7 +227,9 @@ def test_cache_path_descends_into_version_segment(tmp_path):
     cache_root = tmp_path / "cache"
     _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
 
-    result = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     parts = result.parts
     # The <version> segment sits directly under the plugin dir and above skills/.
@@ -226,7 +247,9 @@ def test_versionless_cache_layout_supported(tmp_path):
     cache_root = tmp_path / "cache"
     cache_copy = _make_cache_versionless(cache_root, "three-pillars", name)
 
-    result = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, cache_copy)
 
@@ -239,7 +262,9 @@ def test_resolution_outside_any_git_repo_falls_to_cache(tmp_path):
     cache_root = tmp_path / "cache"
     cache_copy = _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
 
-    result = resolve_shared_script(name, cwd=non_repo, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=non_repo, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, cache_copy)
 
@@ -253,20 +278,14 @@ def test_free_module_skips_pro_cache_that_lacks_it(tmp_path):
     consumer = _make_plain_repo(tmp_path / "consumer")
     cache_root = tmp_path / "cache"
     # PRO plugin present but LACKS the FREE-only module (only a sibling file).
-    _write(
-        cache_root
-        / "marketplace"
-        / "three-pillars-pro"
-        / "1.2.0"
-        / "skills"
-        / "_shared"
-        / "some_pro_only.py",
-        "# pro\n",
-    )
+    pro = _cache_install(cache_root, "three-pillars-pro", "1.2.0")
+    _write(pro / "skills" / "_shared" / "some_pro_only.py", "# pro\n")
     # FREE plugin HAS it.
     free_copy = _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
 
-    result = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, free_copy)
 
@@ -274,13 +293,16 @@ def test_free_module_skips_pro_cache_that_lacks_it(tmp_path):
 # --------------------------------------------------------------------------- #
 # Task 1.2 — determinism (lexicographic, not mtime)
 # --------------------------------------------------------------------------- #
-def test_two_roots_with_module_pick_lexicographic_winner(tmp_path):
+def test_two_roots_with_module_pick_lexicographic_root_winner(tmp_path):
     """Both FREE and PRO carry the module → deterministic string-first winner.
 
-    The winner is the lexicographically-first FULL PATH, exactly mirroring
-    resolve_root.sh's ``sort | head -n 1`` — so the resolver stays byte-identical
-    to what ``$TP_ROOT`` produces today for this single-selection. It must be
-    stable across runs and independent of mtime order (Behavior 5).
+    The winner is the lexicographically-first ROOT, mirroring resolve_root.sh's
+    ``sort | head -n 1`` over its probe-3 matches — NOT the first full script
+    path, a different ordering whenever one root prefixes another (pinned by
+    the next case). These two roots are versioned, so neither prefixes the
+    other and both orderings agree: PRO wins on bytes, ``-`` (0x2D) sorting
+    below ``/`` (0x2F). ``expected`` is hard-coded, and the winner is stable
+    across runs and independent of mtime order (Behavior 5).
     """
     name = "github_pr_author.py"
     consumer = _make_plain_repo(tmp_path / "consumer")
@@ -288,20 +310,43 @@ def test_two_roots_with_module_pick_lexicographic_winner(tmp_path):
     free_copy = _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
     pro_copy = _make_cache_versioned(cache_root, "three-pillars-pro", "1.2.0", name)
 
-    expected = sorted([free_copy, pro_copy], key=str)[0]
+    expected = pro_copy
 
     # Winner is stable regardless of mtime order (flip them and re-run).
     os.utime(free_copy, (1_000, 1_000))
     os.utime(pro_copy, (9_000_000_000, 9_000_000_000))
-    first = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    first = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     os.utime(free_copy, (9_000_000_000, 9_000_000_000))
     os.utime(pro_copy, (1_000, 1_000))
-    second = resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+    second = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(first, expected)
     assert _same(second, expected)
     assert _same(first, second)
+    assert not _same(first, free_copy)
+
+
+def test_cache_tie_break_sorts_roots_so_free_beats_pro_on_a_prefix_pair(tmp_path):
+    """Unversioned ``three-pillars`` vs ``three-pillars-pro``: FREE wins.
+
+    ``three-pillars`` prefixes ``three-pillars-pro``; sorting the full script
+    PATHS would put PRO first (``-`` < ``/``), resolving a FREE module out of the
+    PRO cache. The winner is the first ROOT, as in ``resolve_root.sh``.
+    """
+    name = "github_pr_author.py"
+    cache_root = tmp_path / "cache"
+    free_copy = _make_cache_versionless(cache_root, "three-pillars", name)
+    pro_copy = _make_cache_versionless(cache_root, "three-pillars-pro", name)
+    assert sorted([free_copy, pro_copy], key=str)[0] == pro_copy  # discriminating
+    got = resolve_shared_script(
+        name, cwd=None, cache_root=cache_root, self_root=None, plugin_root=None
+    )
+    assert _same(got, free_copy)
 
 
 # --------------------------------------------------------------------------- #
@@ -323,7 +368,9 @@ def test_framework_root_missing_script_falls_through_to_cache(tmp_path):
     cache_root = tmp_path / "cache"
     cache_copy = _make_cache_versioned(cache_root, "three-pillars", "1.2.0", name)
 
-    result = resolve_shared_script(name, cwd=repo, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=repo, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, cache_copy)
     assert result.is_file()
@@ -352,7 +399,9 @@ def test_populated_cache_no_match_names_scanned_plugin_roots(tmp_path):
     pro_shared = pro_sib.parent
 
     with pytest.raises(SharedScriptNotFound) as exc:
-        resolve_shared_script(name, cwd=consumer, cache_root=cache_root)
+        resolve_shared_script(
+            name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+        )
 
     msg = str(exc.value)
     # Both discovered-but-non-matching plugin _shared roots are NAMED.
@@ -360,6 +409,58 @@ def test_populated_cache_no_match_names_scanned_plugin_roots(tmp_path):
     assert str(pro_shared) in msg, "PRO plugin root must be enumerated"
     assert str(free_shared) in exc.value.probed_roots
     assert str(pro_shared) in exc.value.probed_roots
+
+
+# --------------------------------------------------------------------------- #
+# PR #144 S2 — a cache candidate is SENTINEL-QUALIFIED, like every other probe
+# --------------------------------------------------------------------------- #
+def test_cache_entry_without_sentinel_is_skipped(tmp_path):
+    """A `three-pillars*` cache dir holding <name> but NO sentinel never wins.
+
+    Probes 1-4 all gate on `_is_framework_root`; before this, probe 5 qualified
+    a winner on nothing but the file existing. That made the cache the one root
+    where a directory REJECTED at probe 2 for a missing sentinel would win —
+    and the returned path is fed straight to `python3` by all three call sites.
+    `resolve_root.sh` has always required the sentinel here (`_check_cache_entry`
+    calls `_has_sentinel`), so this is the two resolvers agreeing again.
+    """
+    name = "github_pr_author.py"
+    consumer = _make_plain_repo(tmp_path / "consumer")
+    cache_root = tmp_path / "cache"
+    # Correctly NAMED and correctly SHAPED, carrying <name> — but not a
+    # framework root, because the sentinel is absent.
+    impostor = cache_root / "marketplace" / "three-pillars" / "1.2.0"
+    _write(impostor / "skills" / "_shared" / name, "# unqualified\n")
+
+    with pytest.raises(SharedScriptNotFound) as exc:
+        resolve_shared_script(
+            name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+        )
+
+    # Skipped as a WINNER, but still enumerated as a miss — never silently dropped.
+    shared = str(impostor / "skills" / "_shared")
+    assert shared in exc.value.probed_roots
+    assert ("cache", shared, "miss") in exc.value.probe_report
+
+
+def test_cache_sentinel_is_the_only_difference(tmp_path):
+    """Positive twin: the SAME tree plus the sentinel resolves.
+
+    Pins that the skip above is caused by the missing sentinel and nothing else
+    — layout, glob and name are identical across the two cases.
+    """
+    name = "github_pr_author.py"
+    consumer = _make_plain_repo(tmp_path / "consumer")
+    cache_root = tmp_path / "cache"
+    install = cache_root / "marketplace" / "three-pillars" / "1.2.0"
+    copy = _write(install / "skills" / "_shared" / name, "# qualified\n")
+    _write(install / "skills" / "_shared" / "first-run.md", "# sentinel\n")
+
+    result = resolve_shared_script(
+        name, cwd=consumer, cache_root=cache_root, self_root=None, plugin_root=None
+    )
+
+    assert _same(result, copy)
 
 
 # --------------------------------------------------------------------------- #
@@ -377,6 +478,8 @@ def test_missing_git_binary_falls_to_cache(tmp_path, monkeypatch):
 
     monkeypatch.setattr(resolve_script.subprocess, "run", _boom)
 
-    result = resolve_shared_script(name, cwd=tmp_path, cache_root=cache_root)
+    result = resolve_shared_script(
+        name, cwd=tmp_path, cache_root=cache_root, self_root=None, plugin_root=None
+    )
 
     assert _same(result, cache_copy)

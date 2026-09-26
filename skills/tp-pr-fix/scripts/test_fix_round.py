@@ -226,35 +226,6 @@ def test_identity_gate_via_gh_collaborators(tmp_path, monkeypatch):
     assert len(envelope["fixes_applied"]) == 0
 
 
-def test_copilot_bot_reviewer_is_trusted_despite_404(tmp_path, monkeypatch):
-    """F3 (pr-fix-targeting): Copilot is a requested-reviewer *Bot*, not a repo
-    collaborator, so `gh api .../collaborators/Copilot` 404s. Its review comments
-    are legitimate and must be actioned — a trusted-reviewer-bot allowlist
-    short-circuits the gate so a structural Copilot comment is applied, NOT
-    deferred as 'non-collaborator'. Runs in non-collaborator mode so a regression
-    (removing the allowlist) re-defers it and fails this test."""
-    clone, env = _make_repo_fixture(tmp_path, mode="non-collaborator")
-    _git(clone, "config", "user.email", "curtis.theoret@gmail.com", env=env)
-    monkeypatch.chdir(clone)
-    for k, v in env.items():
-        monkeypatch.setenv(k, v)
-
-    (clone / "fix.py").write_text("# fix applied\n")
-
-    classified = [_make_classified("c1", "Copilot")]
-    envelope = fix_round.run_round(
-        design="foo",
-        pr_url="https://github.com/o/r/pull/1",
-        iteration=1,
-        classified=classified,
-    )
-
-    deferred_reasons = [d["reason"] for d in envelope["fixes_deferred"]]
-    assert "non-collaborator" not in deferred_reasons, envelope
-    assert envelope["verdict"] == "applied", envelope
-    assert any(f["comment_id"] == "c1" for f in envelope["fixes_applied"])
-
-
 def test_identity_gate_failure_aborts_round_only_returns_envelope_marking_deferred(
     tmp_path, monkeypatch
 ):

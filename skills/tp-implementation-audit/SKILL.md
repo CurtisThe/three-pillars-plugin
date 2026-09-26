@@ -1,7 +1,7 @@
 ---
 name: tp-implementation-audit
 description: "Final audit of a completed plan — verify the full implementation against both design.md and detailed-design.md."
-argument-hint: "{design-name} [--auto] [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--force-takeover] [--certify-sweep]"
 ---
 
 # Implementation Audit
@@ -104,6 +104,9 @@ Write `three-pillars-docs/tp-designs/{design-name}/implementation-audit.md`:
 ## Cross-Phase Drift
 - <inconsistencies between phases, if any>
 
+## Guards certified
+<mandatory: one line per claim — `[cert:<id>]` guard, property, status — or exactly `No guard claims.`>
+
 ## Verdict
 <One of: PASS — implementation faithfully matches design | PASS WITH NOTES — minor deviations documented above | NEEDS WORK — significant gaps listed above>
 
@@ -111,9 +114,26 @@ Write `three-pillars-docs/tp-designs/{design-name}/implementation-audit.md`:
 - <concrete next steps if anything needs fixing>
 ```
 
+### 8b. Certify guard claims
+An audit that says a guard (test, check, lint, gate) *enforces* a property must prove it, per `skills/_shared/certification-protocol.md` (the single source; §Interactive surfaces). Write each such claim (`{id, guard, property, parameters, subjects}`, `subjects` being the repo-relative files the guard checks: the only files the certifier may perturb, so a claim without them certifies `unverified`) to `three-pillars-docs/tp-designs/{design-name}/certifications/impl-audit.claims.json` and tag its sentence `[cert:<id>]`. Resolve the CLI:
+```bash
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TOP"/skills/_shared/resolve_script.py; else RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi
+CERT="$(python3 "$RS" certify.py)" || exit 1
+```
+The artifact is always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <implementation-audit.md>` prints the `verdict` to join into `## Verdict`; with claims, steps 1–3:
+1. Dispatch `Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+2. Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/impl-audit.json`. Exit ≠ 0: step 3 uses `--unverified records-handoff` in place of `--records`.
+3. Run the caller's certification. Fill `## Guards certified` from its statuses; `## Verdict` is the worse of Step 8's and the printed `verdict` (protocol §Verdicts order):
+```bash
+python3 "$CERT" run --claims <claims> --records <records> --repo . --ref <S> --name impl-audit --artifact <implementation-audit.md>
+```
+Running as a subagent (no Agent tool), or `--auto` without a certifier result: every claim is `unverified` (`certifier-unavailable`) → BLOCKED, `Cause: certification-unverified`.
+
 ### 9. Commit the artifact
 Commit per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
 - `three-pillars-docs/tp-designs/{design-name}/implementation-audit.md`
+- `three-pillars-docs/tp-designs/{design-name}/certifications/impl-audit.claims.json` and `certifications/records/impl-audit.json` (if Step 8b ran)
 - `three-pillars-docs/tp-designs/{design-name}/lock.json` (if refreshed)
 
 Commit message: `Audit: {design-name} implementation`.
@@ -131,6 +151,9 @@ After presenting the audit verdict, **prompt the user to run `/tp-design-learn` 
 
 This prompt is **interactive-only**. In `--auto` mode it does not fire — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict.
 
+### Certify-sweep mode (`--certify-sweep`)
+A post-merge mode, run once a design that shipped sweep and self claims has been released and the plugin reinstalled. It certifies the design's committed `sweep-NN.claims.json` and `self.claims.json`, writes its `sweep-ledger.md`, files the misses as known issues, and closes the design's open "sweep ledger pending" entry. After the first-run preflight it replaces Steps 0–10 and the Prerequisites (the design dir may be archived) with the runbook in `skills/_shared/certification-protocol.md` §Certify-sweep; follow it exactly. It refuses `--auto` and subagent runs (it dispatches `tp-certifier` through the Agent tool), refuses "release + reinstall first" when a `tp-certifier` dispatch reports an unknown subagent, and commits only from a dedicated `tp/{design-name}-certify-sweep` worktree.
+
 ## Rules
 - **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — the final audit should be written by the design's current owner. Pass `--force-takeover` to claim the design before auditing it.
@@ -143,7 +166,7 @@ This prompt is **interactive-only**. In `--auto` mode it does not fire — the a
 
 ## Auto Mode
 
-`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8 run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through **and the prompt-to-invoke-`/tp-design-learn`** are both skipped — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict. This skill must NOT invoke `/tp-design-learn` from inside `--auto` mode: that would double-fire learn on the autonomous path and would re-introduce the "audit also writes docs" coupling that Shape C verdict-only explicitly forbids.
+`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8b run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through **and the prompt-to-invoke-`/tp-design-learn`** are both skipped — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict. This skill must NOT invoke `/tp-design-learn` from inside `--auto` mode: that would double-fire learn on the autonomous path and would re-introduce the "audit also writes docs" coupling that Shape C verdict-only explicitly forbids.
 
 In `--auto`:
 - **Per-finding self-assessment.** While compiling findings in step 8, self-assess **Confidence: High | Medium | Low** for each finding per the auto-mode convention. Confidence drives the verdict, not severity. Record confidence alongside the finding in the Gaps / Unintended Additions / Cross-Phase Drift sections of `implementation-audit.md`.
@@ -151,6 +174,7 @@ In `--auto`:
   - **PASS** — empty findings list. Exit 0.
   - **PASS WITH NOTES** — all findings are High confidence; no Medium or Low present. Exit 0.
   - **NEEDS WORK** — any Medium or Low finding present. Exit non-zero.
+  - **Certification join** — then `combine_verdict(<that verdict>, <Step 8b claim statuses + one `unverified` per counted phrase hit>)` (same module): `not-binding`/`false-red` → NEEDS WORK; UNVERIFIED → BLOCKED, `Cause: certification-unverified`, exit non-zero; KNOWN BYPASS proceeds, the bypass recorded verbatim.
 - **Never auto-edit code or design artifacts.** Even High-confidence findings are recorded as notes in `implementation-audit.md`; the human acts on them. This is the line between Shape C apply-fixes (`/tp-design-audit`) and Shape C verdict-only (this skill).
 - **Decisions log.** Append a Decision Entry to `three-pillars-docs/tp-designs/{design-name}/decisions.md` with the verdict, finding count by confidence (e.g., `2 High, 0 Medium, 0 Low → PASS WITH NOTES`), and **Confidence: High** (the verdict rule is deterministic, so the *decision-to-emit-the-verdict* is always high-confidence even when the underlying findings are not). Use `[tp-implementation-audit]` as the bare skill-name prefix.
 - **NEEDS WORK escalation.** On NEEDS WORK, append a BLOCKED entry instead with **Cause: medium-low-confidence-findings** and **Details:** the full finding list with confidence labels, then exit non-zero so the orchestrator escalates.

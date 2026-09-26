@@ -1,3 +1,8 @@
+---
+name: project-scope
+description: "Shared instruction snippet referenced by every council agent and worker (not a standalone deployable agent): the read-only project-scope security constraint, enforced by framework-check.sh."
+---
+
 # Agent Project Scope
 
 Only access files within the current project directory. Do not read files outside the project root — this includes home directory dotfiles (`~/.ssh/`, `~/.aws/`, `~/.config/`), system files (`/etc/`), and other repositories.

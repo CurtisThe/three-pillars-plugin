@@ -160,7 +160,9 @@ envelope = fix_round.run_round(
 What `run_round` does, in order:
 
 - Identity-gates each commenter via `gh api repos/.../collaborators/{user}`, with a
-  **trusted-reviewer-bot short-circuit**:
+  **trusted-reviewer-bot short-circuit** (and the same short-circuit for the loop's own
+  local `/code-review` arm, keyed on the framework-set `source == "code-review"` —
+  `fix_round._LOCAL_REVIEW_SOURCE` — never on `reviewer`, which is a raw GitHub login):
   - **Trusted requested-reviewer bot** (e.g. GitHub Copilot — `Copilot`,
     `copilot-pull-request-reviewer[bot]`) → **gated through**, *not* deferred.
     A bot reviewer is not a repo collaborator, so `gh api .../collaborators/{bot}`

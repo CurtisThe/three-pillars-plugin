@@ -40,7 +40,7 @@ def _three_commit_repo(tmp_path, path, base_txt, ours_txt, theirs_txt):
     repo = tmp_path / "r"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "master")
-    (repo / "three-pillars-docs").mkdir()
+    (repo / path).parent.mkdir(parents=True, exist_ok=True)
     (repo / path).write_text(base_txt)
     _git(repo, "add", "-A"); _git(repo, "commit", "-q", "-m", "base")
     _git(repo, "checkout", "-q", "-b", "design")
@@ -79,6 +79,57 @@ def test_history_prepend_auto_resolves_and_reproduces_bytes(tmp_path):
     status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt)
     assert status == RESOLVED
     assert merged == written
+
+
+DECISIONS = "three-pillars-docs/tp-designs/demo/decisions.md"
+
+
+def _decisions(entries):
+    """The real `decisions.md` shape `auto-mode.md` prescribes."""
+    body = "\n\n".join(
+        f"### [{tag}] {title}\n**Question**: {q}\n**Decided**: {d}\n**Confidence**: High"
+        for tag, title, q, d in entries)
+    return f"# Decisions — demo\n\n{body}\n"
+
+
+def test_decisions_log_both_sides_append_auto_resolves(tmp_path):
+    """Design Behavior 4, end to end: the guaranteed hand-resolve on every `/tp-run-full-design`
+    fold is gone. The orchestrator appends on `tp/{slug}` while a worker appends on
+    `candidate/{slug}/single`; both entry sets survive, auto-resolved and staged, no human."""
+    seed = ("tp-promote", "promoted from seed", "promote?", "yes")
+    base_txt = _decisions([seed])
+    ours_txt = _decisions([seed, ("tp-plan", "one phase", "escalate?", "no")])
+    theirs_txt = _decisions([seed, ("tp-plan-audit", "council round 1", "which findings?", "1+3")])
+
+    repo = _three_commit_repo(tmp_path, DECISIONS, base_txt, ours_txt, theirs_txt)
+    report = merge_driver.merge_back(str(repo), "master")
+
+    assert DECISIONS in report.auto_resolved, report.to_json()
+    assert report.needs_human is False, report.to_json()
+
+    written = (repo / DECISIONS).read_text(encoding="utf-8")
+    for needle in ("[tp-promote]", "[tp-plan]", "[tp-plan-audit]",
+                   "promoted from seed", "one phase", "council round 1"):
+        assert needle in written                            # zero-drop: every entry survives
+    assert "<<<<<<<" not in written
+
+    # Cert byte-repro precondition: the shared resolve path reproduces the written bytes exactly.
+    status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt)
+    assert status == RESOLVED
+    assert merged == written
+
+
+def test_design_md_sibling_still_defers(tmp_path):
+    """Only `decisions.md` joins the mechanical lane — a sibling design artifact under the same
+    slug directory is NOT auto-resolved, so the pattern is not a `tp-designs/**` glob."""
+    path = "three-pillars-docs/tp-designs/demo/design.md"
+    base_txt = "# Design\n\n## Scope\n\nshared prose.\n"
+    repo = _three_commit_repo(tmp_path, path, base_txt,
+                              base_txt.replace("shared prose.", "ours rewrote the scope."),
+                              base_txt.replace("shared prose.", "theirs rewrote the scope."))
+    report = merge_driver.merge_back(str(repo), "master")
+    assert path not in report.auto_resolved, report.to_json()
+    assert report.needs_human is True
 
 
 def test_history_semantic_edit_still_defers(tmp_path):

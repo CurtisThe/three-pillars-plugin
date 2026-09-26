@@ -2,10 +2,8 @@
 
 Five tests:
 - four grep substrings (`Agent(`, `claude-sonnet-4-6`, `classifier-flip`, `--dry-run`)
-- one ast walk asserting `classifier_judge.py` does not `import anthropic`
-  nor `from anthropic …` — the C1 constraint that helpers compute/parse
-  and prose orchestrates.
-
+- one ast walk asserting `classifier_judge.py` does not `import anthropic` nor
+  `from anthropic …` — the C1 constraint that helpers compute/parse and prose orchestrates.
 Run with: pytest skills/tp-pr-iterate/scripts/test_pr_iterate_skill_md.py -q
 """
 
@@ -21,10 +19,14 @@ SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
 C1_HELPERS = [
     Path(__file__).parent / "classifier_judge.py",
     Path(__file__).parent / "review_merge.py",
+    Path(__file__).parent / "review_merge_dedupe.py",
     Path(__file__).parent.parent.parent / "_shared" / "thread_resolver.py",
     # Phase 4 (pr-iterate-codereview-real-harness): run_round.py is the B1 CLI
     # wrapper — C1-clean (no anthropic, no claude subprocess; fan-out is caller-driven).
     Path(__file__).parent / "run_round.py",
+    # pr-iterate-state-bootstrap: run_round.py's state seam. Stdlib-only by contract,
+    # so it is held to the same C1 constraint as the wrapper that imports it.
+    Path(__file__).parent / "iterate_state.py",
 ]
 
 
@@ -243,7 +245,7 @@ def test_copilot_rerequest_new_sha_gotcha_documented() -> None:
     )
 
 
-# ---------- Phase 6: run_loop and _request_copilot_review references ----------
+# ---------- Phase 6: run_round and _request_copilot_review references ----------
 
 
 def test_terminal_mentions_reviewed_conjunct() -> None:
@@ -267,13 +269,12 @@ def test_terminal_mentions_reviewed_conjunct() -> None:
     )
 
 
-def test_skill_md_points_loop_body_at_run_loop() -> None:
-    """Phase 6, Task 6.1: SKILL.md loop-body section must reference run_loop
-    and the per-round Copilot re-request must delegate to _request_copilot_review
-    rather than restating raw REST prose as the source of truth."""
+def test_skill_md_points_loop_body_at_run_round() -> None:
+    """SKILL.md loop body names run_round (run_loop is deleted, Task 4.2) and the
+    per-round Copilot re-request delegates to _request_copilot_review."""
     body = _read_skill()
-    assert "run_loop" in body, (
-        "SKILL.md loop-body section must name run_loop (the assembled driver)"
+    assert "run_round" in body and "run_loop" not in body, (
+        "SKILL.md loop body must name run_round, not the deleted run_loop driver"
     )
     assert "_request_copilot_review" in body, (
         "SKILL.md must reference _request_copilot_review for the per-round Copilot re-request"

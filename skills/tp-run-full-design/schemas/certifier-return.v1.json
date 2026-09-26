@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:tp-run-full-design:certifier-return:v1",
+  "title": "tp-certifier return",
+  "description": "Return envelope of the tp-certifier agent. The certifier never commits and never inlines records: it names a records file (a JSON array at an absolute path in its own scratch dir, outside its worktree) plus the file's sha256 and record count. The caller copies the file and re-checks sha256 and count; a missing file or a mismatch makes every claim of that claims file unverified (records-handoff).",
+  "type": "object",
+  "required": ["schema", "status", "claims_file", "repair_log", "unauthored"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"required": ["status"], "properties": {"status": {"const": "pass"}}},
+      "then": {"required": ["records_file", "records_sha256", "record_count"]}
+    }
+  ],
+  "properties": {
+    "schema": {"const": "tp-run-full-design/certifier-return/v1"},
+    "status": {"type": "string", "enum": ["pass", "errored"]},
+    "claims_file": {"type": "string", "minLength": 1},
+    "records_file": {"type": "string", "pattern": "^/"},
+    "records_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "record_count": {"type": "integer", "minimum": 0},
+    "repair_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "attempts", "last_reasons"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "attempts": {"type": "integer", "minimum": 0},
+          "last_reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "unauthored": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "telemetry": {"type": "object", "additionalProperties": true}
+  }
+}

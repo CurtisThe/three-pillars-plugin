@@ -23,6 +23,9 @@ import pytest
 sys.path.insert(0, os.path.dirname(__file__))
 from auto_safe_resolution import (  # noqa: E402
     AUTO_SAFE_PATHS,
+    DEFER,
+    is_auto_safe_path,
+    resolve_conflict_bytes_detail,
     RESOLVED,
     _diff3_conflict_text,
     decode_blob_strict,
@@ -47,15 +50,16 @@ def _git(repo, *args, check=True):
 
 def _asymmetric_repo(tmp_path):
     """base/ours/theirs pairwise structurally distinct -- ANY positional swap between
-    (base, ours, theirs) is byte-detectable in the merged output. Mirrors the
-    id-renumber-collision shape already proven to fully auto-resolve (test_merge_driver.py)."""
+    (base, ours, theirs) is byte-detectable in the merged output. Both sides append dated log
+    entries after base's last entry: a `log-entry-insertion` that fully auto-resolves. (Before
+    round 20 this was an `id-renumber-collision`, a class now gated.)"""
     repo = tmp_path / "r"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "master")
     (repo / "three-pillars-docs").mkdir()
     base_txt = "*Last updated: 2026-05-01*\n\n# Known issues\n\n### L1: base issue\nbody\n"
-    ours_txt = base_txt + "### L4: ours unique entry\nours body\n"
-    theirs_txt = base_txt + "### L4: theirs entry one\nt1\n### L5: theirs entry two\nt2\n"
+    ours_txt = base_txt + "- **2026-05-02** — ours unique entry\n"
+    theirs_txt = base_txt + "- **2026-05-03** — theirs entry one\n- **2026-05-04** — theirs entry two\n"
     (repo / KI).write_text(base_txt)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "base")
@@ -88,6 +92,11 @@ def test_resolve_conflict_bytes_reproduces_resolve_living_doc_bytes(tmp_path):
     status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt)
     assert status == RESOLVED
     assert merged == written
+    # BYTES, not just text. `_cond5_resolve` re-derives the expected blob oid from
+    # `merged.encode("utf-8")`, so the identity that matters is on-disk bytes == those bytes. A
+    # text-mode write would encode with the ambient locale and translate `\n` -> `os.linesep`,
+    # which `read_text` above would silently translate BACK, hiding the mismatch.
+    assert (repo / KI).read_bytes() == merged.encode("utf-8")
 
     # Asymmetry backstop: swapping the base<->ours keyword mapping changes the result -- proving
     # the fixture actually detects a positional/keyword confusion, not a coincidental match.
@@ -133,3 +142,88 @@ def test_crlf_bytes_round_trip_through_binary_subprocess_capture(tmp_path):
 def test_undecodable_content_is_a_strict_decode_failure():
     with pytest.raises(UnicodeDecodeError):
         decode_blob_strict(b"\xff\xfe not valid utf-8")
+
+
+# ---- Task 1.3: the per-file "a mechanical resolution was applied" fact -----------------------
+
+def test_detail_reports_mechanical_applied():
+    """`resolve_conflict_bytes_detail` exposes the OR-of-hunks fact `verify()` needs to tell
+    'nothing was lost' from 'nothing was examined'. A real `log-entry-insertion` conflict
+    resolves mechanically -> True; a generic-prose conflict defers -> False."""
+    base = "# Architecture\n\n## History\n\n- **2026-07-01** — decision A\n"
+    ours = ("# Architecture\n\n## History\n\n"
+            "- **2026-07-04** — decision OURS\n- **2026-07-01** — decision A\n")
+    theirs = ("# Architecture\n\n## History\n\n"
+              "- **2026-07-05** — decision THEIRS\n- **2026-07-01** — decision A\n")
+    status, merged, mechanical = resolve_conflict_bytes_detail(base=base, ours=ours, theirs=theirs)
+    assert status == RESOLVED and mechanical is True
+    assert "decision OURS" in merged and "decision THEIRS" in merged
+
+    p_base = "# Doc\n\nSome shared prose paragraph.\n"
+    p_ours = "# Doc\n\nOurs rewrote the paragraph entirely.\n"
+    p_theirs = "# Doc\n\nTheirs rewrote it a different way.\n"
+    status, _merged, mechanical = resolve_conflict_bytes_detail(
+        base=p_base, ours=p_ours, theirs=p_theirs)
+    assert status == DEFER and mechanical is False
+
+
+def test_detail_and_plain_agree_on_bytes():
+    """`resolve_conflict_bytes` must stay a pure delegate — the RME-certified byte path and its
+    signature are unchanged, so both forms produce byte-identical output."""
+    base = "# Architecture\n\n## History\n\n- **2026-07-01** — decision A\n"
+    ours = base.replace("## History\n\n", "## History\n\n- **2026-07-04** — decision OURS\n")
+    theirs = base.replace("## History\n\n", "## History\n\n- **2026-07-05** — decision THEIRS\n")
+    plain = resolve_conflict_bytes(base=base, ours=ours, theirs=theirs)
+    detail = resolve_conflict_bytes_detail(base=base, ours=ours, theirs=theirs)
+    assert detail[:2] == plain
+
+
+def test_detail_is_keyword_only():
+    with pytest.raises(TypeError):
+        resolve_conflict_bytes_detail("b", "o", "t")   # type: ignore[misc]
+
+
+# ---- Task 1.9: `tp-designs/*/decisions.md` joins the mechanical lane -------------------------
+
+def test_is_auto_safe_path_admits_design_decisions_log():
+    assert is_auto_safe_path("three-pillars-docs/tp-designs/some-slug/decisions.md") is True
+    assert is_auto_safe_path("three-pillars-docs/tp-designs/a-b-c-123/decisions.md") is True
+    # the five exact allowlist members still qualify
+    for p in AUTO_SAFE_PATHS:
+        assert is_auto_safe_path(p) is True
+
+
+def test_is_auto_safe_path_rejects_siblings_and_traversal():
+    rejected = [
+        "three-pillars-docs/tp-designs/some-slug/design.md",      # sibling artifacts
+        "three-pillars-docs/tp-designs/some-slug/plan.md",
+        "three-pillars-docs/tp-designs/some-slug/handoff.md",
+        "three-pillars-docs/tp-designs/some-slug/lock.json",
+        "three-pillars-docs/tp-designs/some-slug/a/decisions.md",  # nested — [^/]+ is one segment
+        "three-pillars-docs/tp-designs/decisions.md",              # no slug segment
+        "three-pillars-docs/completed-tp-designs/some-slug/decisions.md",   # frozen archive
+        "three-pillars-docs/tp-designs/../secrets/decisions.md",   # traversal
+        "../three-pillars-docs/tp-designs/s/decisions.md",
+        "three-pillars-docs/tp-designs/some-slug/decisions.md.bak",
+        "xthree-pillars-docs/tp-designs/s/decisions.md",           # unanchored prefix
+        "",
+        # `$` matches BEFORE a trailing newline, so `^...$` admitted these — contradicting the
+        # "fully anchored" claim. `fullmatch` + `[^/\n]+` closes both.
+        "three-pillars-docs/tp-designs/some-slug/decisions.md\n",
+        "three-pillars-docs/tp-designs/some-slug/decisions.md\nrogue",
+        # `[^/]+` alone admits a `.`/`..` slug, which normalizes OUT of the designs tree.
+        "three-pillars-docs/tp-designs/../decisions.md",
+        "three-pillars-docs/tp-designs/./decisions.md",
+    ]
+    for p in rejected:
+        assert is_auto_safe_path(p) is False, p
+    # total: any exception fails closed
+    assert is_auto_safe_path(None) is False
+    assert is_auto_safe_path(123) is False
+
+
+def test_auto_safe_paths_and_default_living_docs_are_unchanged():
+    # The exact-membership allowlist is NOT widened by this design — the pattern is an addition
+    # inside `is_auto_safe_path`, so the single-definition guard still holds.
+    assert AUTO_SAFE_PATHS == frozenset(merge_driver.DEFAULT_LIVING_DOCS)
+    assert "three-pillars-docs/tp-designs/some-slug/decisions.md" not in AUTO_SAFE_PATHS

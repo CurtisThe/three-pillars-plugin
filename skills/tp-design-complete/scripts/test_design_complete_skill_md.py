@@ -408,7 +408,7 @@ def test_6f_runs_archive_cites_before_staging() -> None:
     )
     # --archive-cites must come before the git add staging in step 6f
     archive_pos = text.find("--archive-cites")
-    git_add_pos = text.find("git add three-pillars-docs/tp-designs/{design-name}")
+    git_add_pos = text.find("git add three-pillars-docs/completed-tp-designs/{design-name}/design.md")
     assert archive_pos < git_add_pos, (
         "--archive-cites must run before staging in step 6f"
     )

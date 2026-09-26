@@ -1,84 +1,154 @@
 #!/usr/bin/env python3
-"""Independent zero-drop verifier for living-doc merges.
+"""Independent zero-drop verifier for living-doc merges — VERDICT + CLI.
 
-Knows NOTHING about the resolver. It inventories *content atoms* present in ours ∪ theirs and
-asserts each survives into the resolved output. Atom identity is **ID-independent**, so a
-legitimate renumber (L4 -> L7) is not mistaken for a drop:
-
-    entry atom  `### L<n>: <title>`         -> signature = normalized <title>
-    row atom    `| D<n> | <name> | `        -> signature = normalized <name>
-    log atom    `- **<date|`slug`>** — …`   -> signature = normalized <key + title>
-
-The log atom is the C3 backstop for the append-only-log class (dated `## History` bullets and
-name-keyed `### Recent completions` bullets): those entries are kept VERBATIM by the resolver (no
-renumber), so — unlike `entry` — the signature is NOT ID-independent; the whole bullet identifies
-the atom, and a dropped log bullet on either input side is caught here.
-
-Prose / preamble lines are intentionally NOT atoms — legitimate prose edits would look like drops.
-The verifier guards structured-content drops (entries, rows, log bullets), which is where "silently
-lose an entry" actually bites.
+Knows NOTHING about the resolver. It inventories the *content atoms* present in ours ∪ theirs
+and asserts each survives into the resolved output. The atom shapes, their signatures and the
+scanner itself live in `verify_atoms.py` and are re-exported here unchanged — see that module
+for the atom table, the corpus measurements and the accepted normalization residual.
 
 CRITICAL property from the spike: this verifier is NECESSARY BUT NOT SUFFICIENT. It catches a
 structural drop (it even caught a real human silent drop), but it MISSES a semantic mis-merge
 whose atom survives while its meaning is wrong. Semantic safety must therefore be carried by
 DEFERRAL in the resolver, with this verifier as a backstop for the mechanical classes only.
+
+It is also NOT SUFFICIENT in a second, quieter direction: a file whose *shape* this module does
+not recognize yields zero atoms, and "no atoms were lost" then means "nothing was examined". That
+silent pass is why `verify()` returns a three-state `VerifyResult` rather than a bool — see
+`VERIFIED` / `DROPS_DETECTED` / `UNVERIFIABLE` below. `UNVERIFIABLE` fires only when the caller
+reports that a mechanical resolution was actually applied to the file (`mechanical_applied=True`)
+AND zero atoms were parsed; a deferred or hand-resolved prose file legitimately has no atoms and
+is not blocked.
 """
 from __future__ import annotations
 
-import re
+import argparse
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
-ENTRY = re.compile(r"^### [A-Z]\d+:\s*(.*)$")
-ROW = re.compile(r"^\|\s*[A-Z]\d+\s*\|\s*([^|]+?)\s*\|")
-# Log atom — a bold-lead-bullet log entry, dated OR name-keyed. Mirrors classify.LOG_ENTRY's shape,
-# re-derived here so the verifier stays independent of the resolver. Group 1 (everything after the
-# `- ` marker, i.e. `**<key>** — <title>`) is the signature; the kebab-slug arm excludes file-path
-# description bullets, matching what the resolver actually keeps.
-LOG = re.compile(r"^-\s+(\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*\s+—.*)$")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Re-exported so `import verify; verify.atoms(...)` / `verify.ENTRY` keep working for the
+# existing consumers (`base_sync_cert`, `living_doc_carry`, the coverage test).
+from verify_atoms import (  # noqa: E402,F401
+    ATOM_KINDS,
+    DECISION_ENTRY,
+    ENTRY,
+    LOG,
+    ROW,
+    _digest,
+    _esc,
+    _nonblank,
+    _norm,
+    atoms,
+)
+
+VERIFIED = "VERIFIED"
+DROPS_DETECTED = "DROPS_DETECTED"
+UNVERIFIABLE = "UNVERIFIABLE"
+
+UNVERIFIABLE_MESSAGE = (
+    "UNVERIFIABLE — 0 atoms parsed from ours∪theirs ({ours}/{theirs} non-blank lines); "
+    "this file's shape is unknown to the verifier."
+)
+
+@dataclass(frozen=True)
+class VerifyResult:
+    """The three-state verdict. `ok` is True for `VERIFIED` ONLY — both `DROPS_DETECTED` and
+    `UNVERIFIABLE` are failures, so every existing fail-closed `if not r.ok` branch already
+    covers the new verdict.
+
+    A dataclass with no `__bool__` is truthy for EVERY instance, so a caller writing the
+    natural-looking `if not result:` would have absorbed `UNVERIFIABLE` (and `DROPS_DETECTED`)
+    into the pass path. `__bool__` is therefore defined and returns `.ok`, so the bool-shaped
+    call site fails closed exactly like the `.ok` one instead of silently passing.
+    """
+
+    verdict: str
+    dropped: list = field(default_factory=list)
+    pre_atoms: int = 0
+    post_atoms: int = 0
+    ours_lines: int = 0
+    theirs_lines: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.verdict == VERIFIED
+
+    def __bool__(self) -> bool:
+        return self.ok
 
 
-def _norm(s: str) -> str:
-    s = re.sub(r"[`*_]", "", s)
-    return re.sub(r"\s+", " ", s).strip().lower()
+def verify(ours: str, theirs: str, resolved: str, *, mechanical_applied: bool) -> VerifyResult:
+    """Inventory ours∪theirs and assert each atom survives into `resolved`.
 
-
-def atoms(text: str) -> dict[tuple[str, str], str]:
-    """Return {(kind, signature): kind} for every structured atom in `text`."""
-    out: dict[tuple[str, str], str] = {}
-    for line in text.splitlines():
-        m = ENTRY.match(line)
-        if m and _norm(m.group(1)):
-            out[("entry", _norm(m.group(1)))] = "entry"
-            continue
-        m = ROW.match(line)
-        if m and _norm(m.group(1)):
-            out[("row", _norm(m.group(1)))] = "row"
-            continue
-        m = LOG.match(line)
-        if m and _norm(m.group(1)):
-            out[("log", _norm(m.group(1)))] = "log"
-    return out
-
-
-def verify(ours: str, theirs: str, resolved: str):
-    """Return (ok, dropped) where dropped is a list of (kind, signature) atoms lost from ours∪theirs."""
+    `mechanical_applied` is **keyword-only with no default**: an unmigrated positional call raises
+    `TypeError` at the call site rather than silently choosing a verdict policy (the same fail-loud
+    device `resolve_conflict_bytes` uses). Pass the per-file fact "the resolver actually applied a
+    mechanical resolution to this file" — an OR across the file's hunks.
+    """
     pre = {**atoms(ours), **atoms(theirs)}
     post = atoms(resolved)
     dropped = [k for k in pre if k not in post]
-    return (len(dropped) == 0, dropped)
+    if mechanical_applied and not pre:
+        verdict = UNVERIFIABLE
+    elif dropped:
+        verdict = DROPS_DETECTED
+    else:
+        verdict = VERIFIED
+    return VerifyResult(verdict=verdict, dropped=dropped, pre_atoms=len(pre),
+                        post_atoms=len(post), ours_lines=_nonblank(ours),
+                        theirs_lines=_nonblank(theirs))
 
 
-def verify_paths(ours_p, theirs_p, resolved_p):
-    return verify(Path(ours_p).read_text(encoding="utf-8"), Path(theirs_p).read_text(encoding="utf-8"), Path(resolved_p).read_text(encoding="utf-8"))
+def verify_paths(ours_p, theirs_p, resolved_p, *, mechanical_applied: bool) -> VerifyResult:
+    return verify(Path(ours_p).read_text(encoding="utf-8"),
+                  Path(theirs_p).read_text(encoding="utf-8"),
+                  Path(resolved_p).read_text(encoding="utf-8"),
+                  mechanical_applied=mechanical_applied)
+
+
+USAGE_ERROR_EXIT = 3
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse exits **2** on a usage error, which collided head-on with this CLI's documented
+    `2 = UNVERIFIABLE`. A caller reading the exit status could not tell "the merge is unsafe" from
+    "you typed the flag wrong". Usage errors are remapped to `3`, which is also where I/O errors
+    land — see `_main`."""
+
+    def error(self, message: str):                       # pragma: no cover - argparse plumbing
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        raise SystemExit(USAGE_ERROR_EXIT)
 
 
 def _main(argv: list[str]) -> int:
-    ok, dropped = verify_paths(*argv[:3])
-    print("ZERO-DROP" if ok else f"DROPS DETECTED ({len(dropped)}):")
-    for kind, sig in dropped:
+    ap = _Parser(
+        prog="verify.py",
+        description="Zero-drop verifier. Exit 0 = VERIFIED, 1 = DROPS DETECTED, "
+                    "2 = UNVERIFIABLE, 3 = usage or I/O error.")
+    ap.add_argument("ours")
+    ap.add_argument("theirs")
+    ap.add_argument("resolved")
+    ap.add_argument("--mechanical-applied", action="store_true",
+                    help="the resolver actually applied a mechanical resolution to this file; "
+                         "zero parsed atoms is then UNVERIFIABLE, not a pass")
+    args = ap.parse_args(argv)
+    try:
+        r = verify_paths(args.ours, args.theirs, args.resolved,
+                         mechanical_applied=args.mechanical_applied)
+    except (OSError, UnicodeDecodeError) as e:
+        # An unreadable/undecodable input is NOT "drops detected" (1) and NOT "unverifiable" (2) —
+        # the verifier never ran. Distinct status so a caller cannot conflate the two.
+        print(f"verify.py: cannot read input: {e}", file=sys.stderr)
+        return USAGE_ERROR_EXIT
+    if r.verdict == UNVERIFIABLE:
+        print(UNVERIFIABLE_MESSAGE.format(ours=r.ours_lines, theirs=r.theirs_lines))
+        return 2
+    print("ZERO-DROP" if r.ok else f"DROPS DETECTED ({len(r.dropped)}):")
+    for kind, sig in r.dropped:
         print(f"   dropped {kind}: {sig[:70]}")
-    return 0 if ok else 1
+    return 0 if r.ok else 1
 
 
 if __name__ == "__main__":

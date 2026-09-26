@@ -47,8 +47,8 @@ def test_proof_doc_names_shared_predicate_delegation() -> None:
 
 
 def test_two_enforced_call_sites_names_run_round_py() -> None:
-    """Finding 5: site 1 must name run_round.py as the live loop terminal, with run_loop
-    as the tested in-process twin — not imply run_loop is the live enforcement path."""
+    """Finding 5 / Task 4.2: site 1 names run_round.py as the ONLY loop terminal —
+    `loop_driver.run_loop` (the old in-process twin) is deleted."""
     body = _read(PROOF_DOC)
     idx = body.find("## The two enforced call sites")
     assert idx != -1, "the 'two enforced call sites' section must exist"
@@ -57,9 +57,9 @@ def test_two_enforced_call_sites_names_run_round_py() -> None:
         "site 1 of 'the two enforced call sites' must name run_round.py as the live "
         "loop terminal"
     )
-    assert "tested in-process twin" in section, (
-        "site 1 must describe loop_driver.run_loop as the tested in-process twin "
-        "(run_loop has no live caller)"
+    assert "run_loop" not in section and "in-process twin" not in section, (
+        "site 1 must not describe a run_loop in-process twin — run_loop is deleted and "
+        "run_round.py is the only loop terminal"
     )
 
 

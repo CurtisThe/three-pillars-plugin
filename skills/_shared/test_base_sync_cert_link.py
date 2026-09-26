@@ -60,8 +60,9 @@ def test_builder_scripted_merge_helper_resolves_for_real(tmp_path):
     r = s.git("rev-list", "--parents", "-n1", h1, check=True)
     assert len(r.stdout.strip().split()) == 3   # h1 + 2 parents
     content = (s.repo_dir / LIVING_DOC_PATH).read_text(encoding="utf-8")
-    assert "### Z1: design-side change" in content
-    assert "### Z2: base-side change" in content   # renumbered by the real resolver
+    # the real resolver's keep-both (`log-entry-insertion`): ours' (design) entry, then theirs'
+    assert content.endswith("- **2026-01-02** — design-side change\n"
+                            "- **2026-01-01** — base-side change\n")
 
 
 def test_builder_craft_merge_with_parents(tmp_path):

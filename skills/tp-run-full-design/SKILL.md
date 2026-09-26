@@ -1,7 +1,7 @@
 ---
 name: tp-run-full-design
 description: "Autonomous full-design orchestrator. Drives the TDD pipeline unattended for a single task — pickup → design → worker → audits → PR — and produces a decision log for human review."
-argument-hint: "{slug} [--pickup-skill <name>] [--task-id <id>] [--skip-design] [--mode {full|design|plan|build}] [--max-tokens N] [--max-wall-clock SECS] [--max-attempts N=3] [--pr-reviewers <comma-list>] [--no-review] [--no-iterate] [--force-takeover]"
+argument-hint: "{slug} [--pickup-skill <name>] [--task-id <id>] [--skip-design] [--mode {full|design|plan|build}] [--max-tokens N] [--max-wall-clock SECS] [--max-attempts N=3] [--pr-reviewers <comma-list>] [--no-review] [--no-iterate] [--local] [--force-takeover]"
 ---
 
 # tp-run-full-design — Autonomous Orchestrator (Mode A0, single candidate)
@@ -18,13 +18,14 @@ This orchestrator is **not itself an `--auto` skill** — it is the orchestrator
 - `--pickup-skill <name>` (optional) — the `/tp-pickup-*` skill providing the task. If omitted, the orchestrator falls back to reading an already-seeded `design.md` in the design dir (manual-pickup escape hatch).
 - `--task-id <id>` (optional) — opaque upstream task identifier passed verbatim to the pickup skill (e.g., `JIRA-1234`, `LIN-456`, a Notion page ID). Required when `--pickup-skill` is provided; ignored in manual-pickup Mode B. The pickup skill uses `{task-id}` to look up upstream metadata; the orchestrator never interprets the value. Surfaced in the pickup contract as `task_metadata.external_ref` per design.md §Pickup contract.
 - `--skip-design` (optional) — opt out of Mode C's interactive-design front-end. When neither `--pickup-skill` nor `--skip-design` is passed, the orchestrator enters Mode C (see ## Tier 1.5). With `--skip-design` and no `--pickup-skill`, the orchestrator behaves as Mode B (read an already-seeded `design.md`).
-- `--mode {full|design|plan|build}` (optional, default `full`) — selects a contiguous slot-range sub-window of the 1–11 slot list. `full` (the default) runs the entire pipeline unchanged — backward-compatible, no existing invocation changes. `design` runs Slots 2–4 then a scoped PR and stops (no plan or worker). `plan` runs Slots 5–6 then a scoped PR and stops (requires `design.md` + `detailed-design.md`). `build` starts at Slot 7 (`phase-implement`) and runs to Slot 11 (requires all three design artifacts). See `skills/tp-run-full-design/pipeline-modes.md` for the full mode-axis specification (resolution, precondition gate, PR shapes, decisions.md tokens).
+- `--mode {full|design|plan|build}` (optional, default `full`) — selects a contiguous slot-range sub-window of the 1–11 slot list. `full` (the default) runs the entire pipeline unchanged — backward-compatible, no existing invocation changes. `design` runs Slots 2–4 then a scoped PR and stops (no plan or worker). `plan` runs Slots 5–6 then a scoped PR and stops (requires `design.md` + `detailed-design.md`). `build` starts at Slot 7 (`phase-implement`) and runs to Slot 11 (requires all three design artifacts; a `light` design needs only `design.md` + `plan.md` — the Slot-0 gate is passed the Tier-1 weight class). See `skills/tp-run-full-design/pipeline-modes.md` for the full mode-axis specification (resolution, precondition gate, PR shapes, decisions.md tokens).
 - `--max-tokens N` (optional) — whole-run token budget cap. See ## Token budget.
 - `--max-wall-clock SECS` (optional) — wall-clock budget. Independent of `--max-tokens`.
 - `--max-attempts N` (optional, default `3`) — per-cycle attempt budget for the orchestrator's self-healing loops: audit retry-with-advice (## Retry-with-advice (audits)) and worker-contract retry (## Retry & max-attempts). Default `3` makes the flow self-heal out of the box; `--max-attempts 1` restores escalate-on-first-rejection for high-stakes runs.
 - `--pr-reviewers <comma-list>` (optional, default `"copilot-pull-request-reviewer[bot]"`) — reviewers requested in Tier 6. The list is **partitioned**: human logins are requested via `gh pr create --reviewer`, and the Copilot bot is requested via the REST `requested_reviewers` endpoint (the `gh pr create --reviewer` path does not resolve the Copilot bot reliably). See ## Tier 6 — Step 2.
 - `--no-review` (optional) — suppress all Tier 6 review requests (both the human `--reviewer` and the Copilot REST request). Use for human-out-of-band or no-review runs. Implies `--no-iterate` (no review requested ⇒ nothing for Tier 7 to iterate).
 - `--no-iterate` (optional) — stop after Tier 6 (PR open) without driving the Tier 7 review loop. Restores the pre-Tier-7 "open the PR and hand back" behavior for operators who want to review the fresh PR themselves. Default is **iterate** (Tier 7 runs).
+- `--local` (optional) — Slot 7 runs each task through the tier ladder of `skills/_shared/local-dispatch.md` (cheap `tp-task-worker` attempts, verified, escalating to Opus); needs `local_implement.full_design` (## Tier 1). Without it, dispatch is unchanged.
 - `--force-takeover` (optional) — claims the design lock from a prior owner per `skills/_shared/collaboration.md`.
 
 ## Prerequisites
@@ -43,7 +44,7 @@ The orchestrator and its delegated subagents follow three rules about where work
 
 ## Execution flow
 
-0. **Run first-run preflight** per skills/_shared/first-run.md.
+0. **Run first-run preflight** per skills/_shared/first-run.md, then the **design-run launch check** per `skills/_shared/design-run-launch.md` (`TP_DESIGN_RUN`): marker set → proceed; unset and started by a parent agent's task prompt → refuse before pickup and print the launcher call; operator-typed or unsure → warn once and continue.
 1. **Validate `{slug}`** per `skills/_shared/validate-name.md` (must match `[a-z0-9-]+`).
 2. Read project docs per `skills/_shared/read-project-docs.md` so each delegated tier inherits context.
 3. Walk the slot list via the ## Dispatch loop (`slot 1..N`): each slot dispatches a subagent that runs its delegated `--auto` skill and returns a clipped envelope. The legacy inline tier ordering 1 → 2 → 3 → 3.5 → 5 → 6 maps onto the slots (Tier 4 is intentionally skipped for MVP — see ## Tier 4 below); the ## Tier sections detail each slot's per-tier semantics.
@@ -53,7 +54,7 @@ The orchestrator and its delegated subagents follow three rules about where work
 
 The orchestrator is a lightweight driver: it never reads tier work product (design.md, plan.md, audit findings, council deliberation) directly. Instead it walks an ordered list of **slots** — one dispatched subagent per pipeline tier — and absorbs only each slot's clipped return envelope. This is what keeps the orchestrator under ~100k regardless of design size.
 
-**The orchestrator runs in the main conversation, never as a subagent.** A subagent cannot spawn subagents — the harness exposes no agent-spawning tool one level down (architecture ADR "Subagent dispatch is single-level"). Dispatching a slot from within a subagent would fail outright, so every slot dispatch is a top-level, single-level fan-out: orchestrator → tier subagent, and no deeper. If this skill is ever itself invoked as a subagent, the dispatch loop cannot run; that is an unsupported invocation.
+**The orchestrator runs in the main conversation, never as a subagent.** Slot dispatch is one level (orchestrator → tier subagent). The one sanctioned second level is Slot 7's `tp-worker` spawning `tp-task-worker` per `skills/_shared/local-dispatch.md` (depth 2 verified 2026-09-24; supersedes that part of the ADR "Subagent dispatch is single-level").
 
 For `slot 1..N` in the slot list below, the orchestrator dispatches one subagent per slot:
 
@@ -84,16 +85,16 @@ Runs `/tp-design {slug} --auto` (Mode C front-end excepted; ## Tier 2). **genera
 Runs `/tp-design-detail {slug} --auto`. **generator-return** class.
 
 ### Slot 4 — `design-audit`
-Drives the council audit fan-out (## Audit fan-out (Slots 4/6/8)) over `design.md` + `detailed-design.md` instead of dispatching a single `/tp-design-audit` subagent. **audit-return** class; the `verdict` drives retry-with-advice vs. escalation.
+Drives the council audit fan-out (## Audit fan-out (Slots 4/6/8)) over `design.md` + `detailed-design.md` instead of dispatching a single `/tp-design-audit` subagent. **audit-return** class; the `verdict` drives retry-with-advice vs. escalation. **Guard certification** runs every attempt after the synth: the Slot 4 form of `skills/_shared/certification-protocol.md` §Step 2b (`S` = the `tp/{slug}` HEAD, the same `tp-certifier` dispatch, `python3 "$CERT" run`, one `python3 "$CERT" fold --slot 4`; `$CERT` resolved as in ## Tier 5 Step 2b).
 
 ### Slot 5 — `plan`
 Runs `/tp-plan {slug} --auto`. **generator-return** class.
 
 ### Slot 6 — `plan-audit`
-Drives the council audit fan-out (## Audit fan-out (Slots 4/6/8)) over `plan.md` + `detailed-design.md` instead of dispatching a single `/tp-plan-audit` subagent. **audit-return** class.
+Drives the council audit fan-out (## Audit fan-out (Slots 4/6/8)) over `plan.md` + `detailed-design.md` (+ `design.md` when it has a `## State space` section, so members can run the map-check angle) instead of dispatching a single `/tp-plan-audit` subagent. **audit-return** class.
 
 ### Slot 7 — `phase-implement`
-Runs `/tp-phase-implement {slug} --auto`, dispatched as `subagent_type="tp-worker"` (write-capable surface — Read/Edit/Write/Grep/Glob/Bash; default model `opus`), **once per plan phase**, **serial-within-phase** — the P1 dogfood probe falsified 2-level parallelism (a subagent cannot spawn task sub-subagents; the harness exposes no agent-spawning tool one level down), so the phase subagent runs its tasks sequentially within its own budget. The worker / candidate machinery (## Tier 3 + ## Tier 3.5) is preserved: this slot keeps the `candidate.v1` contract and routes its return through the unchanged `run_tier_3_5.py`, not `parse_tier_return`. Workers obey the file-size caps (`CLAUDE.md` §File Size Limits): an addition that would cross a cap splits by responsibility instead of growing the file — the file-size guard blocks hard-cap violations at commit.
+Runs `/tp-phase-implement {slug} --auto`, dispatched as `subagent_type="tp-worker"` (write-capable surface — Read/Edit/Write/Grep/Glob/Bash plus Agent; default model `opus`), **once per plan phase**; tasks run in order; under `--local` it hands each `local`/`sonnet` task to a nested `tp-task-worker` (## Phase-implement dispatch — nested per task). The worker / candidate machinery (## Tier 3 + ## Tier 3.5) is preserved: this slot keeps the `candidate.v1` contract and routes its return through `run_tier_3_5.py`, not `parse_tier_return`. Workers obey the file-size caps (`CLAUDE.md` §File Size Limits): an addition that would cross a cap splits by responsibility instead of growing the file — the file-size guard blocks hard-cap violations at commit.
 
 ### Slot 8 — `impl-audit`
 Drives the council audit fan-out (## Audit fan-out (Slots 4/6/8)) over `design.md` + `plan.md` **and the candidate code** — the code reaching members via `--code-input` (the Slot-8 code-input addendum), not as a single `/tp-implementation-audit` subagent (## Tier 5 Step 2). **audit-return** class; verdict-only — never edits code regardless of confidence. (The Tier 5 Step 1 regression check still runs first and gates the fan-out.)
@@ -105,7 +106,7 @@ Runs `/tp-design-learn {slug} --auto` (## Tier 5 Step 3). **generator-return** c
 Opens the **completion PR** (`tp/{slug} → {default}`) with the fail-open semantics of ## Tier 6, after Tier 5.6 has folded the code and archived the design. (On a Tier 5.6 fold conflict it opens the legacy candidate→tp PR instead; ## Tier 6 — legacy fallback.) Hands off to Slot 11 unless `--no-iterate`/`--no-review` is set, in which case it is terminal.
 
 ### Slot 11 — `pr-iterate`
-Drives the completion-PR review loop to a reviewed-stable state. **Terminal slot.** The orchestrator owns the round loop directly: each round it fans out the `ANGLES` set as top-level `general-purpose` sub-agents, merges via `merge_codereview_angles`, posts via `post_codereview_comment`, shells `python3 "$TP_ROOT"/skills/tp-pr-iterate/scripts/run_round.py` with the merged findings, and dispatches `/tp-pr-fix` if the step says to — looping until `run_round.py` reports a `terminal` phase (`converged` / `blocked-no-independent-review`). Fix-commit sub-agents run with `isolation="worktree"` (their commits land in their own worktree, never the orchestrator's). Skipped under `--no-iterate` or `--no-review`. generator-return class; a non-converged loop is reported, never escalated past the merge-only gate.
+Drives the completion-PR review loop to a reviewed-stable state. **Terminal slot.** The orchestrator owns the round loop directly (Tier 7 Step 1): each round it fans out the `ANGLES` set as top-level `general-purpose` sub-agents pinned `model="opus"`, then one round tail posts via `post_codereview_comment`, shells `run_round.py` and fixes inline, until a `terminal` phase. The round tail is the one working-tree writer, on the orchestrator's own `tp/{slug}` checkout (never checks out, orchestrator idle). Skipped under `--no-iterate` or `--no-review`. generator-return class; a non-converged loop is reported, never escalated past the merge-only gate.
 
 ### Light slot mapping (`weight-class: light`)
 
@@ -114,7 +115,7 @@ When Tier 1 reads `light` (## Weight-class consumption (Tier 1)), the slot seque
 - **Slot 2 (`design`) emits design.md + plan.md in one dispatch** — the collapsed design.md and the thin plan.md from a single light-mode `/tp-design` sitting (the collapsed note must still pass `validate_design_floor.py`).
 - **Slots 3 and 5 are skipped** (`detail`, `plan`) — the light class has no detailed-design.md and plan.md already landed with Slot 2.
 - **Slots 4 + 6 merge into one audit fan-out** — a single council pass over design.md + plan.md using the `--light` merged conceptual+plan prompts (`skills/tp-plan-audit/SKILL.md` §Light mode prompts): same triad, **single round** (no Round 2), reader + 3 members + synth = **5 dispatches**.
-- **Slot 8 = regression check + a single fidelity auditor** — Tier 5 Step 1's regression check runs unchanged and still gates; the 3-persona fan-out is replaced by **one** verdict-only auditor working the fidelity checklist (`skills/_shared/weight-class.md` §Light fidelity checklist), its finding confidences mapped through `auto_verdict.compute_verdict` (`"$TP_ROOT"/skills/_shared/auto_verdict.py`).
+- **Slot 8 = regression check + a single fidelity auditor** — Tier 5 Step 1's regression check runs unchanged and still gates; the 3-persona fan-out is replaced by **one** verdict-only auditor working the fidelity checklist (`skills/_shared/weight-class.md` §Light fidelity checklist), its finding confidences mapped through `auto_verdict.compute_verdict` (`"$TP_ROOT"/skills/_shared/auto_verdict.py`). It also returns `guard_claims[]`, and Step 2b runs unchanged.
 - All other slots (1, 7, 9, 10, 11) run unchanged. The per-slot return contracts and the C1 token accounting are untouched — light is fewer dispatches, not a different protocol.
 
 ## Audit fan-out (Slots 4/6/8)
@@ -134,7 +135,7 @@ worktree-isolation posture is unchanged; see ## Dispatch loop).
 The fixed sequence per audit slot is **reader → Round 1 → Round 2 → synth →
 clip**:
 
-1. **Reader (1 dispatch)** — dispatch one `general-purpose` subagent to confirm
+1. **Reader (1 dispatch)** — dispatch one `general-purpose` subagent (`model="opus"`) to confirm
    the artifact paths exist and report their sizes (cheap, ~5k). This replaces
    "load artifacts" without pulling contents into the orchestrator. **This is a
    real dispatch and consumes `subagent_tokens`** — the reader IS counted in the budget
@@ -160,7 +161,7 @@ clip**:
    `--fast-audit` (0 dispatches).**
 4. **Synth (1 dispatch)** — assemble the synthesizer prompt via
    `build_synth_prompt(artifact_paths, round1, round2, slot)` and dispatch one
-   **`general-purpose` subagent with NO `isolation="worktree"`** (F8 — read-only,
+   **`general-purpose` subagent, `model="opus"`, with NO `isolation="worktree"`** (F8 — read-only,
    shares `tp/{slug}`, identical isolation posture to the council personas). It
    reads the artifact paths, weighs the Round-1/Round-2 dicts (honoring each
    `challenged_finding_indices`), and returns the existing **`audit-return`**
@@ -178,7 +179,7 @@ definitions). `council/SKILL.md` already defines an `architecture` triad
 a follow-on could wire per-tier triads (e.g. `architecture` for design-audit) by
 passing a different `--members` list — **no schema or code change required**, only
 the orchestrator's default selection. `--deep-audit` → the full 18-member panel;
-`--fast-audit` → the triad with Round 2 skipped.
+`--fast-audit` → the triad with Round 2 skipped. **Map check (Slots 4/6):** when design.md has a `## State space` section, every Round-1/Round-2 member prompt and the synthesizer brief append the Check-mode angle of `skills/_shared/state-space-protocol.md` ("was a better locus or alternative dismissed without evidence?"), filed as INCONSISTENT, never MISALIGNMENT, and tagged `category: "map-check"` by the member itself; the synthesizer keeps (or adds) that tag in the audit-return `findings[]`, and **any** such finding — under **any** verdict (`pass`, `pass-with-notes` or `needs-work`) and any confidence — escalates the run to the operator immediately (## Retry-with-advice escalation, map-check trigger); it never becomes re-spawn advice and never passes silently. No map → no angle (the `--auto` rule).
 
 ### Slot-8 code-input addendum (`impl-audit` only)
 
@@ -243,6 +244,7 @@ Each slot carries a fixed **soft budget** — a sizing hint passed into `compose
 | `plan-audit` | 200k | — (merged into the 150k fan-out above) | 500k |
 | `phase-implement` | 200k / phase | 200k / phase | 500k |
 | `impl-audit` | 200k | 80k (single fidelity auditor) | 500k |
+| `certifier` (Slots 4/8, if claims) | 150k / dispatch | 150k / dispatch | 500k |
 | `design-learn` | 100k | 100k | 500k |
 | `PR` | 50k | 50k | 500k |
 
@@ -341,36 +343,11 @@ The pickup tier resolves the task source into a `design.md` and a locked branch 
 2. Acquire the lock per `skills/_shared/collaboration.md`. If held, honor `--force-takeover` or refuse.
 3. Synthesize a minimal pickup contract from local state (no callbacks; `phase_hook`, `writeup_hook`, `escalate_hook` all `null`).
 
+**Local preflight** (both modes): run `python3 "$TP_ROOT"/skills/_shared/agent_override_warn.py --root .` on every run, with or without `--local` (Behavior 11; always exits 0; log any warning). Under `--local` only, then run `python3 "$TP_ROOT"/skills/_shared/local_implement_config.py --check full_design`: exit 1 → refuse before Tier 2 (append its line as a `[tp-run-full-design/tier-1]` entry, exit non-zero).
+
 ### Pickup contract v1 validation
 
-The orchestrator validates the returned contract against this schema before doing any other work. The contract is JSON-shaped, **version 1**, and the validation rules are intentionally strict — a malformed contract aborts the run before Tier 2 spends tokens.
-
-```json
-{
-  "version": 1,
-  "slug": "kebab-case-design-name",
-  "branch": "tp/{slug}",
-  "dir": "three-pillars-docs/tp-designs/{slug}",
-  "task_metadata": {
-    "title": "Human-readable task title",
-    "hypothesis": "What is unknown / what we want to learn",
-    "external_ref": "Opaque pickup-skill-specific reference",
-    "phase_hook": null,
-    "writeup_hook": null,
-    "escalate_hook": null
-  }
-}
-```
-
-Validation rules — each maps to an explicit failure mode:
-
-- **`version` is required and must equal `1`.** The orchestrator refuses any contract whose `version` it does not recognize. Append `[tp-run-full-design/tier-1] unknown-pickup-version <value>` to decisions.md and exit non-zero. Forward-compatibility shims are deferred to a v2 design — never silently downgrade.
-- **`slug`, `branch`, `dir`, `task_metadata`** are required top-level keys. Missing any → `[tp-run-full-design/tier-1] missing-required-field <key>` and exit non-zero.
-- **`slug`** must match `[a-z0-9-]+` per `skills/_shared/validate-name.md`. Mismatch → `[tp-run-full-design/tier-1] invalid-slug <value>`.
-- **`branch`** must equal `tp/{slug}` exactly. Mismatch (e.g., pickup skill returned a candidate branch by accident) → `[tp-run-full-design/tier-1] branch-slug-mismatch`.
-- **`dir`** must equal `three-pillars-docs/tp-designs/{slug}` exactly and the directory must exist on disk.
-- **`task_metadata.title`** is required and non-empty (used in the Tier 6 PR title).
-- **`phase_hook`, `writeup_hook`, `escalate_hook`** may each be `null` or an opaque string. If `null`, the corresponding callback is omitted (fire-and-forget) and noted once in decisions.md as `[tp-run-full-design/tier-1] hook-omitted <hook-name>`. Per detailed-design.md §Decisions (OQ2), hook failures are Medium-confidence boundary events that **do not abort the run**.
+Validate the returned contract before any other work: schema and rules in `boundary-contracts.md` §Pickup contract v1.
 
 ### Lock + branch protocol
 
@@ -459,13 +436,13 @@ The "no" path is the seamless hand-off — the operator gets a committed design 
 
 Slots 2–6 are the design pipeline. The orchestrator **dispatches one subagent per slot** (## Dispatch loop); each subagent runs one of the five design-pipeline skills in `--auto` mode **inline within the subagent** and synthesizes its return envelope (## Per-slot return contract). **The orchestrator never runs these skills in its own context** — it only reads each slot's clipped envelope (## Return clipping). Each delegated skill still writes `[<skill-name>]`-prefixed entries to `decisions.md` per `skills/_shared/auto-mode.md`; the orchestrator does NOT rewrite these entries — the native skill prefix is preserved, and only orchestrator-emitted entries use the `[tp-run-full-design/tier-N]` prefix.
 
-The five slots dispatch in order, one skill each (run inline in the dispatched subagent):
+The five slots dispatch in order, one skill each (run inline in the dispatched subagent; Slot 4 is the fan-out):
 
 | Slot | Skill | Return class |
 |---|---|---|
 | 2 — `design` | `/tp-design {slug} --auto` | generator-return (Shape A gate) |
 | 3 — `detail` | `/tp-design-detail {slug} --auto` | generator-return |
-| 4 — `design-audit` | `/tp-design-audit {slug} --auto` | audit-return |
+| 4 — `design-audit` | ## Audit fan-out + Step 2b (## Slot 4) | audit-return |
 | 5 — `plan` | `/tp-plan {slug} --auto` | generator-return |
 | 6 — `plan-audit` | `/tp-plan-audit {slug} --auto` | audit-return |
 
@@ -475,20 +452,20 @@ Each delegated skill follows one of the three auto-mode shapes defined in `skill
 
 - **`/tp-design --auto`** — **Shape A** (validator gate). Delegates to `skills/_shared/validate_design_floor.py`. Either PASS (proceed) or BLOCKED (a `design.md` floor violation — missing Problem/Vision-alignment/Scope/Behaviors). The orchestrator treats BLOCKED as a Tier 2 abort cause; see "Audit rejection" below. Any other exit or failure to launch → BLOCKED with Cause: floor-validator-crash, Details: captured stderr (truncated to 500 chars). Never treat a non-0/1 exit as PASS.
 - **`/tp-design-detail --auto`** — **Shape B** (generator). Produces `detailed-design.md` from `design.md` without user Q&A; every judgment call self-logs Confidence: High/Medium/Low. The orchestrator does not gate on Confidence here — generation always proceeds; Confidence: Low entries are informational and surface in the Tier 5 audit.
-- **`/tp-design-audit --auto`** — **Shape C** (audit with confidence-based dispatch). High-confidence findings auto-resolve (the skill applies the fix); any **Medium or Low** finding escalates BLOCKED.
+- **Slot 4 (`design-audit`)** — the ## Audit fan-out synth plus the Slot 4 form of Step 2b (## Slot 4), never a `/tp-design-audit` subagent (its Step 6b, lacking the Agent tool, would BLOCK every claim).
 - **`/tp-plan --auto`** — **Shape B** (generator). Produces `plan.md` from detailed-design.md. Same gating semantics as design-detail.
-- **`/tp-plan-audit --auto`** — **Shape C**. Same High-auto-resolve / Medium-or-Low-escalate semantics as design-audit.
+- **`/tp-plan-audit --auto`** — **Shape C**: High-confidence findings auto-resolve; any **Medium or Low** finding escalates BLOCKED.
 
 ### Audit rejection — self-heal, then escalate
 
-The orchestrator is built to **self-heal**: an audit `needs-work` verdict does not stop the run. The orchestrator re-runs the generator that produced the rejected artifact, hands it the audit's findings as advice, and lets the audit re-judge — looping up to the per-cycle attempt budget (## Retry-with-advice (audits)). **Every finding — high, medium, or low confidence — drives a re-spawn**; confidence no longer gates retry-vs-escalate. This is on by default (`--max-attempts` defaults to `3`).
+The orchestrator is built to **self-heal**: an audit `needs-work` verdict does not stop the run. The orchestrator re-runs the generator that produced the rejected artifact, hands it the audit's findings as advice, and lets the audit re-judge — looping up to the per-cycle attempt budget (## Retry-with-advice (audits)). **Every finding — high, medium, or low confidence — drives a re-spawn** (except `category: "map-check"`, which escalates instead); confidence no longer gates retry-vs-escalate. This is on by default (`--max-attempts` defaults to `3`).
 
-Escalation to a human is the **terminal fallback**, not the first response. There are two terminal causes:
+Escalation to a human is the **terminal fallback**, not the first response. There are four terminal causes — the two below plus **map-check escalation** (any `category: "map-check"` finding from Slot 4/6, any verdict: append `[tp-run-full-design/tier-2] map-check-escalated`) and **certification-unverified** (Slots 4/8; both per ## Retry-with-advice escalation):
 
 - **Retry budget exhausted** — the per-cycle budget (`--max-attempts`) is spent and the audit still returns `needs-work`. Append `[tp-run-full-design/tier-2] audit-retry-exhausted` with the residual findings.
 - **Shape A design-floor BLOCKED** (from `/tp-design` — e.g. `design.md` missing Problem / Vision-alignment / Scope / Behaviors). This is the one structural floor that cannot self-heal: in Mode A/B the `design.md` is human/pickup-seeded, so re-running the validator cannot author the missing sections. It escalates without retry. Append `[tp-run-full-design/tier-2] design-floor-blocked`.
 
-On either terminal cause the orchestrator does NOT proceed to the worker tier, and:
+On any terminal cause the orchestrator does NOT proceed to the worker tier, and:
 
 1. Appends the categorized `decisions.md` entry (`audit-retry-exhausted` or `design-floor-blocked`) with the verdict / residual-finding list and Confidence: High.
 2. Returns BLOCKED to the operator (exits non-zero from the orchestrator).
@@ -506,57 +483,23 @@ Worker (one subagent per plan phase, each in an isolated worktree). Tier 3 is in
 
 ### Worker Agent invocation
 
-```python
-worker_prompt = compose(design.md, plan.md, phase=N) + explicit_artifact_contract
-
-Agent(
-  subagent_type="tp-worker",  # write-capable worker surface (Read/Edit/Write/Grep/Glob/Bash; default model opus)
-  isolation="worktree",
-  description="candidate/{slug}/phase-{N}",
-  prompt=worker_prompt,
-)
-```
+`worker_prompt = compose(design.md, plan.md, phase=N, tier_table=T if --local) + explicit_artifact_contract`, then `Agent(subagent_type="tp-worker", isolation="worktree", description="candidate/{slug}/phase-{N}", prompt=worker_prompt)`, with no `model` (default model `opus`).
 
 `isolation="worktree"` is mandatory: it cuts a fresh git worktree under `.claude/worktrees/agent-<id>/` so the worker's `.git/index` is independent of the orchestrator's. The orchestrator's branch (`tp/{slug}`) stays clean while the worker commits on the shared candidate branch. Note: the worker's auto-entry branch is `worktree-agent-<id>` (a Claude Code default, NOT the orchestrator's `tp/{slug}`), which is exactly why item 1 of the worker contract below requires an explicit branch setup step — without it the worker would build on the auto-entry branch and the orchestrator would have nowhere clean to merge from. This is S13 finding F2; see `completed-tp-designs/agent-worktree-isolation-spike/d12-worker-contract-revision.md`.
 
 ### `explicit_artifact_contract` — 6 worker responsibilities
 
-The contract appended to `worker_prompt` is a literal numbered list. Six items, in order, no negotiation:
-
-1. **Set up the candidate branch for this phase.**
-   - **Phase 1**: `git checkout -b candidate/{slug}/single {base-ref}` — create the shared candidate branch off the orchestrator's base ref (typically `tp/{slug}` HEAD). Do NOT work on the auto-entry `worktree-agent-<id>` branch (S13 finding F2).
-   - **Phase 2+**: `git fetch origin && git checkout candidate/{slug}/single` — continue building on the branch Phase 1 already pushed. Do not create a new branch.
-2. **Implement this phase's tasks on the candidate branch.** Execute only the tasks belonging to Phase N from `plan.md` — prior phases are already committed on the branch. Each task is one red-green-refactor cycle and one commit on the candidate branch.
-3. **Commit work on the candidate branch.** One commit per plan task. No `--no-verify`, no `Co-Authored-By` trailer, no `git add -A` — scope each commit to the files the task touched.
-4. **`git push -u origin candidate/{slug}/{candidate_id}`** — push the candidate branch to origin. This is the boundary-crossing mechanism (S13 answer to Round 1 finding B2): once pushed, the candidate is durable even if the worker worktree is later cleaned up.
-5. **Return a structured response** as the final answer text — a fenced JSON block in the exact shape below, with no content after it. This block is the orchestrator's ONLY input from the worker; anything else in the response text is treated as scratch.
-   ```json
-   {
-     "schema": "tp-run-full-design/candidate/v1",
-     "candidate_id": "{candidate_id}",
-     "branch": "candidate/{slug}/{candidate_id}",
-     "sha": "<git rev-parse HEAD>",
-     "summary": "<short narrative — what was implemented, key tradeoffs>",
-     "test_results": {
-       "passed": <int>, "failed": <int>, "skipped": <int>,
-       "raw": "<test-runner stdout, truncated to 4000 chars>"
-     },
-     "telemetry": {
-       "duration_ms": <int>, "tokens_used": <int>, "tool_calls": <int>
-     }
-   }
-   ```
-6. **Do NOT write artifact files to the parent worktree.** Specifically: do not create or edit anything under `three-pillars-docs/tp-designs/{slug}/candidates/`. The orchestrator writes those artifacts itself in Tier 3.5 — the worker only computes and reports. (Why: Claude Code's harness blocks subagent `.md` Write calls as a deliberate signal that subagents should compute, not file-write. Fighting that signal is what got the prior worker-writes-artifacts contract scrapped — see d12-worker-contract-revision.md.)
+Appended to `worker_prompt` verbatim: the six-item list in `boundary-contracts.md` §explicit_artifact_contract.
 
 ## Tier 3.5 — Validation gate
 
-Tier 3.5 runs **at the end of every phase dispatch**, not deferred to the last phase — a malformed envelope is caught at the phase that produced it. Cross-reference the per-phase ordering paragraph in ## Phase-implement dispatch.
+Tier 3.5 runs **at the end of every phase dispatch**, not deferred to the last phase — a malformed envelope is caught at the phase that produced it (see ## Phase-implement dispatch).
 
-Tier 3.5 is the orchestrator's post-worker handling — it parses the worker's structured response, validates it against `candidate.v1.json`, writes the four candidate artifact files, and cleans up the worker worktree. Failures here decide whether `--max-attempts` retries (see ## Retry & max-attempts) or escalates.
+Tier 3.5 parses the worker's structured response, validates it against `candidate.v1.json`, writes the four candidate artifact files, and cleans up the worker worktree. Failures here decide whether `--max-attempts` retries (see ## Retry & max-attempts) or escalates.
 
 ### No-op short-circuit
 
-Before parsing anything: if the `Agent(...)` return envelope has no `worktreePath` field, the worker made no file system changes in its worktree (Claude Code auto-cleans empty worktrees before returning). This indicates the worker bailed out without doing the work. Action:
+Before parsing anything: if the `Agent(...)` return envelope has no `worktreePath` field, the worker made no file system changes in its worktree (Claude Code auto-cleans empty worktrees before returning). Action:
 
 - Skip the artifact-write (there's nothing to validate or persist).
 - Append `[tp-run-full-design/tier-3.5] worker-noop` to `decisions.md` with Confidence: High.
@@ -564,23 +507,22 @@ Before parsing anything: if the `Agent(...)` return envelope has no `worktreePat
 
 ### Wrapper-driven pipeline
 
-For the normal path (worker returned with `worktreePath` present), the orchestrator shells out to the wrapper at `skills/tp-run-full-design/scripts/run_tier_3_5.py`. The wrapper owns the composition of `parse_candidate_response` → `write_candidate_artifacts` → `cleanup_worker_worktree` → `git ls-remote` SHA cross-check. The orchestrator no longer imports the helpers directly.
+For the normal path (`worktreePath` present), the orchestrator runs `run_tier_3_5.py` (below), which composes `parse_candidate_response` → `write_candidate_artifacts` → `cleanup_worker_worktree` → `git ls-remote` SHA cross-check → phase re-run.
 
-Invocation:
+Invocation (Bash `timeout: 600000`; the re-run's 480 s phase budget fits inside it):
 
 ```
 python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/run_tier_3_5.py
 ```
 
-Pipe a JSON object on stdin: `{worker_response, agent_meta: {agentId, worktreePath}, design_dir, candidate_id, slug}`. Read the single-line JSON envelope on stdout: `{status, case, event_token, detail}`. The exit code carries the orchestrator's next action:
+Pipe a JSON object on stdin: `{worker_response, agent_meta: {agentId, worktreePath}, design_dir, candidate_id, slug, rerun}`. Read the single-line JSON envelope on stdout: `{status, case, event_token, detail}`. The exit code carries the orchestrator's next action:
 
+- **`rerun`** (required) — `{plan_path, phase, phase_base_sha, test_cmd?}`, validated after the SHA cross-check (bad → `stdin-invalid`): `rerun_phase_tests.py` re-runs each task's declared Targets at the SHA in a scratch tree. Confirmed red → case f; skips, unverified runs, a phase verifying nothing (`unverified`, not a pass), unlisted files (case g) self-log, exit 0.
 - **`0` — proceed**: `status: "ok"`, `case: null`, `event_token: "ok"`. Tier 3.5 succeeded; advance to Tier 5.
 - **`1` — retry per `--max-attempts`** (case c only): `status: "retry"`, `case: "c"`, `event_token: "schema-validation-error"`. The worker emitted a fenced JSON block with the canonical schema string but the payload failed validation — re-enter Tier 3 if attempts remain.
-- **`2` — escalate**: `status: "escalate"`, `case` in `{"a", "b", "e", null}`. Append the appropriate `[tp-run-full-design/tier-3.5] <event_token>` line to decisions.md and exit non-zero. `case: null` is reserved for wrapper-internal failures (`event_token` `stdin-invalid`, `invalid-worktree-path`, `artifact-write-failed`, `cleanup-failed`, or `sha-check-failed`) — these are environmental or contract violations, not retryable, and must not collide with exit 1 (case (c) retry).
+- **`2` — escalate**: `status: "escalate"`, `case` in `{"a", "b", "e", "f", null}` (f: `rerun-failed`, failing nodes in `detail`). Append the `[tp-run-full-design/tier-3.5] <event_token>` line to decisions.md and exit non-zero. `case: null` is reserved for wrapper-internal failures (`event_token` `stdin-invalid`, `invalid-worktree-path`, `artifact-write-failed`, `cleanup-failed`, `sha-check-failed`, or `rerun-error`) — these are environmental or contract violations, not retryable, and must not collide with exit 1 (case c).
 
-The wrapper handles its own decisions.md side effects for cleanup: `cleanup_worker_worktree` detects a locked worktree (`git worktree list --porcelain`), force-removes it (`--force -f`), and — when a lock was forced — self-logs via `[tp-run-full-design/tier-3.5] worktree-cleanup-locked <path>`. It is **internal** to the helper and never surfaces to the orchestrator as a separate envelope case.
-
-The wrapper's source of truth for `candidate_id` is the worker-reported value (extracted from the fenced JSON). The orchestrator's stdin top-level `candidate_id` is advisory routing context — used for correlation in the orchestrator's own decisions.md entries, never for path construction or branch reference inside the wrapper.
+`cleanup_worker_worktree` force-removes a locked worktree (`--force -f`) and self-logs `[tp-run-full-design/tier-3.5] worktree-cleanup-locked <path>` (never an envelope case). The wrapper keys paths and branch refs off the worker-reported `candidate_id`; the stdin `candidate_id` is advisory (decisions.md correlation).
 
 ### SHA cross-check (case (e), non-retryable)
 
@@ -590,37 +532,29 @@ After `write_candidate_artifacts` returns, the orchestrator runs a final sanity 
 git ls-remote origin candidate/{slug}/{candidate_id}
 ```
 
-If the remote head SHA does not match `parsed["sha"]`, the worker's claim about what was pushed is wrong (push race, auth issue, or worker fabricated the SHA). Action:
+If the remote head SHA does not match `parsed["sha"]`, the worker's push claim is wrong (push race, auth, or a fabricated SHA). Action:
 
-- Append `[tp-run-full-design/tier-3.5] sha-mismatch {slug}:{parsed_sha}:{remote_sha}` with Confidence: High. The `sha-mismatch` event-type token distinguishes this entry from the retry-attempt entries under the same tier-3.5 prefix (preserves the prefix scheme's machine-readability per detailed-design §Decisions (OQ5)).
+- Append `[tp-run-full-design/tier-3.5] sha-mismatch {slug}:{parsed_sha}:{remote_sha}` with Confidence: High (the event-type token classifies; see ### Distinguishing case (e)).
 - **Escalate immediately** — case (e) is non-retryable; an environmental issue, not a worker fault.
 
 ### Tier 3.5 outcomes
 
-- **Success**: 4 artifact files written, worktree cleaned, SHA cross-check passes. Proceed to Tier 5.
+- **Envelope parsed** (not a/b/c), before any case: append a `### [tier] <task_id> — <final>` entry per `telemetry.task_tiers[]` record to decisions.md (sole full-design writer: pipe it to `tier_ladder.py entry --record -`).
+- **Success**: 4 artifact files written, worktree cleaned, SHA check passes; any record with `final == "env-error"` is non-retryable — append `[tp-run-full-design/tier-3.5] task-env-error <task_id>` and escalate. Proceed to Tier 5.
 - **Retryable failure** (case (c)): re-enter Tier 3 per ## Retry & max-attempts.
-- **Non-retryable failure** (case (a) no-op, (b) no-block, (e) sha-mismatch): escalate per the appropriate decisions.md entry above; exit non-zero.
+- **Non-retryable failure** (case (a) no-op, (b) no-block, (e) sha-mismatch, (f) rerun-failed): escalate per its decisions.md entry above; exit non-zero.
 
-## Phase-implement dispatch (serial-within-phase) — Form SERIAL
+## Phase-implement dispatch — nested per task
 
-The `phase-implement` slot (Slot 7) is dispatched **once per plan phase**, and each phase subagent runs its plan tasks **serially within that single phase subagent** — there is **no 2-level parallelism**. This is **Form SERIAL**, the form selected by the P1 dogfood-probe GATE VERDICT.
-
-The probe verdict was **nested-FAIL**: a worktree-isolated subagent **cannot spawn nested task sub-subagents at all** — the harness exposes no agent-spawning tool one level down (see ## Dispatch loop). The pre-registered NESTED-OK form (a phase subagent fanning out parallel task sub-subagents and cleaning them up within its phase budget) is therefore **omitted, not stubbed**; only Form SERIAL ships. See `decisions.md` `[orchestrator/probe]` ("nested verdict? **nested-FAIL**") and plan.md Task 6.2.
-
-Concretely, the phase subagent:
-
-- Runs `/tp-phase-implement {slug} --auto` inline (## Per-slot return contract), executing the phase's tasks **one after another** in its own context — the **M1 serial-within-phase fallback** the P1 gate pre-registered. Where `/tp-phase-implement` would normally spawn parallel worktree workers for independent tasks, under orchestrator dispatch it cannot (it is itself a subagent, and a subagent cannot spawn task sub-subagents), so it falls back to running those tasks sequentially.
-- Stays within its single phase-implement soft budget (200k / phase; ## Per-slot budget table) and returns one **candidate / phase envelope** — the orchestrator sees only that envelope, never the per-task work (## Return clipping). The worker / `candidate.v1` machinery (## Tier 3 + ## Tier 3.5) is unchanged; this slot still routes its return through `run_tier_3_5.py`, not `parse_tier_return`.
+The `phase-implement` slot (Slot 7) is dispatched **once per plan phase**: one Opus `tp-worker` owns the phase and runs `/tp-phase-implement {slug} --auto` inline (## Per-slot return contract), taking its tasks **one after another** — never a parallel worktree fan-out. Without `--local` each task is an inline red-green-refactor cycle, as before. With `--local` the worker prompt carries the phase's tier table and the worker follows `skills/_shared/local-dispatch.md`: one nested `tp-task-worker` spawn per `local`/`sonnet` row (the sanctioned second level, ## Dispatch loop), checked by `task_verify.py` and escalated by `tier_ladder.py`; `opus` rows stay inline. It stays within its phase-implement soft budget (200k / phase; ## Per-slot budget table) and returns one **candidate / phase envelope** — never the per-task work (## Return clipping).
 
 **Per-phase ordering (fixed sequence within each phase dispatch):**
 
-1. **Branch setup** (contract item 1): Phase 1 creates `candidate/{slug}/single`; Phase 2+ fetches and continues.
+1. **Branch setup** (contract item 1): Phase 1 creates `candidate/{slug}/single`; Phase 2+ fetches and continues. Just before each dispatch, capture `phase_base_sha`: first phase → `git rev-parse {base-ref}`; later → the prior Tier-3.5-`ok` SHA. Log `[tp-run-full-design/tier-3] phase N dispatch phase_base_sha=<sha>`; invariant across that phase's Tier 3 retries; on cold resume re-derive (the dispatch line, else the prior `candidate-*.json`). Under `--local`, also run `python3 "$TP_ROOT"/skills/_shared/task_eligibility.py <plan> --phase N` before the dispatch, log its output as `[tp-run-full-design/tier-3] phase N tier table`, and put it in the `tp-worker` prompt.
 2. **Implement + commit** (contract items 2, 3): run tasks one-after-another, one commit per task.
 3. **push before synthesizing the envelope** (contract item 4 precedes item 5): `git push -u origin candidate/{slug}/{candidate_id}` — the SHA in the envelope must reference a pushed commit so the orchestrator's `git ls-remote` SHA cross-check (Tier 3.5 case e) is meaningful. Under the single-worker model, `candidate_id == "single"`, so the branch is `candidate/{slug}/single`.
 4. **Synthesize the `candidate.v1` envelope** (contract item 5): the final `candidate.v1` JSON block.
-5. **Orchestrator runs `run_tier_3_5.py` at the end of this phase** (before dispatching the next phase): parse → write artifacts → cleanup → `git ls-remote` SHA cross-check.
-
-If a future harness gains nested dispatch, the NESTED-OK form can be revived as a follow-on design; until then the falsified nested model is superseded by Form SERIAL, which obeys the single-level fan-out invariant of ## Dispatch loop.
+5. **Orchestrator runs `run_tier_3_5.py` at the end of this phase** (before dispatching the next phase): parse → write artifacts → cleanup → `git ls-remote` SHA cross-check → phase re-run (stdin `rerun`).
 
 ## Tier 4 — Council coordination (skipped in MVP)
 
@@ -683,6 +617,17 @@ envelope:
 
 The PASS vs PASS WITH NOTES split is informational — both proceed to Tier 6. The notes are surfaced in the Tier 6 PR description so the reviewer sees what passed-with-caveats.
 
+**Step 2b — guard certification** (every Slot 8 attempt, after Step 2's synth, before Step 3). The procedure is `skills/_shared/certification-protocol.md` §Step 2b; it is not restated here. Resolve the CLI once (`$RS` is reused below):
+
+```bash
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TOP"/skills/_shared/resolve_script.py; else RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi
+CERT="$(python3 "$RS" certify.py)" || exit 1
+CL="$(python3 "$RS" certify_ledger.py)" || exit 1
+```
+
+First `python3 "$CERT" claimant-check --base tp/{slug} --ref S --design {design}` (`{design}` = the repo-relative design dir; exit 1 → `certification-unverified`, `claimant-records`). Dispatch `Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")` once per claims file **per attempt** (verdict files first), the claims bytes fenced as untrusted data, with the resolved absolute `$CERT` path. Copy each `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count; exit ≠ 0 → run that file with `--unverified records-handoff` instead of `--records`), then copy it under `certifications/records/`. Run `python3 "$CERT" run … --watch-ref …` per file (`--name` = the file's path under `certifications/`, `--out <scratch>/r<N>.result.json`), then one `python3 "$CERT" fold --slot 8` with a `--result` for every result (sweep ones included) and `--verdict-guards <scratch>/diff.txt` (`git -c core.quotePath=false diff --no-renames --name-only tp/{slug}...S > <scratch>/diff.txt`): its output replaces the Step 2 envelope and feeds the branching of ## Retry-with-advice escalation (a `guard_claims[]` id no `records/` result certified folds `unverified`). Its step 6 (ledger files) runs through `$CL` only when a `sweep-NN.claims.json` or `self.claims.json` exists and only renders the pending issues file; `issues apply` runs after the Tier 5.6 fold (its Step 1). One commit, at protocol step 7 (after the HEAD assert).
+
 ### Step 3 — `design-learn` slot (`/tp-design-learn {slug} --auto`)
 
 The orchestrator **dispatches the `design-learn` slot subagent** (Slot 9), which runs `/tp-design-learn {slug} --auto` inline — Shape B generator. It reads the completed implementation and synthesizes:
@@ -699,6 +644,7 @@ If `/tp-design-learn --auto` produces only High-confidence updates, Tier 5 is do
 - **All three steps pass** → proceed to Tier 5.6 (closeout).
 - **Step 1 (regression)** → escalate, exit non-zero (a non-retryable worker-contract violation; see Step 1).
 - **Step 2 (NEEDS WORK)** → retry-with-advice (re-spawn `phase-implement`); escalate + exit non-zero **only** when the attempt budget is exhausted (## Retry-with-advice escalation).
+- **Step 2b (unverified)** → escalate, exit non-zero (`certification-unverified`; `not-binding`/`false-red` fold to NEEDS WORK, the Step 2 row).
 - **Step 3 (design-learn errors)** → log Medium-confidence, proceed (the candidate is already audited; missing project-doc updates do not invalidate the implementation).
 
 ## Tier 5.6 — Closeout (fold → learn-verify → archive)
@@ -715,6 +661,7 @@ git merge --no-ff origin/candidate/{slug}/single -m "Fold candidate into tp/{slu
 
 - The candidate is **code-only** and `tp/{slug}` is **artifacts-only** ⇒ near-disjoint trees ⇒ the merge is clean in the common case.
 - **Conflict → `git merge --abort`**, then fall back to the legacy **candidate→tp PR** (## Tier 6 — legacy fallback) and append `[tp-run-full-design/tier-5.6] fold-conflict` (Confidence: High). **Never auto-resolve** a fold conflict — that would be the silent mutation the vision forbids; the human resolves it on the fallback candidate PR.
+- **Clean fold → pending issues** (if Step 2b rendered `certifications/records/known-issues.pending.md`): `python3 "$CL" issues apply --pending <it> --known-issues three-pillars-docs/known_issues.md` on the folded tree (`$CL` per ## Tier 5 Step 2b; ids re-derived past the candidate's entries), then commit. After a conflict it stays pending.
 
 ### Step 2 — Learn-verification (advisory)
 
@@ -749,7 +696,7 @@ Pushes the post-fold, post-archive `tp/{slug}` (the fold-merge + `Complete desig
 
 #### Tier 6 — legacy fallback (fold conflict)
 
-If Tier 5.6 Step 1 hit a fold conflict and aborted, the candidate code is **not** on `tp/{slug}`. In that case ONLY, Tier 6 opens the legacy **candidate→tp PR** instead (`--base tp/{slug} --head candidate/{slug}/single`) so the human can resolve the conflict there, and the design is **not** archived (it stays in-flight). This is the pre-merged-design-closeout terminal, retained purely as the conflict escape hatch. The normal path is the completion PR below.
+If Tier 5.6 Step 1 hit a fold conflict and aborted, the candidate code is **not** on `tp/{slug}`. In that case ONLY, Tier 6 opens the legacy **candidate→tp PR** instead (`--base tp/{slug} --head candidate/{slug}/single`) so the human can resolve the conflict there, and the design is **not** archived (it stays in-flight). This is the pre-merged-design-closeout terminal, retained purely as the conflict escape hatch. The normal path is the completion PR below. Its PR body tells the human, after resolving the conflict, to run `python3 "$CL" issues apply --pending {design}/certifications/records/known-issues.pending.md --known-issues three-pillars-docs/known_issues.md` (`$CL` per ## Tier 5 Step 2b), since Tier 5.6 applies only on a clean fold.
 
 ### Step 2 — `gh pr create` + partitioned review request (F2)
 
@@ -770,7 +717,8 @@ bots   = [r for r in reviewers if r.strip().lower() in COPILOT_SLUGS]
 # Resolve the FREE chokepoint git-toplevel-first (see first-run.md §Resolve a FREE _shared script)
 TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TOP"/skills/_shared/resolve_script.py; else RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi
-GHPA="$(python3 "$RS" github_pr_author.py)"
+GHPA="$(python3 "$RS" github_pr_author.py)" || exit 1
+[ -n "$GHPA" ] || exit 1
 python3 "$GHPA" create --context autonomous -- \
   --base {default} \
   --head tp/{slug} \
@@ -857,51 +805,47 @@ If an operator prefers a pre-PR confirmation gate for high-stakes runs, the defe
 
 Tier 6 opens the PR and requests a review; **Tier 7 drives that review to a stable state** so a run ends at a reviewed-stable PR rather than a fresh one. This is the orchestrator *incorporating* `/tp-pr-iterate` directly — not chaining it at a downstream launch layer. It is **on by default**; `--no-iterate` (and `--no-review`, which implies it) skips it.
 
-Historically the orchestrator stopped at Tier 6 and left review-response for a separate invocation (and the fleet tried to bolt it on by emitting a `… && /tp-pr-iterate` shell chain — a fleet-layer hack that only the interactive launch form honored, leaving headless workers opening-and-stopping). Folding the loop into Tier 7 makes *every* invocation — direct, interactive-fleet, or headless-fleet — converge the same way, and lets the fleet emit the bare `/tp-run-full-design … --skip-design` command for all worker forms (no `&&` chain).
+Folding the loop into Tier 7 (not a fleet-layer `… && /tp-pr-iterate` chain) makes *every* invocation — direct, interactive-fleet, or headless-fleet — converge the same way, and lets the fleet emit the bare `/tp-run-full-design … --skip-design` command for all worker forms (no `&&` chain).
 
 ### Step 1 — Orchestrator-owned round loop (Slot 11)
 
 **The orchestrator drives `run_round` iteration-by-iteration at top level** — it does NOT delegate the whole loop to one Slot 11 subagent. This is the B1 fix: a Slot 11 subagent cannot dispatch the per-head ANGLES fan-out (L23 single-level limit), so the loop must live at the orchestrator where fan-out is legal.
 
-Each round:
+Each round follows `skills/tp-pr-iterate/round-topology.md` (details and recovery):
 
-1. Resolve the current PR head SHA. If `_should_review_head(state, head_sha)` (new head):
-   - Fan out the `ANGLES` set as N top-level `general-purpose` sub-agents (1-level fan-out, L23-safe at top level).
-   - `merge_codereview_angles(responses)` → merged findings. Then `capture_proof(base, head, angle_raw_responses, root=default_proof_root())` → `meta` (proof artifact: `numstat.txt`, `transcripts.json`, `meta.json` under `.three-pillars/review-proof/<head>/`; degraded=True on empty/git-failed/write-OSError).
-   - `post_codereview_comment(pr_url, findings, head_sha=head_sha, digest=format_proof_digest(meta, angle_counts))` — mandatory, no silent reviews; PII-light proof digest appended to body.
-   - Record the head in `reviewed_head_shas`; cache findings.
-   - On fan-out failure: pass `merge_codereview_angles([])` (the `no-angles` sentinel) — **never a bare `[]`**.
-   - On a dedupe round (head already reviewed): `findings = _cached_findings_for_head(state, head_sha)`; if the cache misses the current head → inject `merge_codereview_angles([])` (fail closed).
+1. **Prepare + fan out.** `git fetch origin {default}`; `review_base` is the base-branch tip, re-fetched every round. Run `round_scratch.py prepare` (under `default_proof_root()`) → round dir `R`; its `angles.json` manifest is the path authority. Fan out the `ANGLES` set as N top-level `general-purpose` sub-agents, each pinned `model="opus"` (reviews always Opus; L23-safe at top level), one per manifest angle with its manifest prompt; each writes its full reply to its own `reply_path` and returns one line (a missing reply reads as the fail-closed sentinel).
+   - **Round tail.** Then dispatch one Opus round-tail sub-agent **without** worktree isolation: it runs in the orchestrator's own `tp/{slug}` checkout while the orchestrator is idle, and is the loop's one working-tree writer (it never checks out; it commits only its derived paths). It runs `reproduce.py --round-dir R --cwd . --head <head>` (merges the replies via `merge_codereview_angles`, runs each blocking finding's reproducer). A clean round finishes (two-stable) with `converge.py --round-dir R`; otherwise it runs `capture_proof` and `post_codereview_comment` (mandatory, no silent reviews), then step 2.
 2. **Shell out the round decision** — NOT an in-process call. Run:
    ```
    python3 "$TP_ROOT"/skills/tp-pr-iterate/scripts/run_round.py
    ```
-   with a JSON object on stdin carrying: `state_path`, `head_sha`, `codereview_findings` (the fan-out or cached value), `reviewed` (`copilot_reviewed_successfully(pr_url)`), `unresolved_actionable`, `ci_rollup` (the most-recent `statusCheckRollup` from `_ci_settled_on_head`), `config` (the repo's `.three-pillars/config.json` contents — **must be passed explicitly** so `review.expects_copilot=false` and `ci.expects_github_checks=false` are honoured; omitting it defaults to both `true`, which blocks code-review-only convergence on repos without Copilot), `review_proof_root` (the gitignored proof dir from `default_proof_root()` — **always pass this**; absent on a convergence-eligible round fails closed with `proof_enforced=False` in the envelope), `review_base` (the base SHA — enables the gate to independently re-run the diff as a provenance check), and optional round bookkeeping (`pr_url`, `decisions_path`). The wrapper reads + writes the committed `iterate-state.v1.json` (cold-resumable) and emits a single-line JSON envelope. An empty/zero-line diff or missing artifact → `proof_ok=False` → `blocked-no-independent-review`.
-3. Parse the envelope. If `action == "fix"`: dispatch `/tp-pr-fix` as a top-level sub-agent with `isolation="worktree"` — it pushes a new head to `tp/{slug}`; the next round re-fans-out on that head.
+   with a JSON object on stdin carrying: `state_path`, `head_sha`, `codereview_findings` (the fan-out or cached value), `reviewed` (`copilot_reviewed_successfully(pr_url)`), `unresolved_actionable`, `ci_rollup` (the most-recent `statusCheckRollup` from `_ci_settled_on_head`), `config` (the repo's `.three-pillars/config.json` contents — **must be passed explicitly** so `review.expects_copilot=false` and `ci.expects_github_checks=false` are honoured; omitting it defaults to both `true`, which blocks code-review-only convergence on repos without Copilot), `review_proof_root` (the gitignored proof dir from `default_proof_root()` — **always pass this**; absent on a convergence-eligible round fails closed with `proof_enforced=False` in the envelope), `review_base` (the base-branch tip, re-fetched every round — the gate re-runs the diff as a provenance check), and the round bookkeeping from the manifest (`pr_url`, `round`, `ordinal`, `class_log_path`, and `decisions_path` = the manifest's loop log). The wrapper reads + writes `iterate-state.v1.json` and emits a single-line JSON envelope. **Resume is in-worktree, not cross-clone**: every state path in use is gitignored and no code path commits the state, so a resumed loop recovers from a process crash inside a live worktree — a genuinely *committed* per-round state is the intended contract, not one any current code performs (see `tp-pr-iterate/SKILL.md` §Cold-resume contract). An absent state file is the documented **start condition**: `run_round.py` bootstraps a schema-valid round-0 state and proceeds (`state_bootstrapped: true`), reserving `state-read-failed` (exit 2) for the **unreadable** cases: content that is not a JSON object, a **dangling symlink** (`Path.exists()` says absent, but the seed still refuses to write through the link), or a **non-regular** node (FIFO, socket, directory — including one reached through a symlink). Note that "exists with content" is the wrong test in both directions: a FIFO, socket, directory or `/dev/null` all exist with *no* content and still exit 2, while a dangling symlink exits 2 though `Path.exists()` is False. A **zero-length** *regular* state file counts as absent and is re-seeded, because it is the residue of a crash mid-seed and refusing it would wedge every later round. **Serial callers only**: two bootstraps racing on ONE `state_path` are **not supported** — a claim still in flight is also 0 bytes, so a racing round cannot tell it from crash residue, re-seeds it, and the last write wins. What is silently lost is the losing round's accumulated state: `transitions`, `last_codereview_head_sha` / `last_codereview_findings` (the currency fields the independent-review conjunct reads) and `degraded_review_retries`. So is `iteration`, since the round-budget tick increments it every counted round (the cap in step 4). A fleet that runs loops in parallel must give **each loop its own `state_path`**. An empty/zero-line diff or missing artifact → `proof_ok=False` → `blocked-no-independent-review`.
+3. **Inline fix (in the round tail).** If `action == "fix"`, the tail runs the reduced `/tp-pr-fix` form: `fix_round.run_round(…, loop_mode=True, paths=…)` with `paths` from `tree_scope.derive_fix_paths`, committing only those paths and pushing a new head to `tp/{slug}`. It writes `R/tail/envelope.json`; the orchestrator runs `round_scratch.py tail-check --round-dir R` (missing/invalid → `tail-failed`, needs-human-attention) and re-fans-out on the new head.
 4. Loop until the envelope reports a `terminal` phase:
-   - `"two-stable"` / `"two-stable [code-review-only]"` (`converged: true`) → PR reviewed-stable. The canonical clean-round finish is `skills/tp-pr-iterate/scripts/converge.py` (ordered finisher: post the trusted proof digest as the LAST head-binding action, then shell `run_round.py`).
-   - `"blocked-no-independent-review"` (`converged: false`) → **terminal** (not a keep-looping yield). No independent review ran for the current head; `tp:needs-human-attention` is applied and the loop stops. The operator should investigate why the ANGLES fan-out did not produce a real review for this head.
-   - Any cap/guard terminal (`cap-exhausted`, wall-clock, etc.) → reported, not escalated.
+   - `"two-stable"` / `"two-stable [code-review-only]"` (`converged: true`) → PR reviewed-stable. The `converge.py` finisher posts the trusted proof digest as the LAST head-binding action, then shells `run_round.py`.
+   - `"blocked-no-independent-review"` (`converged: false`) → **terminal** (not a keep-looping yield). No independent review ran for the current head; `tp:needs-human-attention` is applied and the loop stops.
+   - **Round budget (the cap).** `run_round` calls `round_budget.tick` every round: blocking findings at `iteration >= round_cap` stop as `budget-exhausted` (also growth, test/code ratio, `budget-error`; wall clock → `cap-exhausted`; k-consecutive → `convergence-failure`). Report every `holding` signal; to recover, raise `pdw.guards.round_cap` (or the named limit) in `.three-pillars/config.json`, leave it uncommitted, and re-run. Outcome `pr-iterate-budget-exhausted`.
+   - **Terminal log flush.** At every terminal, `round_scratch.py flush` appends the loop log to `decisions.md`. At `two-stable` it is committed locally and **not pushed** (an exception to commit-then-push, because a push would move the PR head). Every other terminal's report names `decisions.md` as modified and uncommitted (flushed, left dirty so `HEAD` stays the PR head for a re-run).
 
 **The loop is dual-source — it never depends on Copilot alone.** On a repo that declares `review.expects_copilot=false`, the two-stable terminal drops the Copilot conjunct and converges on the `/code-review` arm alone. Do **not** short-circuit Tier 7 because Copilot did not post — run the loop and let the `/code-review` arm carry it.
 
-State is persisted by `run_round.py` each round, so a crash between rounds is cold-resumable from the committed state file.
+State is persisted by `run_round.py` each round, so a crash between rounds is resumable from the written state file (in-worktree — the path is gitignored; see the resume caveat above).
 
 ### Step 2 — Clip + log
 
-The slot returns a **generator-return** envelope summarizing the loop: rounds run, the terminal classifier state (`minor-only` ⇒ converged, or a cap-hit ⇒ `cap-reached`), and the final head SHA. The orchestrator clips it (## Return clipping) and logs `[tp-run-full-design/tier-7] pr-iterate-{converged|cap-reached} {pr-url}`.
+The slot returns a **generator-return** envelope summarizing the loop: rounds run, the terminal (`two-stable` ⇒ converged, a budget terminal ⇒ `budget-exhausted`, else `cap-reached`), and the final head SHA. The orchestrator clips it (## Return clipping) and logs `[tp-run-full-design/tier-7] pr-iterate-{converged|budget-exhausted|cap-reached} {pr-url}`.
 
-**Base-moved during the loop.** If the completion PR goes `mergeStateStatus: DIRTY`/`BEHIND` mid-iteration (another PR merged to `{default}` and the branch now conflicts — typically on the shared living docs), the `pr-iterate` slot must resolve it by running **`/tp-merge-from-main {slug}`** (base-into-branch, zero-drop verifier, semantic deferral, re-test, re-push) — **never a free-hand `git merge`**, which skips the verifier and risks a silent content-drop. This is the same base-sync rule `/tp-pr-iterate` carries (see its "Failure modes" → *Base moved under the PR*). It is **not** the merge-only-gate `/tp-merge` of the next paragraph: syncing the base *into* the branch (`/tp-merge-from-main`) is reversible and below the gate; landing the PR to `{default}` (the `/tp-merge` land gate) is the human's.
+**Base-moved during the loop.** If the completion PR goes `mergeStateStatus: DIRTY`/`BEHIND` mid-iteration (another PR merged to `{default}` and the branch now conflicts — typically on the shared living docs), the `pr-iterate` slot must resolve it by running **`/tp-merge-from-main {slug}`** (base-into-branch, zero-drop verifier, semantic deferral, re-test, re-push) — **never a free-hand `git merge`**, which skips the verifier and risks a silent content-drop. This is the same base-sync rule `/tp-pr-iterate` carries (see its "Failure modes" → *Base moved under the PR*). Syncing the base *into* the branch is reversible and below the gate; landing the PR (the `/tp-merge` land gate, next paragraph) is the human's.
 
 ### The merge-only gate (load-bearing)
 
-Tier 7 **iterates and pushes fix commits; it NEVER merges.** A human reviews the reviewed-stable PR and then triggers the merge by running `/tp-merge {slug}` — the land gate, which calls `require_merge_gate_pass` (the deterministic gate's five predicates, including a current human approval) and performs the irreversible `gh pr merge` ONLY on PASS, refusing on a blocked gate. (If the base moved and the branch conflicts first, the human runs `/tp-merge-from-main {slug}` to sync — base-into-branch, zero-drop verifier, re-test, re-push — before landing.) The orchestrator never hand-merges and never auto-merges. This is consistent with the standing merge-only gate: autonomous through push + PR + review-response, paused before the `/tp-merge` step. A non-converged loop (cap-reached, or persistent structural findings) is **reported, not escalated past the gate** — the operator reviews the PR as usual; the work is durable on the candidate branch regardless.
+Tier 7 **iterates and pushes fix commits; it NEVER merges.** A human reviews the reviewed-stable PR and then triggers the merge by running `/tp-merge {slug}` — the land gate, which calls `require_merge_gate_pass` (the deterministic gate's five predicates, including a current human approval) and performs the irreversible `gh pr merge` ONLY on PASS, refusing on a blocked gate. (A moved base is synced first with `/tp-merge-from-main {slug}`.) The orchestrator never hand-merges and never auto-merges. This is consistent with the standing merge-only gate: autonomous through push + PR + review-response, paused before the `/tp-merge` step. A non-converged loop (cap-reached, or persistent structural findings) is **reported, not escalated past the gate** — the operator reviews the PR as usual; the work is durable on the candidate branch regardless.
 
 ### Tier 7 outcomes
 
 - **Converged** (`two-stable` or `two-stable [code-review-only]`) → decisions.md entry `[tp-run-full-design/tier-7] pr-iterate-converged {pr-url}`; exit 0. The PR is reviewed-stable, awaiting human merge.
-- **Blocked — no independent review** (`blocked-no-independent-review`) → `run_round.py` returned `converged: false` because no real ANGLES fan-out ran for the current head. This is a **terminal** — the loop stops and `tp:needs-human-attention` is applied. Report as `pr-iterate-cap-reached` (blocked, non-converged); investigate why the ANGLES fan-out did not produce a real review. **Convergence is byproduct-only + proof-bound (review-integrity-enforcement):** `run_round.py` emits `converged=true` only as a byproduct of a two-stable terminal bound to the shared `convergence_proof.non_degraded_proof_on_head` predicate (the merge gate's own); a degraded/absent proof-on-head or an unparseable/NO-ANGLES angle blocks with a `not_converged_reason` and increments the committed `degraded_review_retries` counter (default bound 1). On a `not_converged_reason`, re-run the review on head (re-`capture_proof` + re-`post_codereview_comment` with a fresh digest) then re-shell `run_round.py`; at the bound, record not-converged + escalate. Full contract: `tp-pr-iterate/proof-of-review.md` → *Convergence action contract*.
-- **Cap reached** (`--max-iterations`/`--max-wall-clock`) → `[tp-run-full-design/tier-7] pr-iterate-cap-reached {pr-url}`; exit 0. Reported with the residual review state; not escalated.
+- **Blocked — no independent review** (`blocked-no-independent-review`) → **terminal** (`converged: false`: no real ANGLES fan-out ran for the current head; `tp:needs-human-attention`). Report as `pr-iterate-cap-reached` (blocked, non-converged). **Convergence is byproduct-only + proof-bound (review-integrity-enforcement):** `run_round.py` emits `converged=true` only as a byproduct of a two-stable terminal bound to the shared `convergence_proof.non_degraded_proof_on_head` predicate (the merge gate's own); a degraded/absent proof-on-head or an unparseable/NO-ANGLES angle blocks with a `not_converged_reason` and increments the committed `degraded_review_retries` counter (default bound 1). On a `not_converged_reason`, re-run the review on head (re-`capture_proof` + re-`post_codereview_comment` with a fresh digest) then re-shell `run_round.py`; at the bound, record not-converged + escalate. Full contract: `tp-pr-iterate/proof-of-review.md` → *Convergence action contract*.
+- **Budget exhausted** (`budget-exhausted` / `cap-exhausted` / `convergence-failure` from `round_budget.tick`) → `[tp-run-full-design/tier-7] pr-iterate-budget-exhausted {pr-url}`; exit 0. Reported with every `holding` signal and `decisions.md` as modified and uncommitted; not escalated.
 - **Loop non-start** (e.g. `gh` down, PR already closed before the first round) → log `[tp-run-full-design/tier-7] pr-iterate-noop {pr-url}`; exit 0 (fail-open). **A Copilot review that never attaches is NOT this case** — the `/code-review` arm is still a review source; the loop runs and converges (or hits a cap). Reserve `pr-iterate-noop` for a genuine non-start, never for "Copilot was absent."
 - **Every terminal outcome above** also shells `sweep_orphan_branches.py` once, after Tier 7 completes — the same `worktree-agent-*` orphan-branch reclaim as the `## Cleanup` step, on the normal clean-exit path.
 
@@ -914,7 +858,7 @@ The orchestrator runs in **one worktree, checked out on `tp/{slug}` for the enti
 Three rules prevent it:
 
 1. **The candidate branch is remote-only to the orchestrator.** After Tier 3.5 the candidate lives at `origin/candidate/{slug}/single`. The orchestrator **never checks it out** in its own worktree. It inspects the candidate read-only via `git show origin/candidate/{slug}/single:<path>`, `git diff tp/{slug}...origin/candidate/{slug}/single`, `git log origin/candidate/{slug}/single` — never `git checkout`/`git switch`. **The one permitted write-integration is the Tier 5.6 fold** (`git merge --no-ff origin/candidate/{slug}/single`): a merge *into* the currently-checked-out `tp/{slug}` keeps HEAD on `tp/{slug}`, so it does not drift HEAD and does not orphan commits. The hazard this rule prevents is *checkout/switch onto the candidate*, not *merge the candidate in* — those are categorically different. (A fold conflict aborts via `git merge --abort`, which also leaves HEAD on `tp/{slug}`.)
-2. **Any slot needing the candidate's *working tree* (regression test, PR-iterate fix commits) runs with `isolation="worktree"`** so its checkout/commits land in *its* worktree. The read-only audit fan-out sub-dispatches (Slots 4/6/8) may share `tp/{slug}` precisely because they only `git show`/`git diff` and never checkout; the worker (Tier 3), the regression check (Tier 5 Step 1), and `pr-iterate` (Tier 7) **must** isolate because they write a working tree.
+2. **Any slot needing the candidate's *working tree* (regression test) runs with `isolation="worktree"`** so its checkout/commits land in *its* worktree. The read-only audit fan-out sub-dispatches (Slots 4/6/8) may share `tp/{slug}` precisely because they only `git show`/`git diff` and never checkout; the worker (Tier 3) and the regression check (Tier 5 Step 1) **must** isolate. The one exception is the Tier 7 round tail: it is the one working-tree writer on the orchestrator's own `tp/{slug}` checkout, which it never checks out away from, with the orchestrator idle, committing only its derived paths.
 3. **Assert before every orchestrator commit.** Immediately before any `git commit` the orchestrator runs `git symbolic-ref --short HEAD` and verifies it equals `tp/{slug}` (not detached, not `candidate/...`). If it does not, the orchestrator `git checkout tp/{slug}` first and logs `[tp-run-full-design/branch-hygiene] head-reattached {prev-ref}`. A commit is never made on a drifted HEAD.
 
 Recovery, if an orphan nonetheless occurs: the commit stays reachable by SHA (`git log <sha>`), and a **path-scoped** `git checkout <sha> -- <path>` restores its tree onto `tp/{slug}` (safe because the orchestrator is not mid-merge — cf. the never-`git checkout <ref> -- .`-mid-merge rule). Re-commit on `tp/{slug}`.
@@ -961,7 +905,7 @@ The guarantee is symmetric with the rest of the abort model — artifacts + `.ha
 
 ## Retry & max-attempts
 
-`--max-attempts N` (default `3`) is the **worker** retry budget — it retries **Tier 3 + 3.5** on a malformed structured response. It does NOT retry Tier 6's `gh pr create`. It is the *same flag* that bounds audit retry-with-advice (## Retry-with-advice (audits)), but the two use **independent counters** (worker-retry here; per-audit-cycle there) — this section governs only the worker. The worker failure mode is plausibly transient: a worker LLM that produced a malformed JSON block on attempt N may produce a valid one on N+1, which is exactly the kind of hiccup the self-healing default is meant to absorb.
+`--max-attempts N` (default `3`) is the **worker** retry budget — it retries **Tier 3 + 3.5** on a malformed structured response. It does NOT retry Tier 6's `gh pr create`. It is the *same flag* that bounds audit retry-with-advice (## Retry-with-advice (audits)), but the two use **independent counters** (worker-retry here; per-audit-cycle there) — this section governs only the worker. A malformed JSON block on attempt N is plausibly transient, the hiccup this default absorbs.
 
 ### Retry-eligibility table (gated by failure class)
 
@@ -973,8 +917,9 @@ The five worker-contract failure modes from detailed-design.md §Error Semantics
 | (b) `NoCandidateBlockError` or `UnknownSchemaVersionError` | `parse_candidate_response` | **No** — escalate immediately (worker ignored the contract) |
 | (c) `SchemaValidationError` | `parse_candidate_response` | **Yes** — retry up to `--max-attempts` |
 | (e) sha-mismatch | Tier 3.5 SHA cross-check | **No** — escalate immediately (environmental, not worker fault) |
+| (f) rerun-failed | Tier 3.5 phase re-run | **No, escalate (v1)** |
 
-Only (c) is retryable. The other three are structural or environmental — a retry won't change the outcome and just burns tokens.
+Only (c) is retryable. The others are structural or environmental — a retry won't change the outcome and just burns tokens; an (f) retry would also inherit the pushed red commits.
 
 ### Retry loop
 
@@ -988,7 +933,7 @@ for N in plan_phases:          # outer per-phase loop (Slot 7)
     result = run_tier_3_5(phase=N)  # parse → write → cleanup → sha-check
     if result.success:
       break
-    if result.case in {a, b, e}:
+    if result.case in {a, b, e, f}:
       escalate(result)
       exit_nonzero()
     # case (c) — retryable
@@ -1000,20 +945,17 @@ for N in plan_phases:          # outer per-phase loop (Slot 7)
     exit_nonzero()
 ```
 
-Each retry appends a `[tp-run-full-design/tier-3.5] retry attempt N/M` entry to decisions.md. After exhaustion (N > `--max-attempts`), append a `retry-exhausted` entry and escalate the last failure's case + details.
+After exhaustion (N > `--max-attempts`), escalate the last failure's case + details.
 
 ### Distinguishing case (e) from retries under the same tier prefix
 
 Both retry-attempt entries and case-(e) sha-mismatch escalations live under the `[tp-run-full-design/tier-3.5]` prefix. The **event-type token** after the prefix is the disambiguator and must be stable across orchestrator versions:
 
-- `retry attempt N/M` — retry-eligible failure encountered on attempt N (case c only)
-- `retry-exhausted` — final escalation after `--max-attempts` retries
-- `sha-mismatch <slug>:<parsed_sha>:<remote_sha>` — case (e), non-retryable, environmental
-- `no-candidate-block` — case (b), non-retryable
-- `worker-noop` — case (a), non-retryable
-- `worktree-cleanup-locked <path>` — informational, from `cleanup_worker_worktree` force-removing a locked worktree (Task 1.4 helper, not a worker retry)
+- `retry attempt N/M` — retry-eligible failure on attempt N (case c only); `retry-exhausted` — final escalation after `--max-attempts` retries
+- `sha-mismatch <slug>:<parsed_sha>:<remote_sha>` — case (e), environmental; `no-candidate-block` — case (b); `worker-noop` — case (a); `rerun-failed <task:node …>` — case (f); `task-env-error <task_id>` — a `task_tiers` record ended `env-error`. All non-retryable.
+- informational, never a case: `worktree-cleanup-locked` and the re-run's `rerun-skipped`, `rerun-phase-unverified`, `rerun-unverified <n>`, `files-escape-logged` (exit 0)
 
-A grep over decisions.md for `[tp-run-full-design/tier-3.5]` returns the full history of Tier 3.5 events; the second token classifies. This preserves the prefix scheme's machine-readability (per detailed-design.md §Decisions OQ5).
+A grep over decisions.md for `[tp-run-full-design/tier-3.5]` returns the full Tier 3.5 history; the second token classifies (OQ5).
 
 ### Counter-reset rule
 
@@ -1033,8 +975,8 @@ This is a **distinct mechanism** from ## Retry & max-attempts (which retries the
 
 It fires **by default** on every audit `needs-work` verdict (`--max-attempts` defaults to `3`):
 
-- **Every finding drives a re-spawn — high, medium, and low confidence alike.** Confidence does not gate retry-vs-escalate; it is carried into the advice so the generator knows how sure the audit was, but even an uncertain finding gets an automated attempt before a human is involved. (Setting `--max-attempts 1` disables the loop and restores escalate-on-first-rejection.)
-- The loop runs until the audit **passes** (advance) or the per-cycle budget is **exhausted** (escalate — ## Retry-with-advice escalation). The audit gate itself is never bypassed: a re-judged artifact must actually PASS to advance.
+- **Every finding drives a re-spawn — high, medium, and low confidence alike** (except `category: "map-check"` — see the exemption below). Confidence does not gate retry-vs-escalate; it is carried into the advice so the generator knows how sure the audit was, but even an uncertain finding gets an automated attempt before a human is involved. (Setting `--max-attempts 1` disables the loop and restores escalate-on-first-rejection.)
+- The loop runs until the audit **passes** (advance) or the per-cycle budget is **exhausted** (escalate — ## Retry-with-advice escalation). The audit gate itself is never bypassed: a re-judged artifact must actually PASS to advance. **Map-check exemption:** a finding with `category: "map-check"` (Slots 4/6, state-space Check mode) questions design.md's own framing, which no generator re-spawn may revise — it is **never** re-spawn advice. Check for it on **every** audit return, before looking at the verdict: if any is present, whatever the verdict or confidence, do not retry (not even the other findings — design.md must change first) and escalate at once via the map-check trigger of ## Retry-with-advice escalation.
 
 ### File-reference re-spawn
 
@@ -1067,11 +1009,12 @@ Each attempt appends an `[orchestrator/<audit-slot>] retry-with-advice attempt N
 
 Escalation is the **terminal fallback** — the orchestrator self-heals first and involves a human only when it cannot converge. Findings of **all confidences — high, medium, and low — are retried** (## Retry-with-advice (audits)); confidence is advice to the generator, not a gate that skips the retry.
 
-There is exactly one escalation trigger in the audit loop:
+There are exactly three escalation triggers in the audit loop — **budget exhausted** and **`certification-unverified`** below, and the **map-check trigger**: any `category: "map-check"` finding on an audit return, under any verdict, escalates immediately with no retry cycle (append `[orchestrator/<audit-slot>] map-check-escalated` with the findings, then leave lock + branch as-is exactly as for `retry-exhausted`):
 
 - **Budget exhausted** — a cycle spends its per-cycle retry budget (## Retry-with-advice counter) and the audit still returns `needs-work`. The orchestrator appends `[orchestrator/<audit-slot>] retry-exhausted` with the residual findings to `decisions.md` and exits per ## Cleanup.
+- **`certification-unverified`** — a Slot 4/8 fold with `verdict == unverified`, `tree_mutated`, `claimant-records`, `records-handoff`, or a certify.py exit ≠ 0 / incomplete `--out` (## Tier 5 Step 2b). Append `[orchestrator/<audit-slot>] certification-unverified`, add `tp:needs-human-attention` where a PR exists, exit per ## Cleanup; it is **never** re-spawn advice. Order on every audit return: map-check → `certification-unverified` → `status`.
 
-This keeps the audit gate a true floor without "escalate immediately": the orchestrator never advances on a `needs-work` artifact and never auto-merges (a human reviews the final PR), but it exhausts its automated repair attempts before handing the problem to a person. The only rejection that escalates *without* a retry loop is the Shape A design-floor (## Tier 2 — "Audit rejection — self-heal, then escalate"), because a structurally incomplete human-seeded `design.md` is not something a generator re-spawn can author.
+This keeps the audit gate a true floor without "escalate immediately": the orchestrator never advances on a `needs-work` artifact and never auto-merges (a human reviews the final PR), but it exhausts its automated repair attempts before handing the problem to a person. The only rejections that escalate *without* a retry loop are the Shape A design-floor (## Tier 2 — "Audit rejection — self-heal, then escalate") and the map-check trigger, because in both the fix belongs in the human-seeded `design.md`, which a generator re-spawn cannot author; and `certification-unverified`, since a claim nobody could observe needs an operator, not a re-roll.
 
 ## Lock ownership
 
@@ -1084,5 +1027,5 @@ On any abnormal exit (token cap, validation failure, audit BLOCKED, worker non-r
 1. Append the terminal decisions.md entry classifying the exit.
 2. Release the lock or hand it back to the prior owner (per `skills/_shared/collaboration.md` graceful-handoff).
 3. Leave the candidate branch on `origin/` if any work was pushed (Tier 3.5 onward) — never `git reset --hard` or drop a remote ref. The work is the human reviewer's input even when the PR did not open.
-4. Clean up worker worktrees per `skills/tp-run-full-design/scripts/cleanup_worker_worktree.py` (Tier 3.5's normal-path cleanup; this section enumerates the abnormal-path obligation).
+4. Clean up worker worktrees per `skills/tp-run-full-design/scripts/cleanup_worker_worktree.py` (Tier 3.5's normal-path cleanup; this section enumerates the abnormal-path obligation), then `python3 "$TP_ROOT"/skills/_shared/task_verify.py sweep --design-dir three-pillars-docs/tp-designs/{slug}` (fail-open).
 5. Shell `python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/sweep_orphan_branches.py` (fail-open — Option B backstop) to reclaim any lingering `worktree-agent-*` branch whose per-worker sweep (Task 1.2's Option A trigger) was skipped by this early abort or crash.

@@ -141,10 +141,13 @@ def test_attack8a_tampered_worktree_own_code_refuses_disjoint_code(tmp_path, mon
 def test_attack8b_honest_seat_code_refuses_tampered_content_cond5(tmp_path, monkeypatch):
     """8b: code resolved from the fixture SEAT's honest copy (--repo pointed at the
     tampered worktree) -- DISJOINT-CODE passes (the seat IS the honest location), but
-    the tampered resolution is never byte-reproduced by the honest resolver -> the
-    chain walk's condition-5 check refuses. This is the primitive attack 2 pin
-    (`test_attack2_hand_resolution_byte_inequality_yet_verify_clean`) exercised through
-    the real CLI + subprocess boundary instead of the in-process primitive."""
+    the tampered resolution is never byte-reproduced by the honest resolver -> the chain
+    walk refuses. The tampered blob DROPS both sides' content atoms (replacing them with a
+    single `Zx` line), so under the `livingdoc-handres-preserves-approval` default-ON carry
+    the relaxed path now reaches it and refuses via the STRICTER **zero-drop** guard (a
+    dropping hand-resolution is never carried) rather than the strict byte-inequality — the
+    refusal, and the never-carry property, STAND. A verify-CLEAN hand-resolution would carry
+    (the design's feature; pinned in `test_human_approval_review_handres.py`)."""
     fixture = ef.build_embedded_fixture(tmp_path, monkeypatch)
     tampered_wt, h1_bad = ef.build_tampered_sibling(fixture)
 
@@ -153,8 +156,8 @@ def test_attack8b_honest_seat_code_refuses_tampered_content_cond5(tmp_path, monk
     )
 
     line = _human_approved_line(result.stdout)
-    assert "resolved bytes do not match h1's committed blob" in line, (
-        f"8b must refuse on condition 5 (byte-inequality); roster line: {line!r}"
+    assert "zero-drop verifier detected a content drop" in line, (
+        f"8b must refuse the dropping tamper via the zero-drop guard; roster line: {line!r}"
     )
     assert "approval carried" not in result.stdout
 

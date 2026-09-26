@@ -624,6 +624,7 @@ STANDARD_FIXTURE_PLAN = textwrap.dedent("""\
     ### Task 1.1: Build widget
     **File**: `src/widget.py` (new)
     **Test**: `src/test_widget.py` test_render
+    **Targets**: `src/test_widget.py::test_render` (new)
     **Red**: Assert render(widget) returns markup.
     **Green**: Implement render.
     **Done when**: render works.

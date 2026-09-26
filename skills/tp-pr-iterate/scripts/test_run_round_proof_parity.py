@@ -1,9 +1,8 @@
-"""test_run_round_proof_parity.py — CLI ↔ in-process proof parity (B4).
+"""test_run_round_proof_parity.py — CLI proof blocking (B4).
 
-The autonomous CLI path (run_round.py main) and the in-process loop (run_loop)
-must BLOCK identically on an un-proofed convergence-eligible round. run_round.py is
-NOT edited — parity is the assertion. Hermetic: stdin JSON to the CLI; injected
-proof_ok_fn for the loop. No live gh/git.
+The autonomous CLI path (run_round.py main) must BLOCK on an un-proofed
+convergence-eligible round. The in-process loop twin was deleted with the loop
+(iterate-convergence-budget Task 3.1). Hermetic: stdin JSON to the CLI. No live gh/git.
 """
 from __future__ import annotations
 
@@ -17,8 +16,6 @@ HERE = Path(__file__).resolve().parent
 RUN_ROUND_PY = HERE / "run_round.py"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
-
-import loop_driver  # noqa: E402
 
 PR = "https://github.com/o/r/pull/1"
 _CONFIG = {"review": {"expects_copilot": False}, "ci": {"expects_github_checks": False}}
@@ -37,7 +34,9 @@ def _run_cli(payload):
 
 
 def _conv_state(tmp_path):
-    now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    # A fresh started_at: run_round.py's round_budget.tick checks the wall clock
+    # against the real now (iterate-convergence-budget A11).
+    now = datetime.now(tz=timezone.utc)
     started = (now - timedelta(hours=1)).isoformat()
     state = {
         "phase": "awaiting-copilot", "iteration": 1, "max_iterations": 8,
@@ -73,59 +72,6 @@ def test_cli_blocks_unproofed_convergence(tmp_path):
     assert env.get("converged") is False
     assert env.get("proof_ok") is False
     assert env.get("proof_enforced") is False
-
-
-def test_inprocess_run_loop_blocks_same_input(monkeypatch):
-    """The same logical convergence input through run_loop with proof_ok_fn→False →
-    the SAME terminal as the CLI (parity)."""
-    now = datetime(2026, 6, 5, 12, 0, 0, tzinfo=timezone.utc)
-    state = {
-        "phase": "fixing", "iteration": 0, "max_iterations": 8,
-        "max_wall_clock_sec": 14400, "started_at": now.isoformat(),
-        "last_verdict": None, "transitions": [], "cumulative_diff_lines": 0,
-        "original_diff_lines": 100, "consecutive_structural_rounds": 0,
-        "last_loop_sha": None, "last_comment_seen_at": None,
-        "seen_thread_ids": [], "resolved_thread_ids": [], "termination_reason": None,
-    }
-    rounds = [
-        {
-            "new_comments": [{"id": 1}],
-            "classified": [{"comment_id": "c1", "verdict": "structural",
-                            "file": "f.py", "line_range": [1, 5]}],
-            "codereview_findings": [], "copilot_threads": [],
-            "head_sha": "abc1234", "commit_id": "abc1234",
-        },
-        {
-            "new_comments": [],
-            "classified": [{"comment_id": "c1", "verdict": "minor",
-                            "file": "f.py", "line_range": [1, 5]}],
-            "codereview_findings": [], "copilot_threads": [],
-            "head_sha": "abc1234", "commit_id": "abc1234",
-        },
-    ]
-    rounds_iter = iter(rounds)
-
-    def poll_fn():
-        r = next(rounds_iter)
-        return (r["new_comments"], r["classified"], r["codereview_findings"],
-                r["copilot_threads"], r["head_sha"], r["commit_id"])
-
-    monkeypatch.setattr(loop_driver, "_ci_settled_on_head",
-                        lambda *a, **kw: (True, None, [{"conclusion": "SUCCESS"}]))
-    monkeypatch.setattr(loop_driver, "_request_copilot_review", lambda *a, **kw: True)
-    monkeypatch.setattr(loop_driver, "_ensure_pr_label", lambda *a, **kw: None)
-    monkeypatch.setattr(loop_driver, "_remove_pr_label", lambda *a, **kw: None)
-
-    result = loop_driver.run_loop(
-        design="d", pr_url=PR, state=state, config=_CONFIG,
-        dry_run=True, poll_fn=poll_fn, fix_round_fn=None,
-        sleep_fn=lambda s: None, now_fn=lambda: now,
-        unresolved_actionable_fn=lambda u: 0, reviewed_fn=lambda u: False,
-        codereview_fn=lambda effort, head_sha: [],
-        proof_ok_fn=lambda _h: False,
-    )
-    assert result.get("phase") == "blocked-no-independent-review"
-    assert result.get("termination_reason") != "two-stable"
 
 
 def test_parity_under_cap():

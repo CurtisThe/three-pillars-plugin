@@ -6,6 +6,11 @@ neither file nears the file-size cap. The CLI shape is:
     converge.py --base <sha> --head <sha> --pr-url <url> --config <path>
                 --angle-file r1.txt [--angle-file r2.txt …]
                 [--label-count correctness:0 …] [--state <path>] [--review-base <sha>]
+    converge.py --round-dir R --config <path> [--state <path>] [--class-log-path <path>]
+
+`--round-dir` (converge_rounddir) takes base/head/PR url and every path from the
+round manifest. The legacy `--angle-file` form refuses when the config declares
+custom `review.angles` (their confirmer rule needs the manifest).
 
 Stdlib-only, C1-clean. `main(argv, *, seams=None)` accepts an optional `seams`
 dict so the end-to-end path is unit-testable with every external interaction
@@ -23,6 +28,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import converge  # noqa: E402
+import converge_rounddir  # noqa: E402
 import review_proof  # noqa: E402
 
 
@@ -32,9 +38,9 @@ def _parse_args(argv):
         description="Finalize a structurally-clean review round to two-stable "
                     "[code-review-only] (the Tier-7 reviewed-stable finish).",
     )
-    p.add_argument("--base", required=True, help="PR base SHA")
-    p.add_argument("--head", required=True, help="current PR head SHA (full)")
-    p.add_argument("--pr-url", required=True, dest="pr_url", help="PR URL")
+    p.add_argument("--base", help="PR base SHA")
+    p.add_argument("--head", help="current PR head SHA (full)")
+    p.add_argument("--pr-url", dest="pr_url", help="PR URL")
     p.add_argument("--config", required=True, help="path to .three-pillars/config.json")
     p.add_argument("--angle-file", action="append", default=[], dest="angle_file",
                    help="path to a /code-review angle reply (repeatable)")
@@ -44,6 +50,10 @@ def _parse_args(argv):
                    help="path to the (untracked) iterate-state.v1.json")
     p.add_argument("--review-base", default=None, dest="review_base",
                    help="base SHA for the run_round proof re-derivation (default: --base)")
+    p.add_argument("--round-dir", default=None, dest="round_dir",
+                   help="round dir whose angles.json manifest is the path authority")
+    p.add_argument("--class-log-path", default=None, dest="class_log_path",
+                   help="(--round-dir) where run_round appends the per-round class line")
     return p.parse_args(argv)
 
 
@@ -58,6 +68,18 @@ def main(argv=None, *, seams=None) -> int:
         config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     except Exception as exc:
         sys.stderr.write(f"converge.py: could not read config {args.config!r}: {exc}\n")
+        return 2
+    if args.round_dir:
+        return converge_rounddir.run(args.round_dir, config=config, state_arg=args.state,
+                                     class_log_path=args.class_log_path, seams=seams)
+    err = (seams or {}).get("err") or sys.stderr
+    if not (args.base and args.head and args.pr_url):
+        err.write("converge.py: --base, --head and --pr-url are required "
+                         "without --round-dir\n")
+        return 2
+    if isinstance(config, dict) and (config.get("review") or {}).get("angles"):
+        err.write("converge.py: config declares custom review.angles — use "
+                         "--round-dir (the confirmer rule needs the manifest)\n")
         return 2
 
     call_kwargs = dict(

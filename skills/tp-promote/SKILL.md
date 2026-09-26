@@ -1,6 +1,6 @@
 ---
 name: tp-promote
-description: Promote a seed (seed.md) to a committed, floor-clearing design.md on the tp/<slug> branch, ready for a design-ready fleet pass. Reads the seed's Open questions, derives a single batched confirm block, collects one operator answer, drafts design.md, validates the floor, and hands off to /tp-run-full-design <slug> --skip-design (Mode B).
+description: Promote a seed (seed.md) to a committed, floor-clearing design.md on the tp/<slug> branch, ready for a design-ready fleet pass. Reads the seed's Open questions, derives a single batched confirm block, collects one operator answer, drafts design.md, validates the floor, and launches /tp-run-full-design <slug> --skip-design (Mode B) in a fresh tmux window via the shared design-run launcher.
 argument-hint: "{slug} [--force-takeover]"
 ---
 
@@ -10,8 +10,9 @@ Turn a rich `seed.md` into a committed, floor-clearing `design.md` on the
 `tp/<slug>` branch — the cold-start pre-step before a design-ready fleet pass.
 Exactly **one human touch**: a single batched confirm block derived from the
 seed's `## Open questions`. After the operator answers, this skill drafts
-`design.md`, validates the floor, commits, and tells the operator to run
-`/tp-run-full-design <slug> --skip-design`.
+`design.md`, validates the floor, commits, and launches
+`/tp-run-full-design <slug> --skip-design` as its own top-level session in a fresh
+tmux window (`skills/_shared/design-run-launch.md`) — never in this session.
 
 **No `--auto` mode** — the one batched confirm is the deliberate human gate.
 
@@ -57,19 +58,28 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    output as the inferred default the operator can accept or override.
 
 5. **Derive the batched confirm**: parse `seed.md` for `## Open questions` (and
-   any explicit judgment calls in `## Sketch` or `## Problem`). Map each open
-   question to one numbered confirm line. Where the seed already states a
-   preference or answer, present the drafter's inferred default so the operator
-   can accept it wholesale. Include the Step 4b weight-class question when the
+   any explicit judgment calls in `## Sketch` or `## Problem`) as *inputs* to
+   the map below, not as the questions themselves. Each numbered confirm line is
+   a map-derived question; a seed question no answer can flip becomes a default.
+   Where the seed already states a preference or answer, present the drafter's
+   inferred default so the operator can accept it wholesale. Include the Step 4b weight-class question when the
    seed lacks a class. Produce a single numbered prompt block — the entire
    set of questions at once, not one at a time.
+
+   **Derive it from the state-space map** (above just-do-it): build the map per
+   the Build mode of `skills/_shared/state-space-protocol.md` first — flip test,
+   goal/locus questions first, one plain-language problem paragraph per
+   question. The HTML briefing (step 6) renders the same question format.
+   If Step 4b's class is still unanswered, build against its `recommend`
+   default and re-trim at step 7.
 
    Example layout (adapt to the actual questions):
    ```
    Batched confirm for <slug>:
 
-   1. [Q from seed — inferred default: X] Accept default, or override:
-   2. [Q from seed — no clear default] Your answer:
+   1. [<dimension> — flips: a · default: a] <problem paragraph> Options: a … · b …
+   2. [<locus/dimension> — no clear default] <problem paragraph> Your answer:
+   Defaults (no flip): <dimension> = <option>; …
    ...
    ```
 
@@ -115,6 +125,8 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    - `## Behaviors` — concrete observable behaviors
    - `## Constraints` — hard limits and non-goals
    Optional but recommended: `## Dependencies`, `## Entities`, `## Open Questions`.
+   Required above just-do-it (not floor-validated): `## State space` — the step-5
+   map re-trimmed to the answered class, persisted per the protocol.
 
    The drafted `design.md` must be substantive enough to pass the floor.
    **Do NOT commit a thin stub** — if you cannot draft a passing design from
@@ -125,7 +137,10 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    ```
    python3 "$TP_ROOT"/skills/_shared/validate_design_floor.py three-pillars-docs/tp-designs/<slug>
    ```
-   - **Exit 0 (PASS)**: proceed to commit.
+   - **Exit 0 (PASS)**: run the advisory, warn-only lint
+     `python3 "$TP_ROOT"/skills/_shared/state_space_lint.py three-pillars-docs/tp-designs/<slug>`
+     — show any `WARN` lines to the operator and log them in step 9; they
+     never block. Then proceed to commit.
    - **Exit 1 (BLOCKED)**: surface the JSON verdict on stderr, do NOT commit.
      Tell the operator which sections are missing/empty and ask them to fill
      the named sections. Only retry after the operator updates `design.md`.
@@ -143,6 +158,7 @@ seed's `## Open questions`. After the operator answers, this skill drafts
    <paste the operator's answers verbatim>
 
    **Floor validation:** PASS (exit 0)
+   **State-space lint:** <WARN lines from step 8, or "clean">
    ```
 
 10. **Commit** on `tp/<slug>` (or the current branch if already on it):
@@ -158,13 +174,22 @@ seed's `## Open questions`. After the operator answers, this skill drafts
     Mode B's design-floor gate — treat a promoted design identically to a
     hand-authored one.)
 
-11. **Hand off**: tell the operator:
-    > `design.md` committed. Next step:
-    > `/tp-run-full-design <slug> --skip-design`
-    >
-    > This runs Mode B: skips the design step and begins from `tp-design-detail`.
-    > You can also re-stage the slug as `design-ready` in your fleet backlog for
-    > a zero-touch run.
+11. **Launch the design run in its own window** per
+    `skills/_shared/design-run-launch.md`. Never invoke `/tp-run-full-design` here
+    via the Skill tool or the Agent tool — run the launcher:
+
+    ```bash
+    python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> --skip-design
+    ```
+
+    - **Exit 0**: report the printed window target (and its `tmux link-window`
+      hint). The run is Mode B — it skips the design step. This session is done.
+    - **Exit 2** (no tmux, no worktree, …): relay the printed manual command to
+      the operator verbatim as the fallback — it has the form
+      `TP_DESIGN_RUN=1 claude --model opus '/tp-run-full-design <slug> --skip-design'`
+      run from the worktree — and stop. Do not start the run in this session.
+
+    Alternatively the slug can be re-staged as `design-ready` in a fleet batch.
 
 ## Edge cases
 
@@ -185,8 +210,8 @@ seed's `## Open questions`. After the operator answers, this skill drafts
   > case. Options:
   > - **Revise**: replace the existing `design.md` by continuing (you will
   >   draft over it).
-  > - **Abort**: stop here and use `/tp-run-full-design <slug> --skip-design`
-  >   directly if the design is already acceptable.
+  > - **Abort**: stop here; if the design is already acceptable, launch it with
+  >   the design-run launcher exactly as in Step 11.
   Wait for an explicit operator choice before proceeding.
 
 ## Rules

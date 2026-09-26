@@ -4,14 +4,14 @@ Invoked by the tp-run-full-design orchestrator as
 ``python3 skills/tp-run-full-design/scripts/run_tier_3_5.py`` with a JSON
 object on stdin. Emits a single-line JSON envelope on stdout and exits:
 
-    0 — ok          (worker delivered a valid candidate, ls-remote SHA matches)
+    0 — ok          (valid candidate, ls-remote SHA matches, phase re-run not red)
     1 — retry       (case c — schema-validation-error)
     2 — escalate    (case a — worker-noop, case b — no-candidate-block,
-                     case e — sha-mismatch, or case=None for a
-                     wrapper-internal failure with event_token
+                     case e — sha-mismatch, case f — rerun-failed, or
+                     case=None for a wrapper-internal failure with event_token
                      "stdin-invalid" / "invalid-worktree-path" /
                      "artifact-write-failed" / "cleanup-failed" /
-                     "sha-check-failed" — exit 1 is RESERVED for case c
+                     "sha-check-failed" / "rerun-error" — exit 1 is RESERVED for case c
                      retry, so any uncaught helper exception or
                      contract-violating input must be mapped to
                      escalate.)
@@ -22,6 +22,13 @@ response. The stdin top-level ``candidate_id`` is advisory routing
 context only — never used for path construction or assertion. There is
 no case (d): locked-worktree cleanup is an internal helper concern that
 self-logs via ``[tp-run-full-design/tier-3.5] worktree-cleanup-locked``.
+
+After the SHA check the wrapper re-runs the phase's declared Targets at the SHA
+(``rerun_phase_tests``; stdin ``rerun: {plan_path, phase, phase_base_sha,
+test_cmd?}``, validated lazily there). A confirmed red re-run is case f; skips,
+unverified nodes, a phase that verified nothing (``status: unverified`` in
+``test-results.json``, never a pass) and file escapes are self-logged and exit 0
+(``tier_3_5_rerun``).
 """
 from __future__ import annotations
 
@@ -42,6 +49,9 @@ from parse_candidate_response import (  # noqa: E402
 )
 from write_candidate_artifacts import write_candidate_artifacts  # noqa: E402
 from cleanup_worker_worktree import cleanup_worker_worktree  # noqa: E402
+import rerun_phase_tests  # noqa: E402 — called via the module attribute (test stub seam)
+import tier_3_5_rerun  # noqa: E402
+from rerun_budget import LS_REMOTE_TIMEOUT_S  # noqa: E402 — fits BASH_TIMEOUT_MS
 
 
 def _emit(envelope: dict, code: int) -> int:
@@ -201,6 +211,7 @@ def main() -> int:
             ["git", "ls-remote", "origin", branch_ref],
             capture_output=True,
             check=False,
+            timeout=LS_REMOTE_TIMEOUT_S,  # raises TimeoutExpired → sha-check-failed
         )
         # Non-zero returncode (auth, network, unknown remote) does not
         # raise but means we have no trustworthy SHA. Treat as
@@ -242,6 +253,30 @@ def main() -> int:
             2,
         )
 
+    # Re-run the phase's Tests at the SHA (case f). `rerun` is validated lazily, here,
+    # so every earlier failure path above is reached first.
+    try:
+        rerun = tier_3_5_rerun.validate_rerun(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        return _emit(
+            _envelope("escalate", None, "stdin-invalid", f"{type(exc).__name__}: {exc}"), 2
+        )
+    try:
+        result = rerun_phase_tests.rerun_phase(
+            Path.cwd(), parsed_sha, rerun["plan_path"], rerun["phase"],
+            rerun["phase_base_sha"], design_dir_rel=str(design_dir),
+            test_cmd=rerun["test_cmd"],
+        )
+        failure = tier_3_5_rerun.apply_rerun(
+            result, parsed["test_results"], design_dir / "candidates" / candidate_id,
+            decisions_log,
+        )
+    except Exception as exc:
+        return _emit(
+            _envelope("escalate", None, "rerun-error", f"{type(exc).__name__}: {exc}"), 2
+        )
+    if failure is not None:
+        return _emit(_envelope("escalate", "f", "rerun-failed", failure), 2)
     return _emit(_envelope("ok", None, "ok", None), 0)
 
 

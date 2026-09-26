@@ -36,8 +36,9 @@ approval. Whether it actually does depends **entirely on how the living-doc conf
 resolved**:
 
 - **Fully AUTO-SAFE sync → approval SURVIVES.** If every conflict was a mechanical,
-  certified-byte-for-byte class (`design-inventory-row-merge`, `id-renumber-collision`,
-  `log-entry-insertion`, `append-only-log` — the AUTO-SAFE boundary in the skill), the
+  certified-byte-for-byte class (`design-inventory-row-merge`, `log-entry-insertion`,
+  `append-only-log` — the AUTO-SAFE boundary in the skill; the gated `id-renumber-collision`
+  is never resolved mechanically), the
   `approval-survives-safe-base-sync` carry re-derives the certified link from git objects
   and keeps your approval **current**. GitHub re-points the review's `commit_id` across a
   diff-unchanged push, so a clean sync needs **no re-approval**.

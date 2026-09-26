@@ -199,17 +199,29 @@ def carried_review_approval(reviews, head, *, automation, config, repo_root,
             return False, ""   # not a carry — review_path_satisfied's job
 
         import base_sync_cert  # noqa: E402 — in _shared/ beside this file
+        import living_doc_carry  # noqa: E402 — in _shared/ beside this file
 
+        # Default-ON *within* an already-carry-enabled repo: relax byte-reproduction for a
+        # living-doc hand-resolution that is certified code-unchanged (predicate + cond4 +
+        # zero-drop). Literal `False` in config → strict-only.
+        carry_handres = living_doc_carry.carry_livingdoc_handres_enabled(config)
         result = base_sync_cert.certified_noop_chain(
             repo_root, anchor, head_oid, base_ref=base_ref,
             max_links=base_sync_cert.carry_max_chain(config), run_git=run_git,
+            carry_handres=carry_handres,
         )
         if result.certified:
             sha7 = (result.anchor or anchor)[:7]
-            return True, (
+            detail = (
                 f"approval carried across {result.links} certified base-sync "
                 f"merge(s) (anchor {sha7})"
             )
+            if result.carry_paths:
+                detail += (
+                    "; living-doc hand-resolution certified code-unchanged "
+                    f"({len(result.carry_paths)} doc files)"
+                )
+            return True, detail
         return False, result.reason
     except Exception:
         return False, ""

@@ -28,11 +28,10 @@ Terminates on:
   consumers must treat only `termination_reason="two-stable"` as reviewed-stable.
 - **Mid-loop human push** (yield to human) — a non-`[tp-pr-fix iter-` commit
   appeared on the branch since `last_loop_sha`.
-- **Caps** — iteration count exceeded (`max_iterations`, default 8) or
-  wall-clock budget exhausted (`max_wall_clock`, default 4h).
-- **Convergence failure** — cumulative diff has grown past 3× the
-  loop-open baseline, OR three consecutive rounds returned
-  `structural-present`.
+- **Round budget** (`round_budget.tick`, every round, limits from `pdw.guards.*`) —
+  `budget-exhausted` (blocking findings at `round_cap`, default 6; diff growth past 1.5×
+  the round-1 baseline; test/code ratio; `budget-error`), `cap-exhausted` (wall clock,
+  default 4h) or `convergence-failure` (three consecutive blocking review rounds).
 - **All-conflicting deferral** — every comment in a round had an
   overlapping `line_range` with another, so the loop couldn't proceed.
 
@@ -40,8 +39,8 @@ Terminates on:
 
 - `{design}` — kebab-case design name, validated per `skills/_shared/validate-name.md`.
   Resolves the worktree on branch `tp/{design}` and the design directory.
-- `--max-iterations N` — round cap (default 8). Triggers `cap-exhausted`.
-- `--max-wall-clock <duration>` — total budget (default 4h). Triggers `cap-exhausted`.
+- `--max-iterations N` / `--max-wall-clock <duration>` — accepted but informational: the
+  enforced limits are `pdw.guards.round_cap` / `wall_clock_sec` in config (Termination matrix).
 - `--dry-run` — fetch + classify + log what the loop *would* do, but do
   NOT invoke `tp-pr-fix.run_round`. Use this to verify classifier output
   on a real PR before letting the loop write commits.
@@ -55,9 +54,9 @@ Terminates on:
 
 - `gh` CLI installed and authenticated.
 - A clean `tp/{design}` worktree with an open PR on `origin`.
-- `.three-pillars/config.json` — `pdw.guards.idle_timeout_sec`,
-  `pdw.guards.k_consecutive`, `pdw.guards.diff_growth_multiplier` override
-  the defaults (1800s / 3 / 3×). When absent, the loop uses the defaults.
+- `.three-pillars/config.json` — `pdw.guards.*` (`round_cap`, `growth_multiplier`,
+  `test_code_ratio`, `ratio_floor_lines`, `k_consecutive`, `wall_clock_sec`,
+  `idle_timeout_sec`) override the defaults; `review.angles` overrides the review angles.
   `review.expects_copilot` (default true) declares whether Copilot code review is an
   available reviewer here; set it **false** on a repo with no Copilot entitlement so
   the two-stable terminal converges on the `/code-review` arm alone instead of
@@ -66,9 +65,10 @@ Terminates on:
 
 ## Loop body
 
-The driver is assembled as `run_loop` in `loop_driver.py` (Phase 4 of
-`pr-iterate-loop-encode`). It decomposes into pure helpers and one
-orchestration body; all are independently tested in `test_loop_driver.py`:
+Each round follows **`round-topology.md`** (angles as data, per-round and per-angle scratch,
+path authority, round tail, inline-fix contract, log flush, recovery). The round decision is
+`loop_driver.run_round` (shelled as `run_round.py`), which calls `round_budget.tick` every round.
+Pure helpers, all independently tested in `test_loop_driver.py`:
 
 - `_compute_next_wait(prev) -> int` — doubling backoff (60s → 600s cap).
 - `_poll_step(state, new_comments, now, config) -> (state, terminal?)` —
@@ -77,13 +77,8 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
   overlap predicate for the structural subset.
 - `_apply_conflicts(state, classified, now) -> (state, kept, terminal?)` —
   wraps the detect step with transition + terminal logic.
-- `_check_guards(state, config, now) -> phase | None` — iteration cap,
-  wall-clock, diff-growth, k-consecutive-structural.
-- `_apply_guards(state, pr_url, config, now) -> (state, terminal?)` —
-  wraps the check with transition + the F9 `tp:needs-human-attention`
-  label application.
-- `_capture_original_diff(pr_url) -> int` — shell `gh pr diff --stat` at
-  loop-open; the value is the baseline for the 3× diff-growth guard.
+- `round_budget.tick(state, ...) -> (state, terminal?, detail)` — round cap, diff
+  growth, test/code ratio, k-consecutive, wall clock; a terminal gets the F9 label.
 
 ### Single iteration
 
@@ -102,45 +97,32 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
    sub-subagents), so a lone dispatch is a single-pass review that misses what the full
    harness catches.** The loop driver runs at the **top level**, so it fans out the
    angles ITSELF — several parallel finder dispatches (each a 1-level fan-out), merged
-   fail-closed:
+   fail-closed. The ANGLES are data (`angles.py` `DEFAULT_ANGLES`, or `review.angles`);
+   the round runs the round-dir flow of `round-topology.md`:
 
-   ```
-   ANGLES = [
-       ("correctness-leak", "Hunt fail-closed/correctness leaks: any path to a wrong "
-                            "result, a non-handled error, an unsafe edge case."),
-       ("edge-cases",       "Boundary/degenerate inputs, ordering dependence, off-by-one, "
-                            "type-coercion, missing-key, empty-collection behavior."),
-       ("test-quality",     "Do the tests actually guard their claims? Untested branch, "
-                            "a test that passes even if the code were wrong, missing case."),
-   ]
-   # `effort` is supplied by the driver: run_loop calls poll_fn(effort) where
-   # effort == _codereview_effort(state) ("max" after a stalled code-review round,
-   # else "high"). Apply it to each angle's /code-review invocation.
-   responses = [
-       Agent(subagent_type="general-purpose", description=f"code-review:{name}",
-             prompt=f"Review `git diff {base}...{head}` for: {angle}. Run at "
-                    f"--effort {effort}. Read .github/review-instructions.md for what "
-                    "counts as a real defect here. "
-                    "Return ONLY a fenced ```json array of {file, line_range:[start,end], "
-                    "summary, verdict} (verdict: structural|minor). [] only if genuinely clean.")
-       for (name, angle) in ANGLES
-   ]
-   codereview_findings = review_merge.merge_codereview_angles(responses)  # fail-closed parse + dedupe
-   # MANDATORY, every invocation — post the review summary to the PR so it is
-   # never silent (parallel to a Copilot review). Fires even when findings == [].
-   review_merge.post_codereview_comment(pr_url, codereview_findings, head_sha=head_sha)
-   ```
+   1. `round_scratch.py prepare --effort <_codereview_effort(state)> …` → round dir `R` and
+      `R/angles.json`, the path authority (state, loop log, per-angle reply paths, `base`).
+   2. Fan out every manifest angle as `Agent(subagent_type="general-purpose", model="opus",
+      prompt=<manifest prompt>)` — reviews always Opus. Each writes its reply to its own
+      per-angle `reply_path` and returns one line.
+   3. Round tail: `reproduce.py --round-dir R --cwd . --head <head>` merges the replies
+      (`review_merge.merge_codereview_angles`, fail-closed) and runs each blocking finding's
+      reproducer; a non-reproducing finding becomes a non-blocking note.
+   4. Clean round: `converge.py --round-dir R`. Otherwise
+      `review_merge.post_codereview_comment` (MANDATORY, every invocation, even on `[]`), then
+      shell `run_round.py` with stdin `pr_url`, `round`, `ordinal`, `class_log_path` and
+      `review_base` (the base-branch tip, re-fetched every round) from the manifest.
+   5. On `action == "fix"`: the inline fix (step 9), `paths=` from `tree_scope.derive_fix_paths`.
+   6. `round_scratch.py tail-check --round-dir R`; at a terminal `round_scratch.py flush` moves
+      the loop log into `decisions.md` (committed only at `two-stable`, never pushed).
 
    - **Multi-angle, not single-pass.** Dispatch the angle set every round at the
-     `--effort` level the driver passes in. The driver escalates to `--effort max`
-     when the prior round had its own code-review structural findings —
-     `state.consecutive_codereview_structural_rounds >= 1`, the code-review-specific
-     counter, NOT the Copilot/thread `consecutive_structural_rounds`. The escalation
-     is computed by `_codereview_effort(state)` and reaches the poll via
-     `poll_fn(effort)` (run_loop passes it whenever poll_fn declares an `effort`
-     parameter). Fanning out at the driver level is the only L23-safe way to get
-     harness-grade coverage inside the loop; a single `/code-review` subagent
-     reviewing in one pass demonstrably misses real defects.
+     `--effort` level `_codereview_effort(state)` computes: `max` when the prior round had
+     its own code-review structural findings (`consecutive_codereview_structural_rounds
+     >= 1`, NOT the Copilot/thread `consecutive_structural_rounds`), else `high`. Fanning
+     out at the driver level is the only L23-safe way to get harness-grade coverage
+     inside the loop; a single `/code-review` subagent reviewing in one pass
+     demonstrably misses real defects.
    - **Fail-closed parse — an UNPARSEABLE review is NOT a clean one.**
      `review_merge.merge_codereview_angles` (via `parse_codereview_findings_or_block`)
      parses each angle with `parse_codereview_result`, which distinguishes a genuine
@@ -159,11 +141,9 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
      local angles are handed it in the prompt; Copilot reads the synced
      `.github/copilot-instructions.md`) so "stable" means the same thing on each side
      and known-intentional patterns aren't re-flagged.
-   - **Shell `run_round.py` with the fan-out result.** After the ANGLES fan-out and
-     `post_codereview_comment`, the standalone path drives the round decision the same
-     way as the orchestrator: pass the real fan-out findings (or the `no-angles` sentinel
-     on failure) to `run_round.py` via its stdin JSON contract (see `run_round.py`).
-     The stdin object **must** include `config` (read from `.three-pillars/config.json`)
+   - **Shell `run_round.py` with the fan-out result** — the same round decision as the
+     orchestrator: the tail findings (or the `no-angles` sentinel on failure) via its stdin
+     JSON contract. The stdin object **must** include `config` (read from `.three-pillars/config.json`)
      and `ci_rollup` (the most-recent `statusCheckRollup`) so the wrapper resolves
      `review.expects_copilot` and `ci.expects_github_checks` correctly. Omitting `config`
      defaults both to `true`, which blocks code-review-only convergence on repos without
@@ -201,15 +181,15 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
 6. **Merge** — `classified = decided + classified_borderline`.
 6b. **Normalize + dedupe both sources (Enhancement 1).** Map the classified
    Copilot comments via `review_merge.normalize_copilot` and the
-   `codereview_findings` via `review_merge.normalize_codereview`, then
-   `review_merge.dedupe(union)`. On a file + line-proximity + summary-similarity
-   collision the **Copilot finding wins** (it carries the `thread_id`
-   reply-and-resolve needs) and the dropped twin's id is recorded in
-   `merged_from`. The deduped union is the `kept` set handed to the fix round —
-   each iteration deals with both reviews at once.
-7. **Conflict-defer** — `_apply_conflicts(state, classified, now)`. If
-   every structural comment conflicted, terminal `awaiting-human-review`
-   with note `[all-conflicting-deferred-to-human]`.
+   `codereview_findings` via `review_merge.normalize_codereview`, then rebind
+   `classified = review_merge.dedupe(union)` — the deduped union, with its promoted verdicts, is what steps 7–9 read. Collision = same file AND either an IDENTICAL line range (exact-match short-circuit — two angles word one defect differently but agree on the coordinates; NOT applied to anchorless `(0, 0)` pairs, nor — on the exact OR fuzzy path — to pairs carrying two DISTINCT Copilot `thread_id`s, which are two real threads) or a proximate range with similar summaries. An anchorless pair still collapses on the fuzzy path when the summaries match, but the `(0, 0)` sentinel is proximate only to another sentinel, never to a real line. The fuzzy comparison runs against a cluster's FIRST-SEEN member, so a cluster spans at most a few lines around its anchor; an exact coordinate twin of ANY member joins it, and the greedy single pass means input order decides which finding anchors which cluster.
+   Which RECORD survives: the record that actually holds a `thread_id` →
+   **Copilot** source → more severe verdict → longer/more specific summary →
+   first-seen. The survivor's `verdict` is then promoted to the more severe of
+   the collapsed pair — never downgraded. The dropped id lands in `merged_from`.
+7. **Conflict-defer** — `state, kept, terminal = _apply_conflicts(state,
+   classified, now)` on that deduped union. If every structural comment conflicted,
+   terminal `awaiting-human-review` with note `[all-conflicting-deferred-to-human]`.
 8. **Compute round verdict** — derive `last_verdict` from the kept set:
    `structural-present` if any kept comment has `verdict="structural"`,
    else `minor-only`. The **classifier-flip** from `structural-present` to
@@ -219,15 +199,13 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
    requires zero unresolved actionable threads verified against GitHub. A flip on
    a stale snapshot with threads still open is the convergence bug this rule
    exists to prevent.
-9. **Dispatch fix round** — when `--dry-run` is OFF and `last_verdict`
-   warrants action: `fix_round.run_round(design, pr_url, iteration,
-   classified=kept, head_ref=head_ref, loop_mode=True)`. `head_ref` is resolved
-   **once at loop-open** via `gh pr view <pr_url> --json headRefName` (F1: the
-   fix must land on the actual PR head — an orchestrator PR's head is
-   `candidate/{slug}/single`, not `tp/{design}`; `loop_mode=True` auto-checks-out
-   the head before committing). Accumulate `envelope.diff_lines_added` into
-   `state.cumulative_diff_lines`. Persist the envelope under
-   `<worktree>/.three-pillars/run/fix-envelope.iter-N.json`.
+9. **Inline fix** — when `--dry-run` is OFF and the round has blocking findings, the round
+   tail applies the inline-fix contract of `round-topology.md` (no `/tp-pr-fix` sub-agent,
+   no worktree isolation): it asserts the checkout is on `head_ref` at `head_reviewed`,
+   edits, derives `paths` mechanically, then calls `fix_round.run_round(design, pr_url,
+   iteration, classified=kept, head_ref=head_ref, loop_mode=True, paths=<derived>)`, which
+   commits only those paths. `head_ref` is resolved **once at loop-open** via `gh pr view
+   <pr_url> --json headRefName` (F1: the fix must land on the actual PR head).
 9.5. **Re-request Copilot review + Reply-and-resolve every Copilot thread (load-bearing, Enhancement 1).**
     Per-round Copilot re-request is handled by `_request_copilot_review(pr_url)` (fail-open;
     a non-zero return or raised exception returns False and the loop continues). The loop
@@ -276,9 +254,8 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     `wave1-0605` #56 run violated — it hand-labeled a brand-new Copilot round as
     "stale re-flags," skipped 9.5, and declared a bare classifier-flip; the
     ground-truth assertion in step 10b now makes that impossible.
-10. **Guard checks** — `_apply_guards(state, pr_url, config, now)`. If
-    terminal (cap-exhausted | convergence-failure), apply the F9 label
-    `tp:needs-human-attention` and persist.
+10. **Round budget** — `run_round` calls `round_budget.tick` before two-stable. A terminal
+    (`budget-exhausted` | `cap-exhausted` | `convergence-failure`) gets the F9 label.
 10b. **Two-stable termination (the only success terminal).** The round decision step
     (`run_round.py` / `loop_driver.run_round`) evaluates four conjuncts before converging.
     Only when all hold in the same round do you transition to `awaiting-human-review`:
@@ -308,7 +285,7 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     convergence's label must not mask a later blocked head), append the
     `BLOCKED — NEEDS REVIEW — no proof (no independent review ran)` line to `decisions.md`. This is a
     **terminal** — `run_round` returns `terminal="blocked-no-independent-review"` and
-    `run_loop` stops; `tp:needs-human-attention` escalates for human follow-up (never apply
+    the loop stops; `tp:needs-human-attention` escalates for human follow-up (never apply
     `tp:ready-for-human-merge` here). Bounded re-run / not-converged: see `proof-of-review.md`.
 
     When all four hold: transition `awaiting-human-review` with `termination_reason="two-stable"`,
@@ -341,20 +318,38 @@ orchestration body; all are independently tested in `test_loop_driver.py`:
     after a successful push, so the next iteration's human-push detector reads
     a fresh baseline.
 
+### Cold-resume contract — iterate-state.v1.json
+
+The state is written at **every round boundary**, but calling it a resume record overstates what the shipped callers do with it: it is closer to a **per-round scratchpad plus a converge-time handoff**. `converge.py::_seed_state` **re-seeds** the same path on every clean-round finish, keeping only the budget fields (`iteration`, `started_at`, `original_diff_lines`, `budget_*`), so `transitions`, `resolved_thread_ids` and `seen_thread_ids` are dropped rather than resumed. (**Not** `reviewed_head_shas`: nothing on the shipped `run_round` path writes it, so it is always empty and the re-seed drops nothing.) A resumed loop does read the file back, which is what makes a crash *between* rounds recoverable on the Tier-7 path — but do not assume history accumulates across a converge.
+**Round 0 bootstraps on absence** (`scripts/iterate_state.py::load_or_bootstrap`, called from `run_round.py`): an absent state file is the documented
+**start condition**, not an error — the round writes a schema-valid round-0 state, reports `state_bootstrapped: true`, and exits 0. So no round boundary is
+ever un-resumable and no operator hand-seeds a schema-valid file. The bootstrap **never overwrites** an existing file that has **content** it refuses — those
+bytes are the forensic record and are left byte-identical (but see the limit of that promise below). A **zero-length** file is the sole exception: it counts as *absent* and is re-seeded, because it is what a crash between the seed's
+exclusive-create and its `os.replace` leaves behind, it has no bytes worth preserving, and refusing it would wedge every later round with nothing able to repair it. A **non-regular** node at `state_path` (FIFO, socket, directory, `/dev/null`) is **refused**, never replaced: `state-read-failed` / exit 2 — the zero-length carve-out is confined to regular files precisely so it cannot clobber one. The refusal is **unqualified because the guard resolves symlinks — the whole chain, not one hop**: a link to a FIFO used to reach `read_text()` and block the round forever (no envelope, no exit code), so `_reject_non_regular` checks what `state_path` *resolves to*, not just the link. `link → link → FIFO` is refused exactly like `link → FIFO`; do not narrow the guard to a single `readlink` to match a "one level" description, or the chain case reopens the hang. The per-round write-back goes through `os.replace`, which rebinds the name to a fresh inode: the state file's **mode, ownership and ACLs are not preserved and its hardlinks are broken**. A `0444` state file used to make the round exit 2 and now comes back `0664` — a read-only state is **not** a write barrier, which is the price of crash-atomicity (a failed truncating write left a short file, wedging every later round against never-overwrite). All of this assumes a **serial** caller — `run_round.py` is shelled out one round at a time — and two bootstraps racing on ONE `state_path` are **not supported**: a claim still in flight is also 0 bytes, so a racing round cannot tell it from crash residue, re-seeds it, and the last `os.replace` wins. What is silently lost is the losing round's accumulated state — `transitions`, `last_codereview_head_sha` / `last_codereview_findings` (the currency fields `_independent_review_ran` reads) and `degraded_review_retries`. So is `iteration`, since the budget tick increments it every counted round: `round_budget.tick` enforces `round_cap` from it (`budget-exhausted`), so a lost race also loses rounds from the cap. Give each parallel loop its own `state_path`.
+**`state-read-failed` (exit 2) is the *unreadable* refusal**: content that is not a JSON object, a **dangling symlink** (`Path.exists()` says absent, but the seed still refuses to write through the link), or a **non-regular** node (including one reached through a symlink). "Exists with content" is the wrong test in both directions — a FIFO, socket, directory and `/dev/null` all exist with *no* content and still exit 2. It
+deliberately does **not** cover schema-invalidity: `loop_driver.py` writes `consecutive_codereview_structural_rounds`, a key the shipped schema's
+`additionalProperties: false` rejects, so a real round-2 state is already schema-invalid and read-path validation would refuse every round after the first. **What a schema-invalid-but-parseable state does instead is *run*** — measured: the round proceeds to a normal `status: "ok"` envelope at exit 0 and the write-back overwrites the file. It does not escalate under some other token; it is not refused at all. Correspondingly, the never-overwrite promise is a property of the **refusal**, not of the file: what `load_or_bootstrap` rejects it leaves byte-identical, and what it accepts the round overwrites.
+
+**Where the state lives — and the honest limit.** `run_round.py`'s `state_path` is a **flat** iterate-state.v1 document; its only home is `.three-pillars/review-proof/iterate-state.v1.json`, the untracked convergence seed (`converge.py::_seed_state`, also `converge.py`'s default).
+**Never point `state_path` at `<worktree>/.three-pillars/run/state.json`** — that is the **merged-namespace** worktree-state document (step 11) owned by `state_io.py::write_state_atomic`, where iterate state nests under an `iterate` key beside `supervisor` and `state.v1.json` requires `schema_version` + `supervisor` with `additionalProperties: false`. Neither direction errors: absent, the bootstrap seeds a flat round-0 doc with no `supervisor`; present, the merged doc passes the read's `isinstance(dict)` check and the write-back replaces it with flat keys the schema forbids. A wrong `state_path` is a silent wrong result, not a refusal.
+Both paths are **gitignored** (the `.gitignore` patterns `.three-pillars/run/` and `.three-pillars/review-proof/`) and **no code path commits** either — resume survives a process crash **inside a live worktree** but **not** a **fresh clone**, which starts cold and bootstraps round 0 again. A *committed* per-round state is the **intended** contract, **not** one any current code path performs.
+
 ### Termination matrix
 
 | Phase                              | Triggered by                                                 | F9 label? |
 | ---------------------------------- | ------------------------------------------------------------ | --------- |
 | `awaiting-human-review`            | **two-stable** (success: both sources quiet + GitHub shows zero unresolved actionable threads) / idle-timeout (time-based yield — no ground-truth check) / human-push / all-conflicting | no        |
 | `blocked-no-independent-review`    | conjuncts 1–3 hold but no independent review ran for the current head (`_independent_review_ran` False) — terminal, not a keep-looping yield | yes       |
-| `cap-exhausted`                    | `iteration > max_iterations` OR wall-clock                    | yes       |
-| `convergence-failure`              | diff > 3× original OR `k_consecutive` structural rounds       | yes       |
+| `budget-exhausted`                 | `round-cap` (blocking findings at `iteration >= round_cap`) / `growth-lines` / `test-code-ratio` / `budget-error` — raise the limit in config and re-run (`round-topology.md`) | yes |
+| `cap-exhausted`                    | `wall-clock` (`now - started_at > wall_clock_sec`)            | yes       |
+| `convergence-failure`              | `k-consecutive` blocking review rounds                         | yes       |
 | `errored`                          | unhandled exception in the loop body                          | yes       |
 
 The `termination_reason` field records which trigger fired. **Two-stable is the
 only success terminal** — a round where `/code-review` returns `[]`, every Copilot
 thread is freshly resolved, AND a ground-truth `list_review_threads` re-fetch shows
-zero unresolved actionable threads. Classifier-flip is a necessary precondition
+zero unresolved actionable threads. One clean round converges: a second clean round is not
+required. Classifier-flip is a necessary precondition
 recorded on the round, never a `termination_reason` by itself. On a repo with
 `review.expects_copilot=false`, the same `termination_reason="two-stable"` is reached
 via the `/code-review` arm alone (transition note `two-stable [code-review-only]`) —
@@ -399,7 +394,8 @@ source of truth).
   reason. If the loop body needs the model, the call is made here and
   the result is parsed by `parse_response`.
 - **One commit per round at most.** Owned by `fix_round.run_round`, not
-  this driver. The loop driver never calls `git commit` itself.
+  this driver. The loop driver never calls `git commit` itself (the `two-stable`
+  `decisions.md` flush commit is the orchestrator's; `round-topology.md`).
 - **`last_loop_sha` write-back is mandatory.** Without it, the human-push
   detector cannot distinguish loop commits from human commits, and the
   loop will silently no-op on its own commits as if they were human
@@ -438,55 +434,36 @@ source of truth).
 
 ## Copilot review gotchas (observed)
 
-The loop polls, classifies, reply-resolves, and re-requests Copilot (steps 2 / 2.5 / 9.5 /
-the per-round re-request). Three GitHub-side quirks bite that flow — all observed 2026-06-04
-across PRs #45/#46. Get any of them wrong and a round silently misreads Copilot's signal.
+Three GitHub-side quirks bite the loop's poll / classify / reply-resolve / re-request flow (steps 2 / 2.5 / 9.5 + the per-round re-request), all
+observed 2026-06-04 across PRs #45/#46. Get one wrong and the round silently misreads Copilot's signal.
 
-- **The Copilot login differs by surface — a single hard-coded filter yields false zeros.**
-  The bot's `login` is **not** consistent across the APIs the loop reads:
-  - `requested_reviewers[].login` → **`Copilot`**
-  - the **review** object author (REST `pulls/<PR>/reviews`) → **`copilot-pull-request-reviewer[bot]`**
-  - each **inline finding comment** (REST `pulls/<PR>/comments`) → **`Copilot`**
-  - GraphQL `reviewThreads…author.login` → **`copilot-pull-request-reviewer`**
+- **The Copilot login differs by surface — a single hard-coded filter yields false zeros.** `requested_reviewers[].login` and each inline finding
+  comment (REST `pulls/<PR>/comments`) → **`Copilot`**; the **review** object author (REST `pulls/<PR>/reviews`) → **`copilot-pull-request-reviewer[bot]`**;
+  GraphQL `reviewThreads…author.login` → **`copilot-pull-request-reviewer`** (suffix-less). So filtering reviews by `Copilot`, or comments by
+  `copilot-pull-request-reviewer[bot]`, **matches nothing** — a *successful* review reads as "0 findings" (a **false zero**) and the loop wrongly flips to
+  `minor-only`. Match the **right** login per surface. For the trusted-bot identity check don't re-list logins here: defer to the canonical allowlist
+  `_TRUSTED_REVIEWER_BOTS` in `tp-pr-fix/scripts/fix_round.py` (lowercase-matched; extend per-repo via `TP_PR_FIX_TRUSTED_BOTS`) — treat any such set as
+  **a superset to match against, never exhaustive**; it omits the suffix-less GraphQL spelling. Cross-check the review body's "generated N comment(s)"
+  against your comment filter: N>0 with zero matches means the filter login is wrong.
 
-  Filtering reviews by `Copilot`, or comments by `copilot-pull-request-reviewer[bot]`,
-  matches nothing — so a *successful* review reads as "0 findings" (a **false zero**) and the
-  loop wrongly flips to `minor-only`. Match the **right** login per surface. For the
-  trusted-bot identity check, don't re-list logins here — defer to the canonical allowlist
-  `_TRUSTED_REVIEWER_BOTS` in `tp-pr-fix/scripts/fix_round.py` (`copilot`,
-  `copilot-pull-request-reviewer[bot]`, `copilot[bot]`, `github-copilot[bot]`; lowercase-matched,
-  extend per-repo via `TP_PR_FIX_TRUSTED_BOTS`). Treat any such set as **a superset to match
-  against, never exhaustive** — and note GraphQL adds a fourth spelling,
-  `copilot-pull-request-reviewer` (no `[bot]`), that the identity allowlist omits because
-  GraphQL strips the suffix. The review body's "generated N comment(s)" is the cross-check:
-  if it says N>0 but your comment filter returns 0, the filter login is wrong.
+- **"Copilot encountered an error" is usually a GitHub-side build crash, not your diff — never classify it, never terminate on it.** Copilot can post a
+  `COMMENTED` review whose body is *"Copilot encountered an error and was unable to review this pull request"* with **zero** comments. Observed root cause:
+  `ERR_MODULE_NOT_FOUND: detect-libc` in GitHub's `@github/copilot` CLI (the npm optional-dependency bug on their runner) — it crashes at **startup, before
+  reading the diff**, so it fails *identically on every PR/SHA* and is content-independent (do **not** edit your diff to appease it; read the review job log
+  first). It is **transient** and clears server-side. Treat an error-body review as **no signal**: skip it in classification, lean on the dual-source
+  `/code-review` arm for the round (precisely why the loop is dual-source — single-source Copilot is not load-bearing), and re-request only on the next
+  pushed SHA or once it clears (a *same-SHA* retry is deduped — next bullet).
 
-- **"Copilot encountered an error" is usually a transient GitHub-side build crash, not your
-  diff — never classify it, never terminate on it.** Copilot can post a `COMMENTED` review
-  whose body is *"Copilot encountered an error and was unable to review this pull request"*
-  with **zero** comments. Observed root cause: `ERR_MODULE_NOT_FOUND: detect-libc` in
-  GitHub's `@github/copilot` CLI (the npm optional-dependency bug on their runner) — it
-  crashes at **startup, before reading the diff**, so it fails *identically on every PR/SHA*
-  and is **content-independent** (do **not** edit your diff to appease it; read the review
-  job log first). It is **transient** and clears server-side. Treat an error-body review as
-  **no signal**: skip it in classification, lean on the dual-source `/code-review` arm for
-  the round (precisely why the loop is dual-source — single-source Copilot is not load-bearing),
-  and re-request only on the next pushed SHA or once it clears server-side — a *same-SHA* retry
-  is deduped (next bullet) and won't restart Copilot.
-
-- **A re-request only re-fires on a NEW head SHA.** Re-POSTing `requested_reviewers` with the
-  Copilot bot on an **unchanged** head SHA that already carries a Copilot review (even an
-  error one) is **deduped** by GitHub — no new run. A genuine re-review fires on a **new
-  commit** (new head SHA) or once a transient error clears. Consequence for the loop: the
-  per-round re-request *after a `tp-pr-fix` commit* works (the fix advanced the SHA); a
-  re-request to retry a transient *error* on the same SHA usually will not — wait for recovery
-  or push a commit.
+- **A re-request only re-fires on a NEW head SHA.** Re-POSTing `requested_reviewers` with the Copilot bot on an **unchanged** head SHA that already carries
+  a Copilot review (even an error one) is **deduped** by GitHub — no new run. A genuine re-review fires on a **new commit** (new head SHA) or once a
+  transient error clears. Consequence: the per-round re-request *after a `tp-pr-fix` commit* works (the fix advanced the SHA); a same-SHA retry of a
+  transient *error* usually will not — wait for recovery or push a commit.
 
 ## See also
 
 - `_shared/classifier_heuristic.py` — pure-deterministic prefilter (Phase 4).
 - `tp-pr-iterate/scripts/classifier_judge.py` — prompt + parse helper.
-- `tp-pr-iterate/scripts/review_merge.py` — normalize + dedupe the dual review sources (Enhancement 1).
+- `tp-pr-iterate/scripts/review_merge.py` (+ sibling `review_merge_dedupe.py`, re-exported) — normalize + dedupe the dual review sources (Enhancement 1).
 - `skills/_shared/thread_resolver.py` — reply-and-resolve Copilot threads (Enhancement 1; moved to `_shared/` so free modules can import it without a cross-skill boundary).
 - `tp-pr-iterate/scripts/loop_driver.py` — helpers + entry point (incl. `_two_stable_terminal`).
 - `tp-pr-iterate/schemas/iterate-state.v1.json` — loop-state schema.

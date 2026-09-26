@@ -85,3 +85,21 @@ def test_h_telemetry_tool_calls_null_raises() -> None:
     bad["telemetry"]["tool_calls"] = None
     with pytest.raises(jsonschema.ValidationError):
         _validate(bad)
+
+
+def test_task_tiers_optional_and_permissive() -> None:
+    # local-implement-and-review 7.5: `telemetry.task_tiers[]` is optional; items are
+    # permissive (extra keys pass) and require only `task_id` and `final`.
+    _validate(_valid_example())
+    record = {"task_id": "7.1", "final": "PASS", "tier_path": ["local", "opus"],
+              "attempts": {"local": 2, "opus": 1}, "escalated": True,
+              "outcomes": ["FAIL", "FAIL", "PASS"], "red_at_base": "red", "tokens": None}
+    ok = copy.deepcopy(_valid_example())
+    ok["telemetry"]["task_tiers"] = [record, {"task_id": "7.2", "final": "env-error"}]
+    _validate(ok)
+    ok["telemetry"]["task_tiers"][1]["future_key"] = {"any": "shape"}
+    _validate(ok)
+    bad = copy.deepcopy(ok)
+    del bad["telemetry"]["task_tiers"][0]["final"]
+    with pytest.raises(jsonschema.ValidationError):
+        _validate(bad)

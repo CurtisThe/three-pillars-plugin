@@ -300,3 +300,66 @@ def test_step_7_documents_full_clone_precondition() -> None:
     assert re.search(r"distinct.{0,20}INDETERMINATE|INDETERMINATE.{0,20}detail", text, re.IGNORECASE), (
         "step 7 must state the shallow case yields a DISTINCT INDETERMINATE detail"
     )
+
+
+def test_skill_md_handres_breadcrumb_contract() -> None:
+    """Step 7's producer breadcrumb must name the DEFERRED living-doc hand-resolution case:
+    post `format_handres_cert_comment` for the deferred set filtered through
+    `is_living_doc_carry_path`; audit-only, ZERO gate authority — the deterministic gate
+    re-derives the carried K from git objects and NEVER reads this comment."""
+    text = _read()
+
+    assert "format_handres_cert_comment" in text, (
+        "step 7 must post the handres breadcrumb via format_handres_cert_comment"
+    )
+    assert "is_living_doc_carry_path" in text, (
+        "the deferred living-doc set must be filtered through is_living_doc_carry_path"
+    )
+    assert re.search(r"defer", text, re.IGNORECASE), (
+        "the handres breadcrumb branch fires when a base-sync DEFERRED >=1 living-doc file"
+    )
+    assert "ZERO gate authority" in text, (
+        "the handres breadcrumb must restate its ZERO gate authority"
+    )
+    assert re.search(r"never reads this comment|re-?derive", text, re.IGNORECASE), (
+        "must state the gate re-derives from git objects and never reads the comment"
+    )
+
+
+def test_skill_md_approval_carry_consequence_notes_handres_exception() -> None:
+    """The Approval-carry consequence paragraph must not imply a hand-resolved living-doc hunk
+    ALWAYS stales the approval — it names the living-doc hand-resolution carry exception
+    (default-ON within an already-carry-enabled repo)."""
+    text = _read()
+
+    assert re.search(r"living-doc hand-resolution", text, re.IGNORECASE), (
+        "the consequence paragraph must name the living-doc hand-resolution carry exception"
+    )
+    assert re.search(r"default.?ON", text, re.IGNORECASE), (
+        "must note the carry exception is default-ON within an already-carry-enabled repo"
+    )
+
+
+def test_skill_md_quotes_the_still_conflicted_reason_the_driver_actually_emits() -> None:
+    """m-H1. The doc used to promise the report says "could not verify a still-conflicted blob",
+    not "content drop" — *nothing was lost*. Round 10 changed the runtime message to report BOTH
+    facts (markers remain AND n atoms look missing), which made that promise false for exactly the
+    common case. Rather than re-fix the prose every time the wording moves, pin the coupling: the
+    distinctive fragments of `merge_driver`'s reason string must appear in SKILL.md verbatim.
+    """
+    driver = (Path(__file__).resolve().parent / "merge_driver.py").read_text(encoding="utf-8")
+    text = _read()
+    for fragment in ("could not verify a still-conflicted blob (merge markers remain)",
+                     "the markers may account for some or "):
+        assert fragment in driver, f"merge_driver.py no longer emits {fragment!r}"
+        assert fragment in text, (
+            f"SKILL.md must quote the reason the driver actually emits — missing {fragment!r}")
+    assert "verifier flagged content drop" in driver and "verifier flagged content drop" in text
+    assert "nothing was lost" not in text, (
+        "the doc must not claim nothing was lost — the driver cannot tell markers from a real drop")
+
+
+def test_skill_md_stays_under_500_lines() -> None:
+    assert len(_read().splitlines()) <= 500, (
+        "tp-merge-from-main/SKILL.md must stay <= 500 lines (file-size hard cap)"
+    )

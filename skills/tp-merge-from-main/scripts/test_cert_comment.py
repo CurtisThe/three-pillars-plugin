@@ -42,9 +42,9 @@ def test_format_cert_comment_honors_explicit_allowlist_version():
 
 def test_format_cert_comment_multiple_resolved_classes():
     body = cert_comment.format_cert_comment(
-        "a" * 40, "b" * 40, ["design-inventory-row-merge", "id-renumber-collision"],
+        "a" * 40, "b" * 40, ["design-inventory-row-merge", "log-entry-insertion"],
     )
-    assert "classes [design-inventory-row-merge, id-renumber-collision]" in body
+    assert "classes [design-inventory-row-merge, log-entry-insertion]" in body
 
 
 def test_post_cert_comment_success_calls_injected_run_gh():
@@ -96,3 +96,69 @@ def test_disjointness_proof_digest_never_contains_cert_envelope_word():
     }
     digest_body = review_proof.format_proof_digest(meta, [("correctness", 0)])
     assert "basesync-cert.v1" not in digest_body
+
+
+# ============================================================
+# Task 4.1: format_handres_cert_comment — the living-doc-handres audit breadcrumb
+# ============================================================
+
+
+def test_format_handres_cert_comment_exact_shape():
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40, ["three-pillars-docs/known_issues.md"],
+    )
+    assert body == (
+        f"<sub>basesync-cert.v1: pre `{'a' * 40}` · post `{'b' * 40}` · "
+        "allowlist v1 · classes [living-doc-handres] · "
+        "handres-files [three-pillars-docs/known_issues.md]</sub>"
+    )
+
+
+def test_format_handres_cert_comment_default_allowlist_version_is_v1():
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40, ["three-pillars-docs/known_issues.md"],
+    )
+    assert "allowlist v1" in body
+
+
+def test_format_handres_cert_comment_honors_explicit_allowlist_version():
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40, ["three-pillars-docs/known_issues.md"], allowlist_version="v2",
+    )
+    assert "allowlist v2" in body
+
+
+def test_format_handres_cert_comment_multiple_files_sorted_and_joined():
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40,
+        ["three-pillars-docs/vision.md", "three-pillars-docs/architecture.md"],
+    )
+    assert ("handres-files [three-pillars-docs/architecture.md, "
+            "three-pillars-docs/vision.md]") in body
+
+
+def test_disjointness_handres_cert_never_matches_proof_digest_regex():
+    """Envelope word `basesync-cert.v1:` stays lexically disjoint from the proof-of-review
+    digest regexes -- mirrors `test_disjointness_cert_comment_*`."""
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40,
+        ["three-pillars-docs/known_issues.md", "three-pillars-docs/architecture.md"],
+    )
+    for line in body.splitlines():
+        assert review_proof._DIGEST_HEAD_RE.search(line) is None
+        assert review_proof._DEGRADED_RE.search(line) is None
+
+
+def test_post_handres_cert_comment_never_raises():
+    """The handres breadcrumb reuses `post_cert_comment` (fail-open): a raising run_gh -> False,
+    never propagates (audit-only, so a failed post has ZERO effect on any verdict)."""
+    body = cert_comment.format_handres_cert_comment(
+        "a" * 40, "b" * 40, ["three-pillars-docs/known_issues.md"],
+    )
+
+    def boom(*_a, **_k):
+        raise RuntimeError("network exploded")
+
+    assert cert_comment.post_cert_comment(
+        "https://github.com/o/r/pull/5", body, run_gh=boom,
+    ) is False

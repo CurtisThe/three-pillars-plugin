@@ -17,27 +17,34 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-HERE = Path(__file__).parent
+HERE = Path(__file__).resolve().parent
 SHIPPED_RESOLVER = HERE / "resolve_script.py"
 
+#: Anchored on THIS FILE, exactly like ``test_resolve_script_prose.py``'s REPO.
+#:
+#: ``SHIPPED_FIRST_RUN`` used to be ``_repo_root() / …``, shelling ``git
+#: rev-parse --show-toplevel`` with ``check=True`` at MODULE IMPORT against the
+#: PYTEST PROCESS CWD. That was two defects, not one:
+#:
+#: 1. From a cwd outside any git repo the shell-out raised
+#:    ``CalledProcessError`` during COLLECTION, so every test in this module
+#:    became a collection ERROR rather than a failed assertion.
+#: 2. ``SHIPPED_RESOLVER`` was anchored on ``__file__`` while
+#:    ``SHIPPED_FIRST_RUN`` was anchored on the ambient cwd. Under a NESTED
+#:    repo the two constants named DIFFERENT checkouts, so the prose snippet
+#:    was extracted from one and executed against the other's resolver.
+#:
+#: Both shipped files sit at a FIXED offset from this file. Neither ever needed
+#: the cwd, and neither ever needed a subprocess.
+REPO = Path(__file__).resolve().parents[2]
+SHIPPED_FIRST_RUN = REPO / "skills" / "_shared" / "first-run.md"
+
 SENTINEL = "BOOTSTRAP_SENTINEL_OK"
-
-
-def _repo_root() -> Path:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return Path(result.stdout.strip())
-
-
-SHIPPED_FIRST_RUN = _repo_root() / "skills" / "_shared" / "first-run.md"
 
 
 def _extract_snippet() -> str:
@@ -66,6 +73,84 @@ def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# --------------------------------------------------------------------------- #
+# PR #144 R9 — the module's shipped-file anchors are CWD-INDEPENDENT
+# --------------------------------------------------------------------------- #
+#: Import this module out-of-process and print both shipped-file anchors. It has
+#: to be a SUBPROCESS: the bug it guards fired at module IMPORT, so an in-process
+#: assertion could never run — the module would already have failed to collect.
+_ANCHOR_PROBE = (
+    "import test_resolve_script_bootstrap as m\n"
+    "print(m.SHIPPED_FIRST_RUN)\n"
+    "print(m.SHIPPED_RESOLVER)\n"
+)
+
+
+def _import_from(cwd: Path) -> subprocess.CompletedProcess:
+    """Import this module with ``cwd`` as the process cwd; capture both anchors."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(HERE)
+    return subprocess.run(
+        [sys.executable, "-c", _ANCHOR_PROBE],
+        cwd=str(cwd),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _assert_anchors_are_this_checkout(proc: subprocess.CompletedProcess) -> None:
+    """Both anchors name THIS checkout's shipped files, and the SAME checkout."""
+    assert proc.returncode == 0, (
+        "importing this module raised — the shipped-file anchors depend on the "
+        f"process cwd:\n{proc.stderr}"
+    )
+    first_run, resolver = (Path(line) for line in proc.stdout.split())
+    assert first_run == SHIPPED_FIRST_RUN, first_run
+    assert resolver == SHIPPED_RESOLVER, resolver
+    # The nested-repo split, restated as a predicate: first-run.md and
+    # resolve_script.py are siblings, so a divergence in their anchors is
+    # exactly the "extract the snippet from checkout A, run it against
+    # checkout B's resolver" failure.
+    assert first_run.parent == resolver.parent
+
+
+def test_anchors_survive_a_nested_repo_cwd(tmp_path):
+    """A DIFFERENT git repo as cwd must not re-point the shipped-file anchors.
+
+    The deterministic half of the R9 kill. With ``SHIPPED_FIRST_RUN`` derived
+    from ``git rev-parse --show-toplevel``, this cwd makes it
+    ``<nested>/skills/_shared/first-run.md`` — a path in a checkout that does
+    not carry the framework at all — while ``SHIPPED_RESOLVER`` still points at
+    the real one.
+    """
+    nested = tmp_path / "nested_repo"
+    nested.mkdir()
+    _git_init(nested)
+
+    _assert_anchors_are_this_checkout(_import_from(nested))
+
+
+def test_anchors_survive_a_non_repo_cwd(tmp_path):
+    """Outside any git repo, importing this module must still SUCCEED.
+
+    The collection-error half: ``check=True`` on the git shell-out turned every
+    test in this module into a collection ERROR when pytest was launched from a
+    non-repo directory.
+    """
+    outside = tmp_path / "not_a_repo"
+    outside.mkdir()
+    probe = subprocess.run(
+        ["git", "-C", str(outside), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode == 0:
+        pytest.skip(f"{outside} is inside a git repo — nothing to prove here")
+
+    _assert_anchors_are_this_checkout(_import_from(outside))
 
 
 @pytest.fixture()
@@ -155,6 +240,10 @@ def consumer_tp_root_topology(tmp_path):
     tp_root = home / ".claude" / "plugins" / "cache" / "marketplace" / "three-pillars" / "1.2.0"
     shared = tp_root / "skills" / "_shared"
     shared.mkdir(parents=True)
+    # The sentinel makes this a REAL cache install. A cache entry is
+    # sentinel-qualified exactly like probes 1-4, so an entry without it is a
+    # bare directory the resolver must refuse rather than hand back.
+    _write(shared / "first-run.md", "# sentinel\n")
     shutil.copy(SHIPPED_RESOLVER, shared / "resolve_script.py")
     _write(
         shared / "github_pr_author.py",

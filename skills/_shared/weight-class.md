@@ -99,6 +99,10 @@ and `just-do-it` designs):
 > - [ ] Out-of-scope items from the note remain untouched by the diff.
 > - [ ] Any drift that survives review is recorded (PR body or
 >   known_issues.md), not silently merged.
+> - [ ] Every sentence saying a guard (test, check, lint, gate) *enforces* a
+>   property carries `[cert:<id>]` for a claim certified per
+>   `skills/_shared/certification-protocol.md` (`binds`, or a recorded
+>   `known-bypass`); an uncertified one is `unverified` and blocks PASS.
 
 The checklist is the light class's answer to the full pipeline's
 implementation-audit: cheaper, but the in-scope-item-to-diff trace is

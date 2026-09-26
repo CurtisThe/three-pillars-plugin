@@ -36,6 +36,23 @@ def format_cert_comment(pre_sha, post_sha, resolved_classes, *, allowlist_versio
     )
 
 
+def format_handres_cert_comment(pre_sha, post_sha, handres_files, *,
+                                allowlist_version="v1") -> str:
+    """The living-doc-hand-resolution sibling of `format_cert_comment` (design
+    `livingdoc-handres-preserves-approval`). Posted by `/tp-merge-from-main` step 7 when the
+    just-created base-sync DEFERRED >=1 living-doc file to the human (the deferred set filtered
+    through `living_doc_carry.is_living_doc_carry_path`). Audit-only, **ZERO gate authority** --
+    the gate (`base_sync_cert.find_certified_anchor`) re-derives the carried K from git objects
+    and NEVER reads this comment; a forged/absent/wrong-author copy changes no verdict (same
+    guarantee + attack-5 pin as `format_cert_comment`). `handres_files` render sorted/joined."""
+    files_str = ", ".join(sorted(handres_files))
+    return (
+        f"<sub>basesync-cert.v1: pre `{pre_sha}` · post `{post_sha}` · "
+        f"allowlist {allowlist_version} · classes [living-doc-handres] · "
+        f"handres-files [{files_str}]</sub>"
+    )
+
+
 def _pr_url_parts(pr_url: str) -> tuple[str, str, str]:
     """https://<host>/{owner}/{repo}/pull/{n} -> (owner, repo, number)."""
     parts = [p for p in urlparse(pr_url).path.split("/") if p]

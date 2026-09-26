@@ -11,23 +11,20 @@ Run with: python -m pytest skills/_shared/test_resolve_script_prose.py -q
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
 
-
-def _repo_root() -> Path:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return Path(result.stdout.strip())
-
-
-REPO = _repo_root()
+#: Anchored on THIS FILE, like every sibling module in this suite.
+#:
+#: This used to shell out to `git rev-parse --show-toplevel` with check=True at
+#: MODULE IMPORT — against the pytest process cwd, not the file. So collection
+#: of this module depended on where pytest was launched from and on git being
+#: installed: run it from outside a repo and the whole module raised
+#: CalledProcessError during collection rather than failing an assertion. The
+#: shipped files it reads sit at a FIXED offset from this file, so nothing here
+#: ever needed the cwd or a subprocess.
+REPO = Path(__file__).resolve().parents[2]
 FIRST_RUN = REPO / "skills" / "_shared" / "first-run.md"
 
 # The 3 EXECUTED github_pr_author.py call sites (plan Task 2.2), each mapped to
@@ -138,3 +135,134 @@ def test_call_site_resolution_is_git_toplevel_first():
         assert top_idx < ghpa_idx, (
             f"{rel_path} resolves the chokepoint before probing the git toplevel"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Task 5.1 — the exit guard at every call site
+# --------------------------------------------------------------------------- #
+# resolve_script.py fails LOUD (exit 1, diagnostic on stderr), but a command
+# substitution swallows that: `GHPA="$(...)"` leaves $GHPA empty and execution
+# walks on to `python3 "" create ...`. The fail-loud contract is only worth
+# something if the call site actually stops. Two separate lines are required:
+#
+#   GHPA="$(python3 "$RS" github_pr_author.py)" || exit 1
+#   [ -n "$GHPA" ] || exit 1
+#
+# NOT a `cmd && [ -n "$GHPA" ] || exit 1` chain — that mis-binds. When the
+# capture SUCCEEDS but returns empty, the `&&` arm evaluates the test, which
+# fails, and only then does `||` fire; but when the capture FAILS, the `&&`
+# arm is skipped and `||` fires on the capture's own status. The two cases
+# collapse into one branch that reads as if it covers both and does not.
+_CAPTURE_GUARDED = re.compile(
+    r'^[ \t]*GHPA="\$\(python3 "\$RS" github_pr_author\.py\)"[ \t]*\|\|[ \t]*exit 1[ \t]*$',
+    re.M,
+)
+_NONEMPTY_GUARD = re.compile(r'^[ \t]*\[ -n "\$GHPA" \][ \t]*\|\|[ \t]*exit 1[ \t]*$', re.M)
+_INVOCATION = re.compile(r'^[ \t]*python3 "\$GHPA" create\b', re.M)
+
+
+@pytest.mark.parametrize("rel_path", sorted(CALL_SITES))
+def test_call_site_has_exit_guard(rel_path):
+    """Both guard lines are present, and BETWEEN the capture and the invocation."""
+    text = _read(REPO / rel_path)
+
+    capture = _CAPTURE_GUARDED.search(text)
+    assert capture, (
+        f"{rel_path}: the github_pr_author.py capture is not guarded with "
+        "'|| exit 1' — a failed resolve leaves $GHPA empty and execution continues"
+    )
+    guard = _NONEMPTY_GUARD.search(text)
+    assert guard, (
+        f"{rel_path}: missing the separate '[ -n \"$GHPA\" ] || exit 1' line — "
+        "a capture can succeed and still yield an empty path"
+    )
+    invocation = _INVOCATION.search(text)
+    assert invocation, f"{rel_path}: no 'python3 \"$GHPA\" create' invocation"
+
+    assert capture.start() < guard.start() < invocation.start(), (
+        f"{rel_path}: the guards must sit BETWEEN the capture and the "
+        "invocation — a guard after the invocation guards nothing"
+    )
+
+    for line in text.splitlines():
+        if "$GHPA" in line and "&&" in line and "|| exit 1" in line:
+            raise AssertionError(
+                f"{rel_path}: guards are chained with && — that mis-binds; "
+                f"use two separate lines. Offending line: {line.strip()!r}"
+            )
+
+
+def test_first_run_snippet_guards_target():
+    """The canonical §Resolve a FREE _shared script snippet guards $TARGET too.
+
+    This snippet is what every future call site is copied from, so an unguarded
+    version propagates the bug rather than the fix.
+    """
+    text = _read(FIRST_RUN)
+    idx = text.index("Resolve a FREE _shared script")
+    match = re.search(r"```bash\n(.*?)```", text[idx:], re.DOTALL)
+    assert match, "no bash snippet under §Resolve a FREE _shared script"
+    snippet = match.group(1)
+
+    capture = re.search(
+        r'^TARGET="\$\(python3 "\$RS" "\$NAME"\)"[ \t]*\|\|[ \t]*exit 1', snippet, re.M
+    )
+    assert capture, "the canonical snippet's TARGET capture is not guarded with '|| exit 1'"
+    guard = re.search(r'^\[ -n "\$TARGET" \][ \t]*\|\|[ \t]*exit 1', snippet, re.M)
+    assert guard, "the canonical snippet lacks a separate '[ -n \"$TARGET\" ] || exit 1'"
+    invocation = re.search(r'^python3 "\$TARGET"', snippet, re.M)
+    assert invocation, "the canonical snippet no longer invokes python3 \"$TARGET\""
+    assert capture.start() < guard.start() < invocation.start()
+
+    for line in snippet.splitlines():
+        if "$TARGET" in line and "&&" in line and "|| exit 1" in line:
+            raise AssertionError(
+                f"the canonical snippet chains its guards with &&: {line.strip()!r}"
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Task 5.2 — audit A6 is closed, in the resolver and in the living docs
+# --------------------------------------------------------------------------- #
+KNOWN_ISSUES = REPO / "three-pillars-docs" / "known_issues.md"
+RESOLVER = REPO / "skills" / "_shared" / "resolve_script.py"
+
+
+def _known_issues_section(heading: str) -> str:
+    """Return one `### <heading>...` entry, up to the next `### ` heading."""
+    text = _read(KNOWN_ISSUES)
+    match = re.search(rf"^### {re.escape(heading)}\b.*?(?=^### |\Z)", text, re.M | re.S)
+    assert match, f"known_issues.md has no {heading} entry"
+    return match.group(0)
+
+
+def test_a6_note_removed_from_resolver():
+    """The A6 scope disclaimer is gone from resolve_script.py.
+
+    Already green off Task 2.5 — it stands here as the regression pin. The
+    resolver now probes both override roots, so a NOTE saying it does not
+    would be a lie in the file most likely to be trusted.
+    """
+    text = _read(RESOLVER)
+    assert "NOTE (scope, audit A6)" not in text
+    assert "audit A6" not in text
+
+
+def test_known_issues_m2_no_longer_defers_overrides():
+    """M2 records the override roots as RESOLVED, not deferred.
+
+    M2 is the entry an operator actually reads to find out whether their
+    $CLAUDE_PLUGIN_ROOT / --skill-dir install is covered. Leaving the scope
+    note in place after shipping the fix is worse than never having written
+    it — it sends someone to a follow-up that already landed.
+    """
+    section = _known_issues_section("M2")
+    assert "out of scope" not in section.lower(), (
+        "M2 still defers the override roots to a follow-up that has now landed"
+    )
+    assert "resolve-script-override-roots" in section, (
+        "M2 does not record which design closed the override-root gap"
+    )
+    # The project_context.py residual is a DIFFERENT, still-open deferral —
+    # closing A6 must not sweep it away.
+    assert "project_context.py" in section

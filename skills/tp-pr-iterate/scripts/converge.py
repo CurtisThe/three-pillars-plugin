@@ -35,8 +35,10 @@ _SHARED = SCRIPTS_DIR.parent.parent / "_shared"
 if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
+import iterate_state  # noqa: E402
 import review_merge  # noqa: E402
 import review_proof  # noqa: E402
+import round_budget  # noqa: E402
 import convergence_proof  # noqa: E402 — skills/_shared, on path via the shim above
 
 RUN_ROUND_PY = SCRIPTS_DIR / "run_round.py"
@@ -112,6 +114,8 @@ def build_run_round_stdin(
     review_base,
     config,
     pr_url,
+    round=None,  # noqa: A002 — the payload key; with ordinal, the budget's round identity
+    ordinal=None,
 ) -> dict:
     """Build the JSON-serializable stdin object for `run_round.py`.
 
@@ -135,7 +139,7 @@ def build_run_round_stdin(
         "config": config,
         "review_proof_root": str(review_proof_root),
         "review_base": review_base,
-        "pr_url": pr_url,
+        "pr_url": pr_url, "round": round, "ordinal": ordinal,
     }
 
 
@@ -160,8 +164,9 @@ def guard_refusal(findings: "list[dict]") -> "str | None":
       - real structural findings → point at the fix loop (`run_round.py` / `/tp-pr-fix`);
       - degraded sentinels (`no-angles` / unparseable) → never a false convergence.
     """
-    if not findings:
-        return None
+    blocking = [f for f in findings if f.get("verdict") == "structural"]
+    if not blocking:
+        return None  # non-blocking notes never refuse the finish
     if review_merge.is_degraded_review(findings):
         return (
             "converge.py refuses: the review is DEGRADED (no angles ran, or an angle "
@@ -170,7 +175,7 @@ def guard_refusal(findings: "list[dict]") -> "str | None":
             "converge; never converge on an unparseable/no-angles review."
         )
     return (
-        f"converge.py refuses: {len(findings)} structural finding(s) present — this is a "
+        f"converge.py refuses: {len(blocking)} structural finding(s) present — this is a "
         "FIX round, not a finish. Run the fix loop (run_round.py / /tp-pr-fix) until the "
         "round is structurally clean, then re-run converge.py."
     )
@@ -262,21 +267,27 @@ def converge(
 def _seed_state(state_path: Path, head: str, *, now_iso=None) -> None:
     """Write the UNTRACKED iterate-state.v1.json used by the shelled run_round.py.
 
-    Seeds `last_verdict="minor-only"` (the convergence-eligibility precondition) and
-    `last_codereview_head_sha=head` (so `_independent_review_ran`'s current-head match
-    holds) plus the required loop-state fields. The file lives under the gitignored
-    review-proof root, so writing it never dirties the tree (No branch mutation).
+    Two-sided: always primes `last_verdict="minor-only"`, `last_codereview_head_sha=head`,
+    empty findings and `phase`; from an existing state it preserves only `iteration`,
+    `started_at`, `original_diff_lines`, the k-counter and `budget_*`, and a budget
+    terminal phase (tick re-evaluates it). Absent → `iteration=0`, no baseline. Written
+    via ``iterate_state.write_state_atomic``: a short file is a run_round.py wedge.
     """
+    try:
+        prior = json.loads(Path(state_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        prior = None  # absent or unreadable: seed fresh, as before
+    prior = prior if isinstance(prior, dict) else {}
     now = now_iso or datetime.now(tz=timezone.utc).isoformat()
     state = {
         "phase": "awaiting-copilot",
-        "iteration": 1,
+        "iteration": 0,
         "max_iterations": 8,
         "max_wall_clock_sec": 14400,
         "started_at": now,
         "transitions": [],
         "cumulative_diff_lines": 0,
-        "original_diff_lines": 100,
+        "original_diff_lines": None,
         "consecutive_structural_rounds": 0,
         "last_loop_sha": None,
         "last_comment_seen_at": None,
@@ -284,8 +295,11 @@ def _seed_state(state_path: Path, head: str, *, now_iso=None) -> None:
         "last_codereview_head_sha": head,
         "last_codereview_findings": [],
     }
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    keep = ("iteration", "started_at", "original_diff_lines", round_budget.K_KEY)
+    state.update({k: v for k, v in prior.items() if k in keep or k.startswith("budget_")})
+    if round_budget.is_budget_terminal(prior):
+        state.update(phase=prior["phase"], termination_reason=prior["termination_reason"])
+    iterate_state.write_state_atomic(state_path, state)
 
 
 def _default_run_round(stdin: dict) -> dict:
@@ -312,6 +326,11 @@ def _blocked_reason(rr_converged, proof_pass, head_stable, envelope) -> str:
         return ("no non-degraded trusted proof digest on head "
                 "(pred_review_proof_on_head != PASS)")
     if not rr_converged:
+        if envelope.get("event_token") == "wrapper-aborted":
+            # An operator abort (Ctrl-C / SystemExit) is NOT a review verdict. Without
+            # this branch it rendered as "did not reach two-stable", which reads as a
+            # judgement about the PR rather than about the run being interrupted.
+            return "run_round was ABORTED before it reported a verdict (wrapper-aborted)"
         detail = (envelope.get("not_converged_reason")
                   or envelope.get("terminal") or "run_round did not converge")
         return f"run_round did not reach two-stable ({detail})"

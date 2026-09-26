@@ -68,12 +68,14 @@ Or run the worktree management skill's `seat --apply` command to have the framew
 
 The static `--bare` footgun above is a **one-time bootstrap mistake**. There is a second, harder-to-detect class: **dynamic bleed**.
 
-When Claude Code's `isolation=worktree` harness creates or tears down agent worktrees, it sets `core.bare=true` in the seat's **shared** `.git/config` as a side effect. This is a harness bug (M16 in `three-pillars-docs/known_issues.md`) that re-occurs on every fleet or supervised run — the seat reverts to `(bare)` silently mid-session even on a correctly-bootstrapped repo. Instrumented evidence: 25 heals in one run (2026-06-09).
+The seat's **shared** `.git/config` used to flip to `core.bare=true` mid-session, even on a correctly-bootstrapped repo: the seat reverted to `(bare)` silently during fleet or supervised runs. Instrumented evidence: 25 heals in one run (2026-06-09).
 
-**Root fix (two-part):** install once via the worktree management skill's first-run offer or `seat --apply` (missing-immunization repair):
+**Cause (corrected 2026-09-22, M17 in `three-pillars-docs/known_issues_resolved.md`):** self-inflicted by the framework's own pre-commit chain, not by Claude Code. A commit from a **linked** worktree runs the hook with an inherited `GIT_DIR=<seat>/.git/worktrees/<wt>`. In the three-pillars dev repo, framework-check invariant 7 ran a temp-dir `git init` under that env, which re-initialised the worktree's gitdir and wrote `core.bare=true` into the shared config. Fleet runs commit from many worktrees, hence the heal counts. That init was vestigial and is deleted. Invariant #42 (`skills/_shared/git_env_check.py`) now rejects any unwrapped foreign-repo git call in the hook-reachable surface; the sanctioned wrapper is `git_clean_env` / `clean_git_env` (`skills/_shared/git_env.sh` / `git_env.py`).
 
-1. **`extensions.worktreeConfig=true`** — isolates per-worktree git config from the seat's shared `.git/config`, so the harness writes land in the worktree's local config instead of bleeding into the seat.
-2. **`heal-core-bare` hook** — installed via `skills/_shared/bootstrap_immunization.py` into `.git/hooks/post-checkout` and `.git/hooks/post-merge`. Detects the bleed state (`core.bare=true` + `.git/` subdir present) and flips `core.bare=false`. No-op on a healthy repo.
+**Backstop (two-part, kept):** install once via the worktree management skill's first-run offer or `seat --apply` (missing-immunization repair):
+
+1. **`extensions.worktreeConfig=true`** — isolates per-worktree git config from the seat's shared `.git/config`.
+2. **`heal-core-bare` hook** — installed via `skills/_shared/bootstrap_immunization.py` into `.git/hooks/post-checkout` and `.git/hooks/post-merge`. Detects the bleed state (`core.bare=true` + `.git/` subdir present) and flips `core.bare=false`. No-op on a healthy repo. It fires on checkout/merge only, which is why a worktree commit used to leave the seat bare until the next checkout.
 
 The installer (`skills/_shared/bootstrap_immunization.py`) is **consent-gated**: it runs only via the recorded first-run offer (condition 6 of `skills/_shared/first-run.md`'s cheap-path) or an explicit `yes` in the worktree management skill's `seat --apply` missing-immunization repair. The config record (`worktree_immunization` block in `.three-pillars/config.json`) suppresses re-offers after applied or declined.
 

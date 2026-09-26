@@ -1,9 +1,16 @@
 #!/usr/bin/env sh
-# heal-core-bare.sh — heal the core.bare=true bleed from harness worktree lifecycle.
+# heal-core-bare.sh — heal a core.bare=true bleed in the seat's shared config.
 #
-# Problem: the Claude Code isolation=worktree harness flips core.bare=true in the
-# seat's shared .git/config when it creates/tears down agent worktrees.  This
-# leaves the seat repo reporting "(bare)" and refusing `git status`.
+# Problem: the seat's shared .git/config was flipped to core.bare=true, leaving
+# the seat reporting "(bare)" and refusing `git status`.  Cause (corrected
+# 2026-09-22, hook-inherited-git-env; known_issues M17): self-inflicted by the
+# framework's own pre-commit chain — framework-check invariant 7 ran a temp-dir
+# `git init` under the hook's inherited GIT_DIR, so a commit from a linked
+# worktree re-initialised that worktree's gitdir and wrote core.bare=true into
+# the shared config.  That init was vestigial and is deleted; invariant #42
+# keeps the class from returning.  This hook stays as a BACKSTOP.  It runs on
+# post-checkout / post-merge only, which is why a worktree commit used to
+# leave the seat bare until the next checkout.
 #
 # Fix: if core.bare=true is set but a .git/ subdir is present (the reliable
 # discriminator — a genuine bare clone has no .git/ subdir), flip core.bare back

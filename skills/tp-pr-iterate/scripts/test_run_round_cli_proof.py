@@ -44,7 +44,9 @@ def _run(payload: dict, cwd=None):
 
 def _minimal_state(last_verdict="minor-only") -> dict:
     from datetime import datetime, timezone, timedelta
-    now = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+    # A fresh started_at: run_round.py's round_budget.tick checks the wall clock
+    # against the real now (iterate-convergence-budget A11).
+    now = datetime.now(tz=timezone.utc)
     started = (now - timedelta(hours=1)).isoformat()
     return {
         "phase": "awaiting-copilot",

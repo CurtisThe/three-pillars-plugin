@@ -103,6 +103,21 @@
           "minimum": 1,
           "maximum": 20,
           "description": "The maximum number of certified base-sync merges the carry's first-parent walk will cross while searching for a matching anchor (the approval's or proof digest's original head). Default (absent, out-of-range, or wrong-typed, including bool) is 5. Only consulted when approval_survives_safe_base_sync is true; a chain longer than this cap fails closed with a re-approve-on-current-head remediation, never an unsound PASS."
+        },
+        "angles": {
+          "type": "array",
+          "description": "tp-pr-iterate review angles as data (angles.load_angles). Absent = the three default Opus confirmers. Reviews are always Opus.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "prompt", "role", "model"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "prompt": {"type": "string"},
+              "role": {"enum": ["confirmer", "finder"]},
+              "model": {"type": "string", "minLength": 1}
+            }
+          }
         }
       }
     },
@@ -118,7 +133,32 @@
             "diff_growth_multiplier": {
               "type": "integer",
               "minimum": 1,
-              "description": "Multiplier vs. original_diff_lines at which the loop transitions convergence-failure. Default 3."
+              "description": "DEPRECATED and unread (the retired loop growth guard); kept so existing configs validate. Use growth_multiplier."
+            },
+            "round_cap": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Counted review rounds after which a round with blocking findings stops at budget-exhausted/round-cap (round_budget.tick). Default 6. Raise it and re-run to lift the terminal."
+            },
+            "growth_multiplier": {
+              "type": "number",
+              "exclusiveMinimum": 1,
+              "description": "Three-dot diff total vs. the round-1 baseline at which the loop stops at budget-exhausted/growth-lines. Default 1.5."
+            },
+            "test_code_ratio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Loop-added test lines vs. code lines at which the loop stops at budget-exhausted/test-code-ratio (with ratio_floor_lines). Default 3.0."
+            },
+            "ratio_floor_lines": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum loop-added test lines before test_code_ratio can fire. Default 100."
+            },
+            "wall_clock_sec": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Seconds since started_at after which the loop stops at cap-exhausted/wall-clock. Default 14400."
             },
             "k_consecutive": {
               "type": "integer",
@@ -195,6 +235,52 @@
           "type": "boolean",
           "default": false,
           "description": "True if the operator declined the offer. Sticky — suppresses re-prompt."
+        }
+      }
+    },
+    "local_implement": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in per-task cheap-tier dispatch for /tp-phase-implement --local and /tp-run-full-design --local. Absent block = feature off; every key is optional and merged over local_implement_config.DEFAULTS.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch. --local is refused unless true."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "default": "haiku",
+          "description": "Model the eligibility gate's `local` rung spawns tp-task-worker with."
+        },
+        "fallback_model": {
+          "type": "string",
+          "minLength": 1,
+          "default": "sonnet",
+          "description": "Model of the `sonnet` rung (tasks over max_files, and the first escalation)."
+        },
+        "full_design": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also permit --local under /tp-run-full-design (requires enabled=true too)."
+        },
+        "escalate": {
+          "type": "boolean",
+          "default": true,
+          "description": "On exhausted retries, escalate the task to the next rung (local -> sonnet -> opus) instead of halting."
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2,
+          "description": "Same-tier retries after a verify FAIL, with the failing output fed back."
+        },
+        "max_files": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "A task listing more Files than this is classified `sonnet`, never `local`."
         }
       }
     },

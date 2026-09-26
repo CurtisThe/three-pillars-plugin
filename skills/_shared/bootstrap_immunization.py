@@ -1,8 +1,16 @@
 """bootstrap_immunization.py — seat immunization installer.
 
 Installs the `heal-core-bare.sh` hook into a repo's .git/hooks/ via
-sentinel-guarded append and sets extensions.worktreeConfig=true to prevent
-the harness core.bare bleed from affecting the shared .git/config.
+sentinel-guarded append and sets extensions.worktreeConfig=true, as a
+backstop against a core.bare=true bleed into the shared .git/config.
+
+Cause of the bleed (corrected 2026-09-22, hook-inherited-git-env; known_issues
+M17): self-inflicted, not the Claude Code harness. framework-check invariant 7
+ran a temp-dir `git init` under the pre-commit hook's inherited GIT_DIR, so a
+commit from a linked worktree re-initialised that worktree's gitdir and wrote
+core.bare=true into the shared config. The init was vestigial and is deleted
+(invariant #42 guards the class). Both mitigations are kept as a backstop; the
+heal hook fires on post-checkout / post-merge only.
 
 Key design invariants:
   - NEVER auto-runs.  Only called by a consenting surface (first-run offer

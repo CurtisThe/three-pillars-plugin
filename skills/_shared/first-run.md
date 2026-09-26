@@ -22,11 +22,11 @@ If any condition fails, fall through to the relevant detection section below, in
 
 ## Worktree-immunization offer
 
-Runs when condition 6 fails (i.e., `bootstrap_immunization.cheap_check(repo)` returns `needs-prompt`). The offer installs `extensions.worktreeConfig=true` and the `heal-core-bare` hook to prevent the harness `core.bare` bleed (see M16 in `three-pillars-docs/known_issues.md`).
+Runs when condition 6 fails (i.e., `bootstrap_immunization.cheap_check(repo)` returns `needs-prompt`). The offer installs `extensions.worktreeConfig=true` and the `heal-core-bare` hook as a backstop against the seat's shared `.git/config` flipping to `core.bare=true`. The flip was self-inflicted, not a Claude Code bug: a pre-commit check ran a temp-dir `git init` under the hook's inherited `GIT_DIR` from a linked worktree (root cause fixed; see M17 in `three-pillars-docs/known_issues_resolved.md`).
 
 Invoke `python3 "$TP_ROOT"/skills/_shared/bootstrap_immunization.py` status, then offer:
 
-> "Seat immunization protects your repo from the harness `core.bare` bleed (M16). Apply now? [yes/no]"
+> "Seat immunization is a backstop that heals a `core.bare=true` flip in your shared git config (M17). Apply now? [yes/no]"
 
 - **yes**: call `bootstrap_immunization.apply(repo)` then `mark_applied(repo)`. Confirm success in one line.
 - **no**: call `mark_declined(repo)`. Never re-asks (declined is sticky per config record).
@@ -173,6 +173,8 @@ python3 "$TP_ROOT"/skills/_shared/deterministic_gate.py "$PR_URL"
 
 Sentinel: a candidate qualifies iff `<cand>/skills/_shared/first-run.md` exists.
 
+**FREE `_shared` scripts resolve in a different order.** This chain answers *"which install is this invocation anchored to"*, so the explicit probes win and the dev checkout is the last resort. A FREE `_shared` **module** is resolved by `resolve_script.py`, which asks a different question — *"where is the current, authoritative copy of this module"* — and therefore probes the git toplevel **first**. The two orders diverge deliberately: `resolve_script.py`'s module docstring carries a `Divergence from resolve_root.sh` block explaining why the inversion is not portable back to this script. See §Resolve a FREE _shared script below.
+
 On failure (all probes miss), the script prints one loud line to stderr and exits 1:
 
 ```
@@ -206,7 +208,8 @@ if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then
 else
   RS="$TP_ROOT"/skills/_shared/resolve_script.py   # consumer install
 fi
-TARGET="$(python3 "$RS" "$NAME")"                  # abs path on stdout, or exit 1 (fail-loud)
+TARGET="$(python3 "$RS" "$NAME")" || exit 1        # abs path on stdout, or exit 1 (fail-loud)
+[ -n "$TARGET" ] || exit 1                          # a capture can succeed and still be empty
 python3 "$TARGET" "$@"                              # invoke the resolved script with your args
 ```
 

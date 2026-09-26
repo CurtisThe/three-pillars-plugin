@@ -1,9 +1,15 @@
-"""Unit tests for the mechanical resolvers + deferral."""
+"""Unit tests for the mechanical resolvers + deferral.
+
+`id-renumber-collision` is GATED in production (round 20, `classify.GATED`). The
+`test_id_renumber_*` and `test_xref_*` cases below exercise the gated resolver with the gate lifted
+for that test only (`ungated_renumber`); they pin the dormant resolver, not a production merge.
+"""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from resolve import resolve_file, RESOLVED, DEFER  # noqa: E402
+from test_resolve_three_way import ungated_renumber  # noqa: E402,F401 — a pytest fixture
 
 
 def _diff3(ours, base, theirs, pre=""):
@@ -11,118 +17,128 @@ def _diff3(ours, base, theirs, pre=""):
     return (pre + "\n" + block) if pre else block
 
 
-def test_id_renumber_is_zero_drop_and_monotonic():
-    # ours claims L4; theirs claims L4,L5,L6 -> all six survive, monotonically numbered.
-    t = "### L3: prior\n" + _diff3(
+def test_id_renumber_is_zero_drop_and_moves_only_the_colliding_id(ungated_renumber):
+    # ours claims L4; theirs claims L4,L5,L6. Only L4 COLLIDES, so only theirs' L4 moves — to L7,
+    # above every same-letter heading in the file (round 17, F4). Theirs' L5/L6 are new and unique
+    # already; the old resolver renumbered them too (L5->L6, L6->L7), i.e. without a collision.
+    t = "### L3: prior\n" + _diff3_empty_base(
         "### L4: ours unique",
-        "",
         "### L4: theirs a\n### L5: theirs b\n### L6: theirs c",
     )
     status, lines, results = resolve_file(t)
+    assert status == RESOLVED
     heads = [l for l in lines if l.startswith("### ")]
-    titles = " ".join(heads)
-    # zero-drop: every entry's title present
-    for needle in ["ours unique", "theirs a", "theirs b", "theirs c"]:
-        assert needle in titles
-    # monotonic IDs L3..L6 (ours L4 kept; theirs renumbered contiguously after)
-    nums = [int(h.split(":")[0].split("L")[1]) for h in heads]
-    assert nums == sorted(nums), nums
-    # theirs' colliding L4 was remapped
-    rmap = results[0].renumbered
-    assert rmap.get("L4") == "L5"
+    assert heads == ["### L3: prior", "### L4: ours unique", "### L7: theirs a",
+                     "### L5: theirs b", "### L6: theirs c"], heads
+    nums = [h.split(":")[0] for h in heads]
+    assert len(nums) == len(set(nums)), "every ID in the result is unique"
+    assert results[0].renumbered == {"L4": "L7"}
 
 
-def test_id_renumber_updates_cross_references():
-    t = _diff3(
+def test_id_renumber_updates_cross_references(ungated_renumber):
+    t = _diff3_empty_base(
         "### L4: ours",
-        "",
-        "### L4: theirs (see L5 for detail)\n### L5: detail",
+        "### L4: theirs (see L4 above; detail in L5)\n### L5: detail",
     )
-    _, lines, _ = resolve_file(t)
+    _, lines, results = resolve_file(t)
     text = "\n".join(lines)
-    # theirs L4->L5 and L5->L6, so the cross-ref 'see L5' must become 'see L6'
-    assert "see L6 for detail" in text
-    assert "see L5 for detail" not in text
+    # theirs' L4 -> L6 (above the file's highest ID, L5); its bare self-reference follows it, and
+    # the reference to theirs' un-moved L5 is left alone.
+    assert results[0].renumbered == {"L4": "L6"}
+    assert "### L6: theirs (see L6 above; detail in L5)" in text, text
+    assert "### L5: detail" in text
 
 
-def test_xref_no_cascade_on_chained_renumber():
-    # Regression (Copilot round-2 #4): chained remap L4->L5, L5->L6 must map each ref to its
-    # DIRECT target in one pass — not cascade L4->L5->L6.
-    t = _diff3(
+def test_xref_rewrite_maps_each_reference_once(ungated_renumber):
+    # The single-pass rewrite, on the one kind of remap the resolver can now produce: an old ID
+    # whose new number is above every same-letter heading in the file, so nothing can cascade.
+    t = _diff3_empty_base(
         "### L4: ours",
-        "",
         "### L4: theirs (refs L4 and L5)\n### L5: detail",
     )
     _, lines, results = resolve_file(t)
     text = "\n".join(lines)
-    # theirs L4->L5, L5->L6; body 'refs L4 and L5' must become 'refs L5 and L6' (no cascade to L6,L6)
-    assert "refs L5 and L6" in text, text
-    assert "L6 and L6" not in text
-    # heading retag is consistent and not double-applied
-    assert "### L5: theirs" in text
+    assert "refs L6 and L5" in text, text
+    assert "### L6: theirs" in text and "### L5: detail" in text
+    assert text.count("### L6:") == 1
 
 
-def test_inventory_union_prefers_theirs_zero_row_drop():
+def test_inventory_three_way_keeps_both_sides_edits_zero_row_drop():
+    # base D12; theirs edited it, ours left it and added D15; theirs added D14. Each side's edit
+    # survives (round 17, F3: the old resolver ignored base and always took theirs' row).
     t = _diff3(
-        "| D12 | a | design | OURS |\n| D15 | c | design | x |",
-        "",
+        "| D12 | a | design | x |\n| D15 | c | design | x |",
+        "| D12 | a | design | x |",
         "| D12 | a | design | THEIRS |\n| D14 | b | design | y |",
     )
     status, lines, _ = resolve_file(t)
+    assert status == RESOLVED
     ids = [l for l in lines if l.startswith("| D")]
-    keys = [l.split("|")[1].strip() for l in ids]
-    assert set(keys) == {"D12", "D14", "D15"}          # no row dropped
-    assert any("THEIRS" in l for l in ids)             # theirs won the D12 conflict
+    assert ids == ["| D12 | a | design | THEIRS |", "| D15 | c | design | x |",
+                   "| D14 | b | design | y |"], ids
+
+
+def test_inventory_both_sides_adding_one_id_differently_defers():
+    t = _diff3("| D12 | a | design | OURS |", "", "| D12 | a | design | THEIRS |")
+    status, lines, results = resolve_file(t)
+    assert status == DEFER and results[0].code == "cannot-place", results[0].reason
+    assert "\n".join(lines) == t
 
 
 def test_inventory_preserves_header_and_separator_lines():
     # Regression (Feynman CRITICAL #6): non-ID lines (header, separator, blanks) must survive.
     t = _diff3(
-        "| Design | Name | Status |\n| --- | --- | --- |\n| D12 | a | OURS |",
-        "",
+        "| Design | Name | Status |\n| --- | --- | --- |\n| D12 | a | x |",
+        "| D12 | a | x |",
         "| Design | Name | Status |\n| --- | --- | --- |\n| D12 | a | THEIRS |\n| D14 | b | y |",
     )
-    _, lines, _ = resolve_file(t)
+    status, lines, _ = resolve_file(t)
+    assert status == RESOLVED
     text = "\n".join(lines)
     assert "| Design | Name | Status |" in text        # header not dropped
     assert "| --- | --- | --- |" in text               # separator not dropped
     assert "D14" in text and "THEIRS" in text
 
 
-def test_xref_does_not_corrupt_urls_or_anchors():
-    # Regression (Feynman MAJOR #4): L<n> inside an anchor/link must NOT be rewritten.
-    t = _diff3(
+def test_xref_anchor_to_a_renumbered_id_defers_and_other_anchors_are_untouched(ungated_renumber):
+    # Regression (Feynman MAJOR #4): L<n> inside an anchor/link must NOT be rewritten. Round 17:
+    # an anchor to an ID the resolver MOVES would then point at ours' entry, so that hunk defers;
+    # an anchor to an ID that does not move is simply left as written.
+    moved = _diff3_empty_base("### L4: ours", "### L4: theirs (anchor [L4](#L4-detail))")
+    status, lines, results = resolve_file(moved)
+    assert status == DEFER and "anchor/link/path" in results[0].reason, results[0].reason
+    assert "\n".join(lines) == moved
+    t = _diff3_empty_base(
         "### L4: ours",
-        "",
         "### L4: theirs (prose ref see L5; anchor [L5](#L5-detail))\n### L5: detail body",
     )
-    _, lines, _ = resolve_file(t)
+    status, lines, _ = resolve_file(t)
     text = "\n".join(lines)
-    # theirs L4->L5, L5->L6: bare prose ref 'see L5' becomes 'see L6'...
-    assert "see L6" in text
-    # ...but the anchor/link forms must be left intact (not corrupted to L6).
-    assert "[L5](#L5-detail)" in text
+    assert status == RESOLVED
+    assert "see L5" in text and "[L5](#L5-detail)" in text
 
 
 def test_append_only_log_rule_unions_tails():
     # The append-only rule itself is correct (union of tails) — exercised directly.
     from classify import Hunk
     from resolve import resolve_append_log
-    h = Hunk(ours=["x", "y", "ours-tail"], base=["x", "y"], theirs=["x", "y", "theirs-tail"])
+    ours_tail, theirs_tail = "- **2026-07-04** — ours", "- **2026-07-05** — theirs"
+    h = Hunk(ours=["x", "y", ours_tail], base=["x", "y"], theirs=["x", "y", theirs_tail],
+             post_context="")                            # EOF after the region
     r = resolve_append_log(h)
-    assert r.lines == ["x", "y", "ours-tail", "theirs-tail"]
+    assert r.lines == ["x", "y", ours_tail, theirs_tail]
 
 
 def test_append_only_log_now_resolves_ungated():
     # The ground-truth fixtures landed by basesync-prepend-log emptied GATED: a synthetic
     # in-hunk-base append now auto-resolves keep-both (was DEFER under the old GATED policy).
     base = "x\ny"
-    t = _diff3("x\ny\nours-tail", base, "x\ny\ntheirs-tail")
+    t = _diff3("x\ny\n- **2026-07-04** — ours", base, "x\ny\n- **2026-07-05** — theirs")
     status, lines, results = resolve_file(t)
     assert status == RESOLVED
     assert results[0].status == RESOLVED
     text = "\n".join(lines)
-    assert "ours-tail" in text and "theirs-tail" in text     # zero-drop keep-both
+    assert "— ours" in text and "— theirs" in text           # zero-drop keep-both
     assert "<<<<<<<" not in text                             # no human deferral marker
 
 
@@ -186,14 +202,13 @@ def test_log_entry_insertion_defers_on_foreign_structure():
 
 
 def test_low_confidence_mechanical_hunk_defers():
-    # A hunk classified mechanical but mixing a preamble line is not confident -> defer.
-    from classify import Hunk, classify_hunk, is_confident
-    h = Hunk(ours=["### L4: ours", "*Last updated: 2026-05-17*"], base=[],
-             theirs=["### L4: theirs"])
-    # classify sees the preamble first and labels it preamble (already semantic) — but to test the
-    # confidence gate directly, force an id-renumber label on a mixed hunk:
-    h2 = Hunk(ours=["### L4: ours", "| D9 | x | design | y |"], base=[], theirs=["### L4: theirs"])
-    h2.label = "id-renumber-collision"
+    # A hunk labelled mechanical but mixing in a foreign structure is not confident -> defer. To
+    # test the confidence gate directly, force a log-entry-insertion label on a mixed hunk (round
+    # 20: this used an id-renumber label, which the gate now defers before confidence is asked).
+    from classify import Hunk, is_confident
+    h2 = Hunk(ours=["- **2026-07-04** — ours", "| D9 | x | design | y |"], base=[],
+              theirs=["- **2026-07-05** — theirs"], post_context="")
+    h2.label = "log-entry-insertion"
     assert is_confident(h2) is False
     from resolve import resolve_hunk
     r = resolve_hunk(h2)
@@ -218,9 +233,10 @@ def test_force_bypasses_deferral():
 
 def test_mixed_file_resolves_mechanical_keeps_semantic_markers():
     t = _diff3("*Last updated: 2026-05-17*", "*Last updated: 2026-05-15*", "*Last updated: 2026-05-16*") + \
-        "\nmid\n" + _diff3("### L4: ours", "", "### L4: theirs")
+        "\nmid\n" + _diff3_empty_base("- **2026-05-17** — ours", "- **2026-05-16** — theirs")
     status, lines, results = resolve_file(t)
     text = "\n".join(lines)
     assert status == DEFER                      # preamble keeps it from full-resolve
-    assert "### L4: ours" in text and "### L5: theirs" in text   # mechanical hunk resolved
+    assert [r.status for r in results] == [DEFER, RESOLVED]      # mechanical hunk resolved
+    assert "- **2026-05-17** — ours\n- **2026-05-16** — theirs" in text
     assert "Last updated" in text and "<<<<<<<" in text          # semantic hunk still marked

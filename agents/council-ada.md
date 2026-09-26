@@ -1,7 +1,7 @@
 ---
 name: council-ada
 description: "Council member. Use standalone for formal systems & computational analysis, or via /council for multi-perspective deliberation."
-model: sonnet
+model: opus
 color: cyan
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

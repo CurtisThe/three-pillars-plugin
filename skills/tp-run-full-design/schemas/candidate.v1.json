@@ -52,7 +52,20 @@
       "properties": {
         "duration_ms": {"type": "integer", "minimum": 0},
         "tokens_used": {"type": ["integer", "null"], "minimum": 0},
-        "tool_calls": {"type": "integer", "minimum": 0}
+        "tool_calls": {"type": "integer", "minimum": 0},
+        "task_tiers": {
+          "description": "Optional (--local): one tier_ladder telemetry record per task. Items are permissive so a malformed optional field never forces a retry; only task_id and final are required.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["task_id", "final"],
+            "additionalProperties": true,
+            "properties": {
+              "task_id": {"type": "string", "minLength": 1},
+              "final": {"type": ["string", "null"]}
+            }
+          }
+        }
       }
     }
   }

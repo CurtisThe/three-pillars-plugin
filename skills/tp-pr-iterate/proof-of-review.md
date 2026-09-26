@@ -60,7 +60,7 @@ the merge gate would PASS the same head.**
   the orchestrator re-runs the review fan-out on head, re-`capture_proof`,
   re-`post_codereview_comment` with a fresh `format_proof_digest`, and re-shells
   `run_round.py` — **bounded by the mechanical `degraded_review_retries` counter** (committed
-  iterate-state; default bound 1). `_apply_guards` (cap-exhausted / wall-clock) bounds it
+  iterate-state; default bound 1). `round_budget.tick` (round cap / wall clock) bounds it
   absolutely, so the counter is a tightening, not the only backstop.
 - **Record + escalate.** Once the counter reaches the bound (or on the terminal), the state is
   recorded `not-converged` and escalated — but **record + escalate are the terminal's own
@@ -139,9 +139,8 @@ source read at two points; the shared convergence predicate
 convergence gate and the merge gate consume:
 
 1. **Loop terminal** — the live loop-terminal is **`run_round.py`** (shelled from both
-   `tp-pr-iterate/SKILL.md` and `tp-run-full-design/SKILL.md` §Tier-7), with
-   `loop_driver.run_loop` as its **tested in-process twin** (`run_loop` has no live/non-test
-   caller). Each iteration computes `proof_ok` against the freshly-polled head (never a cached
+   `tp-pr-iterate/SKILL.md` and `tp-run-full-design/SKILL.md` §Tier-7), the **only** loop
+   terminal. Each iteration computes `proof_ok` against the freshly-polled head (never a cached
    SHA) and passes the bound True/False to `loop_driver.run_round`. The proof conjunct applies
    to **both**
    arms of `_independent_review_ran` — `proof_ok=False` blocks convergence even when

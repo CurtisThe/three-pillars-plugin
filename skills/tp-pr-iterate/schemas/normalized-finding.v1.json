@@ -45,6 +45,38 @@
     "merged_from": {
       "type": ["array", "null"],
       "items": {"type": ["string", "integer"]}
+    },
+    "class": {
+      "type": "string",
+      "enum": ["P", "X", "T", "C"]
+    },
+    "blocking": {
+      "type": "boolean"
+    },
+    "reproducer": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["test", "command"]},
+        "source": {"type": "string"},
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "expect": {"type": "object"}
+      }
+    },
+    "alt_reproducers": {
+      "type": "array",
+      "items": {"$ref": "#/properties/reproducer"}
+    },
+    "downgrade": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": {"type": "string"},
+        "output": {"type": "string"}
+      }
+    },
+    "schema_note": {
+      "type": "string"
     }
   }
 }

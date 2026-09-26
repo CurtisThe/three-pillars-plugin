@@ -144,11 +144,25 @@ def test_property_attack_fixture_is_indeterminate_never_fail_or_pass(
         "derive_base_ref_fn": lambda _u, b=s.base_ref: b,
     }
     result = pred_human_approved(PR_URL, runners=r, config=CARRY_CONFIG)
+    # NEVER-FAIL holds for every fixture — a carry can only ever be PASS or INDETERMINATE.
     assert result.verdict != GateVerdict.FAIL, f"{case_name}: got FAIL"
-    assert result.verdict == GateVerdict.INDETERMINATE, (
-        f"{case_name}: expected INDETERMINATE (a tampered/uncertified chain must never "
-        f"carry), got {result.verdict}: {result.detail}"
-    )
+
+    if case_name == "attack2_hand_resolution":
+        # RECLASSIFIED by `livingdoc-handres-preserves-approval` (default-ON): a zero-drop-clean
+        # living-doc hand-resolution on a carry-set path is no longer an attack — it is the
+        # flagship CARRY this design enables. Under the default (handres-ON) config it certifies
+        # code-unchanged and the approval carries → PASS. Under a literal-`False` config it
+        # would still refuse (INDETERMINATE); the strict regime is pinned in
+        # `test_human_approval_review_handres.py::test_handres_literal_false_strict_only_refuses`.
+        assert result.verdict == GateVerdict.PASS, (
+            f"{case_name}: expected PASS (default-ON living-doc hand-res carry), "
+            f"got {result.verdict}: {result.detail}"
+        )
+    else:
+        assert result.verdict == GateVerdict.INDETERMINATE, (
+            f"{case_name}: expected INDETERMINATE (a tampered/uncertified chain must never "
+            f"carry), got {result.verdict}: {result.detail}"
+        )
 
 
 def test_fixture13_seat_detached_at_chain_ancestor_threaded_no_carry(tmp_path, monkeypatch):

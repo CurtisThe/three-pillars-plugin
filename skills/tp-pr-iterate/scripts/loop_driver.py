@@ -1,22 +1,19 @@
 """tp-pr-iterate loop driver — polls a PR, classifies comments, invokes
-fix_round.run_round, applies terminal guards, and emits iterate-state
-transitions. Built across Phase 5 tasks 5.3–5.7; run_loop assembled in
-Phase 4 of pr-iterate-loop-encode.
+fix_round.run_round, and emits iterate-state transitions. `run_round` is the
+single per-round step (driven by `run_round.py`); the budget terminals live in
+`round_budget.tick`. The in-process `run_loop` driver was deleted
+(iterate-convergence-budget, Task 4.1).
 
-The loop body is decomposed into pure helpers that each test fixtures
-directly: `_compute_next_wait`, `_poll_step` (Task 5.4 + extensions),
-`_check_guards` (Task 5.6), `_detect_conflicts` (Task 5.7). The actual
-`while True:` driver chains them.
+Pure helpers test fixtures directly: `_compute_next_wait`, `_poll_step`,
+`_detect_conflicts`.
 """
 
 from __future__ import annotations
 
-import inspect
 import json
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -24,8 +21,6 @@ from typing import Any
 
 _IDLE_TIMEOUT_DEFAULT_SEC = 1800  # 30 minutes
 _LOOP_COMMIT_PREFIX = "[tp-pr-fix iter-"
-_K_CONSECUTIVE_DEFAULT = 3
-_DIFF_GROWTH_MULTIPLIER_DEFAULT = 3
 _NEEDS_HUMAN_LABEL = "tp:needs-human-attention"
 
 # Terminal CI check conclusions -- silence != success.
@@ -149,7 +144,7 @@ def _utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime.
 
     Design-audit CRITICAL fix: the symbol did not previously exist in
-    loop_driver.py. Injected as now_fn in run_loop so tests pass a frozen dt.
+    loop_driver.py. `run_round` defaults `now` to it; tests pass a frozen dt.
     """
     return datetime.now(timezone.utc)
 
@@ -185,56 +180,6 @@ def _idle_timeout_sec(config: dict | None) -> int:
     return int(guards.get("idle_timeout_sec", _IDLE_TIMEOUT_DEFAULT_SEC))
 
 
-def _check_guards(state: dict, config: dict | None, now: datetime) -> str | None:
-    """Return the terminal phase if a guard fires, else None."""
-    guards = (config or {}).get("pdw", {}).get("guards", {}) if config else {}
-
-    if state.get("iteration", 0) > state.get("max_iterations", 0):
-        return "cap-exhausted"
-
-    started_at = state.get("started_at")
-    if started_at:
-        try:
-            started = _parse_iso(started_at)
-            if (now - started).total_seconds() > state.get("max_wall_clock_sec", 0):
-                return "cap-exhausted"
-        except ValueError:
-            pass
-
-    orig = state.get("original_diff_lines")
-    cum = state.get("cumulative_diff_lines", 0)
-    multiplier = int(
-        guards.get("diff_growth_multiplier", _DIFF_GROWTH_MULTIPLIER_DEFAULT)
-    )
-    if orig and cum > multiplier * orig:
-        return "convergence-failure"
-
-    k = int(guards.get("k_consecutive", _K_CONSECUTIVE_DEFAULT))
-    if state.get("consecutive_structural_rounds", 0) >= k:
-        return "convergence-failure"
-
-    return None
-
-
-_STAT_NUMBERS_RE = re.compile(r"(\d+)\s+(insertion|deletion)", re.IGNORECASE)
-
-
-def _capture_original_diff(pr_url: str) -> int:
-    """Parse `gh pr diff <url> --stat` summary line; return insertions+deletions."""
-    result = subprocess.run(
-        ["gh", "pr", "diff", pr_url, "--stat"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return 0
-    total = 0
-    for n_str, _kind in _STAT_NUMBERS_RE.findall(result.stdout):
-        total += int(n_str)
-    return total
-
-
 def _ensure_pr_label(pr_url: str, label: str) -> None:
     """Cross-skill wrapper around `label_manager.ensure_pr_label`."""
     import sys
@@ -265,30 +210,139 @@ def _remove_pr_label(pr_url: str, label: str) -> None:
     remove_pr_label(pr_url, label)
 
 
-def _ranges_overlap(a: list[int], b: list[int]) -> bool:
-    """Inclusive [a0,a1] vs [b0,b1] overlap predicate."""
-    if not a or not b or len(a) < 2 or len(b) < 2:
-        return False
+def _span(r) -> tuple[int, int] | None:
+    """The ordered `(lo, hi)` a line_range names, or None when it names no place.
+
+    The conflict scan's ONE coercer. `_detect_conflicts` gates on it and hands
+    `_ranges_overlap` the tuples it returns, so a raw `"12"`, `[True, 2]` or
+    `None` never reaches the comparison and there is no second gate to drift
+    from this one.
+
+    Type, arity and element handling are exactly
+    `review_merge_dedupe._norm_range`'s (itself matched to
+    `review_merge._coerce_range`, which produces every normalized `line_range`):
+
+    * only a list/tuple of len >= 2 is a range, so a stray `"12"` degrades
+      instead of being iterated into the span (1, 2), and a 1-element `[7]` is
+      not a range either;
+    * only `r[0]` and `r[1]` are read, so a 3-element `[3, 9, 1]` is the span
+      (3, 9), not (1, 9);
+    * `bool` elements are rejected — `bool` is an `int` subclass, so
+      `[True, False]` would otherwise coerce to a nonsense (0, 1) range;
+    * anything that will not coerce to an int (`["a", "b"]`, a float infinity)
+      is not a range;
+    * the endpoints are ORDERED with min/max. They are untrusted LLM / GitHub
+      output and a span does arrive end-first (`[20, 10]`); read raw, such a
+      range compared `a[1]=10 < b[0]=12`, overlapped nothing, and a real
+      conflicting hunk went to the fix round instead of to a human.
+
+    The anchor test is `_norm_range`'s `!= _NO_RANGE` after ordering, stated as
+    the rule it implements: NO POSITIVE COORDINATE → no anchor → None. The two
+    agree on every range the normalizers produce, which are non-negative; a
+    negative-only span such as `[-5, -1]` names no line in a file either, so it
+    is unanchored here too.
+
+    That sentinel is `[0, 0]`, which the normalizers give EVERY finding with no
+    usable anchor — GitHub file-level and outdated review comments, every
+    `thread_resolver.list_review_threads` row (which carries a path and no line
+    field at all), and any range whose elements would not coerce. It is truthy
+    and overlaps itself, so an unguarded scan read two UNRELATED anchorless
+    structural findings on one path as the same hunk, deferred both, emptied
+    `kept`, and flipped the round to the terminal
+    `[all-conflicting-deferred-to-human]` while real non-conflicting work was
+    waiting.
+    """
+    if not isinstance(r, (list, tuple)) or len(r) < 2:
+        return None
+    a, b = r[0], r[1]
+    if isinstance(a, bool) or isinstance(b, bool):
+        return None
+    try:
+        a, b = int(a), int(b)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    lo, hi = min(a, b), max(a, b)
+    return (lo, hi) if hi > 0 else None
+
+
+def _ranges_overlap(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """Inclusive overlap of two ORDERED spans, as returned by `_span`.
+
+    Comparison only: it takes `_span` output, never a raw `line_range`, so the
+    type/arity/bool/order/anchor handling lives in one place instead of being
+    half-repeated here.
+    """
     return not (a[1] < b[0] or b[1] < a[0])
 
 
+def _conflict_key(finding: dict, index: int):
+    """A never-None, never-SHARED identity for one finding.
+
+    Used both to defer and to filter `kept`, so a collision here drops innocent
+    findings from the round.
+
+    EVERY branch is qualified by the position in `classified`, so "never shared"
+    is total rather than dependent on an upstream uniqueness promise:
+    `"{index}:{comment_id}"`, else `"{index}:{finding_id}"`, else `"idx:{index}"`.
+    The id is kept in the key because a human reads
+    `deferred_conflicting_comments` out of the state note and needs to see which
+    comment was deferred; the index makes it unique by construction.
+
+    Both ids are needed and neither is enough. SKILL.md step 6b feeds the
+    DEDUPED UNION into step 7, and every `/code-review` finding
+    (`review_merge.normalize_codereview`) carries `comment_id: None`; keying on
+    that put a single `None` in the deferred set, and the `kept` filter then
+    dropped EVERY code-review finding in the round — including ones on other
+    files that conflicted with nothing. `finding_id` is the next-best identity
+    but is NOT unique either: it is whatever the `/code-review` sub-agent
+    numbered its finding, and parallel angles restart at "1", so two unrelated
+    findings on two files share it routinely. `comment_id` is unique per GitHub
+    comment, but the union can hold the SAME comment twice (a thread row and a
+    review-comment row for one id), and an unqualified key let the anchorless
+    copy be filtered out of `kept` by the anchored copy's deferral. A finding
+    carrying neither id falls back to the position alone.
+    """
+    comment_id = finding.get("comment_id")
+    if comment_id not in (None, ""):
+        return f"{index}:{comment_id}"
+    finding_id = finding.get("finding_id")
+    if finding_id not in (None, ""):
+        return f"{index}:{finding_id}"
+    return f"idx:{index}"
+
+
 def _detect_conflicts(classified: list[dict]) -> tuple[list, list[dict]]:
-    """Find overlapping-line_range structural comments on the same file."""
-    structural = [c for c in classified if c.get("verdict") == "structural"]
+    """Find overlapping-line_range structural comments on the same file.
+
+    Returns `(deferred_keys, kept)`. Both the deferral set and the `kept` filter
+    run on `_conflict_key`, so a finding is dropped from `kept` only when IT
+    conflicted — never because it happens to share a null id with one that did.
+
+    Only ANCHORED ranges can conflict: `_span` is the single gate, and it
+    returns None for the `[0, 0]` sentinel — the absence of a location, not a
+    hunk two anchorless findings share. `_ranges_overlap` sees only the ordered
+    tuples `_span` returns, never a raw `line_range`.
+    """
+    keys = [_conflict_key(c, i) for i, c in enumerate(classified)]
+    structural = [
+        (keys[i], c) for i, c in enumerate(classified) if c.get("verdict") == "structural"
+    ]
     deferred: set = set()
-    for i, a in enumerate(structural):
-        ra, fa = a.get("line_range"), a.get("file")
-        if not ra or not fa:
+    for i, (ka, a) in enumerate(structural):
+        sa, fa = _span(a.get("line_range")), a.get("file")
+        if not fa or sa is None:
             continue
-        for b in structural[i + 1 :]:
-            rb, fb = b.get("line_range"), b.get("file")
-            if not rb or fa != fb:
+        for kb, b in structural[i + 1 :]:
+            sb, fb = _span(b.get("line_range")), b.get("file")
+            if fa != fb or sb is None:
                 continue
-            if _ranges_overlap(ra, rb):
-                deferred.add(a["comment_id"])
-                deferred.add(b["comment_id"])
-    kept = [c for c in classified if c.get("comment_id") not in deferred]
-    return list(deferred), kept
+            if _ranges_overlap(sa, sb):
+                deferred.add(ka)
+                deferred.add(kb)
+    kept = [c for i, c in enumerate(classified) if keys[i] not in deferred]
+    # Input order, deduplicated — a set's iteration order would make the note
+    # payload (and any diff of the state file) nondeterministic.
+    return [k for k in dict.fromkeys(keys) if k in deferred], kept
 
 
 def _apply_conflicts(
@@ -305,19 +359,6 @@ def _apply_conflicts(
         return _transition(state, now, "awaiting-human-review", note), [], True
 
     return _transition(state, now, state["phase"], note), kept, False
-
-
-def _apply_guards(
-    state: dict, pr_url: str, config: dict | None, now: datetime
-) -> tuple[dict, bool]:
-    """Check guards; if terminal, transition + apply F9 label, return (state, True)."""
-    phase = _check_guards(state, config, now)
-    if phase is None:
-        return state, False
-    new_state = _transition(state, now, phase, None)
-    if phase in ("cap-exhausted", "convergence-failure"):
-        _ensure_pr_label(pr_url, _NEEDS_HUMAN_LABEL)
-    return new_state, True
 
 
 def _log_subjects_since(since_sha: str | None) -> list[str]:
@@ -554,30 +595,6 @@ def _parse_pr_url(pr_url: str) -> tuple[str, str, str]:
     return m.group(1), m.group(2), m.group(3)
 
 
-def _resolve_pr_head(pr_url: str) -> str | None:
-    """Return the live PR head SHA via `gh pr view --json headRefOid`.
-
-    Advisory resolver injected as run_loop's `head_resolver_fn` so the loop can
-    advance `last_loop_sha` to the actually-pushed commit after a fix round.
-    `fix_round.run_round` does NOT return a commit_id (Copilot review #56), so
-    without this the loop would leave `last_loop_sha` at the pre-fix SHA and the
-    human-push detector would re-scan an ever-growing range. Returns None on any
-    gh/parse error — callers fall back to the pre-fix commit_id (best-effort).
-    """
-    result = subprocess.run(
-        ["gh", "pr", "view", pr_url, "--json", "headRefOid"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout).get("headRefOid") or None
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-
 def _request_copilot_review(
     pr_url: str,
     reviewers: list[str] | None = None,
@@ -633,386 +650,6 @@ def _append_readiness_terminal_line(
         # diagnostic per the docstring ("log and continue") rather than silently
         # swallowing the error.
         print(f"[pr-readiness] terminal-line append failed (fail-open): {exc}", file=sys.stderr)
-
-
-# ---------- run_loop -- the while True: driver ----------
-
-
-def run_loop(
-    design: str,
-    pr_url: str,
-    state: dict,
-    config: dict | None = None,
-    *,
-    dry_run: bool = False,
-    poll_fn,
-    fix_round_fn=None,
-    sleep_fn=time.sleep,
-    now_fn=_utcnow,
-    head_resolver_fn=_resolve_pr_head,
-    resolve_round_fn=None,
-    unresolved_actionable_fn=None,
-    reviewed_fn=None,
-    decisions_path=None,
-    codereview_fn=None,
-    proof_ok_fn=None,          # NEW: head -> bool; default wires review_proof.proof_ok
-) -> dict:
-    """Assembled PR-iteration loop driver.
-
-    Signature follows detailed-design.md, plus `head_resolver_fn` (Copilot
-    review #56) which resolves the live PR head after a fix round so
-    `last_loop_sha` advances to the actually-pushed commit. Returns the
-    terminal state.
-
-    Data flow per iteration (terminal checks short-circuit and return state):
-      sleep(_compute_next_wait)
-        -> set phase awaiting-copilot
-        -> poll_fn -> (new_comments, classified, codereview, copilot_threads, head, commit_id)
-        -> _ci_settled_on_head loop on commit_id (backoff on not-settled; break on
-           head-sha-mismatch so _poll_step's human-push detector runs)
-        -> _poll_step (idle-timeout / human-push terminals)
-        -> _apply_conflicts (conflict-defer terminal)
-        -> derive last_verdict
-        -> if not dry_run: fix_round_fn
-        -> _request_copilot_review (fail-open)
-        -> reply-and-resolve (resolve_round_fn) -> populate resolved_this_round
-        -> _apply_guards (cap-exhausted / convergence-failure terminals)
-        -> TWO-STABLE terminal ONLY: _two_stable_terminal AND a ground-truth
-           zero-unresolved re-fetch (unresolved_actionable_fn). Classifier-flip
-           alone is necessary, never sufficient (wave1-0605 #56 fix).
-        -> update last_loop_sha; loop
-
-    resolve_round_fn(pr_url, copilot_threads, fix_envelope, state) -> set[str]:
-        reply-and-resolve the round's threads, returning resolved thread_ids.
-        Injectable (default None) so the SKILL.md step-9.5 contract is exercised
-        in tests without live gh calls.
-    unresolved_actionable_fn(pr_url) -> int: ground-truth count of unresolved
-        Copilot/code-review threads, re-fetched at the convergence gate; must be
-        0 to converge. Default None is treated as UNVERIFIABLE (fail-closed) — an
-        un-injected loop never two-stable-converges; the runtime always injects
-        it (Copilot review #56).
-    reviewed_fn(pr_url) -> bool: the third terminal conjunct — checks that
-        copilot_reviewed_successfully holds before emitting two-stable. Default
-        None is treated as UNVERIFIABLE (fail-open on the predicate — never false-
-        converges; mirrors the unresolved_actionable_fn fail-closed contract). The
-        runtime injects review_readiness.copilot_reviewed_successfully. This conjunct
-        is REQUIRED only when `config.review.expects_copilot` is true (the default);
-        when false (Copilot is not an available reviewer on this repo), it is dropped
-        and the dual-source /code-review arm carries the terminal — see
-        `_expects_copilot_review`.
-    """
-    prev_wait: int | None = None
-    prev_verdict: str | None = state.get("last_verdict")
-
-    # Task 5.2 escalation wiring: pass the code-review effort hint to poll_fn ONLY
-    # when the injected poll_fn declares it (an `effort` parameter or *args/**kwargs).
-    # The 0-arg test/runtime doubles stay backward-compatible; a production poll that
-    # fans out the /code-review angles reads the hint to escalate to `--effort max`.
-    try:
-        _poll_params = inspect.signature(poll_fn).parameters.values()
-        _poll_accepts_effort = any(
-            p.name == "effort"
-            or p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-            for p in _poll_params
-        )
-    except (TypeError, ValueError):
-        _poll_accepts_effort = False
-
-    # Seed the idle-timeout baseline (Copilot review #56 re-review): _poll_step
-    # measures "no new comments for N min" against last_comment_seen_at, but only
-    # run_loop can write it — without a baseline the idle terminal can never fire.
-    if state.get("last_comment_seen_at") is None:
-        state = {**state, "last_comment_seen_at": state.get("started_at")}
-
-    # Default proof_ok_fn: bound once so it is stable for the loop (enforce-review-
-    # proof B3). Loop arm: local artifact present (root=default_proof_root) OR a
-    # posted proof comment on the live PR. Currency: ALWAYS evaluated against the
-    # head passed in by the caller (the freshly-polled head_sha), never a cached one.
-    # config feeds the comment arm's trusted-author set (review.automation_identities).
-    if proof_ok_fn is None:
-        import review_proof as _rp  # local import (C1-safe, beside this module)
-
-        def proof_ok_fn(_head):
-            return _rp.proof_ok(_head, pr_url=pr_url, root=None, comments_fn=None,
-                                config=config)
-
-    while True:
-        now = now_fn()
-
-        # Guard check at top of each iteration (handles pre-loaded cap or
-        # wall-clock exhausted from last round).
-        state, terminal = _apply_guards(state, pr_url, config, now)
-        if terminal:
-            return state
-
-        # --- backoff sleep ---
-        wait = _compute_next_wait(prev_wait)
-        sleep_fn(wait)
-        prev_wait = wait
-
-        # --- set awaiting-copilot while waiting for CI + Copilot ---
-        now = now_fn()
-        state = _transition(state, now, "awaiting-copilot", "waiting for CI + Copilot review")
-
-        # --- poll for current PR data ---
-        # Compute the code-review effort hint from the PRIOR round's state (the
-        # code-review-structural counter set at the end of the last iteration) and
-        # pass it to a poll_fn that accepts it, so the angles dispatched THIS round
-        # escalate to `--effort max` after a stalled code-review round (Task 5.2).
-        _effort = _codereview_effort(state)
-        (
-            new_comments,
-            classified,
-            _poll_legacy_codereview_findings,  # IGNORED on convergence path (B2)
-            copilot_threads,
-            head_sha,
-            commit_id,
-        ) = poll_fn(_effort) if _poll_accepts_effort else poll_fn()
-
-        # --- Per-head codereview_fn dispatch (B1/B2) ---
-        # The convergence terminal reads ONLY from codereview_fn (or the cache),
-        # never from the poll legacy codereview_findings field (which was the
-        # self-review bug this design fixes).
-        if _should_review_head(state, head_sha) and codereview_fn is not None:
-            # New head: dispatch codereview_fn, record head, cache findings.
-            # IMPORTANT: write the findings cache (last_codereview_head_sha +
-            # last_codereview_findings) ATOMICALLY with reviewed_head_shas.
-            # If we record the head before caching, any early-return between the
-            # two writes leaves the head deduped-but-uncached: on resume,
-            # _should_review_head returns False (already in the list) but
-            # _cached_findings_for_head returns None (cache miss) → degraded
-            # sentinel → permanently blocked-no-independent-review until a new
-            # commit. Atomic write prevents that wedge. (F-C1)
-            _codereview_findings_for_round = codereview_fn(_effort, head_sha)
-            _reviewed_shas = list(state.get("reviewed_head_shas", []))
-            if head_sha not in _reviewed_shas:
-                _reviewed_shas.append(head_sha)
-            state = {
-                **state,
-                "reviewed_head_shas": _reviewed_shas,
-                "last_codereview_head_sha": head_sha,
-                "last_codereview_findings": _codereview_findings_for_round,
-            }
-        else:
-            # Dedupe round or no fn injected: use cache
-            _codereview_findings_for_round = _cached_findings_for_head(state, head_sha)
-            if _codereview_findings_for_round is None:
-                # Cache miss (head advanced without a fan-out, or state was reset)
-                # -> inject the no-angles sentinel, fail closed (never bare [])
-                import review_merge as _rm
-                _codereview_findings_for_round = _rm.merge_codereview_angles([])
-        # This is the REAL findings for this round (used by run_round + the convergence path)
-        codereview_findings = _codereview_findings_for_round
-
-        # --- CI-settle + SHA-match wait (loop on not-settled with backoff) ---
-        ci_wait: int | None = None
-        last_rollup: list = []  # Phase 4: rollup threaded out of _ci_settled_on_head
-        # Phase 6 gate: True ONLY when the wait broke because CI genuinely settled on
-        # this head. A head-sha-mismatch break leaves it False so the CI-red
-        # discriminator below cannot fire a fix against an unsettled, just-moved head.
-        ci_settled = False
-        while True:
-            settled, reason, rollup = _ci_settled_on_head(pr_url, commit_id, now, config)
-            last_rollup = rollup
-            if settled:
-                ci_settled = True
-                break
-            if reason == "head-sha-mismatch":
-                # The PR head moved out from under the wait (e.g. a human pushed
-                # a new commit). Stop the CI-settle wait instead of spinning to a
-                # wall-clock cap on a commit_id that can never match again — fall
-                # through so _poll_step's human-push detection runs. (Copilot #56)
-                break
-            # Not settled (checks pending) or transient ci-poll-error -- back off
-            # and re-check; stay in awaiting-copilot.
-            ci_wait = _compute_next_wait(ci_wait)
-            sleep_fn(ci_wait)
-            now = now_fn()
-            # Guards can fire while waiting (wall-clock cap)
-            state, terminal = _apply_guards(state, pr_url, config, now)
-            if terminal:
-                return state
-
-        # --- pre-classification checks (idle-timeout, human-push) ---
-        now = now_fn()
-        state, terminal = _poll_step(state, new_comments, now, config)
-        if terminal:
-            return state
-
-        # Reset the idle-timeout window on activity (Copilot review #56 re-review):
-        # _poll_step measured idle against last_comment_seen_at above; now that this
-        # round observed new comments, record the activity so the NEXT round measures
-        # the idle window from here (otherwise it never resets).
-        if new_comments:
-            state = {**state, "last_comment_seen_at": now.isoformat()}
-
-        # --- conflict-defer ---
-        state, kept, terminal = _apply_conflicts(state, classified, now)
-        if terminal:
-            return state
-
-        # --- derive last_verdict ---
-        has_structural = any(c.get("verdict") == "structural" for c in kept)
-        last_verdict = "structural-present" if has_structural else "minor-only"
-
-        # Update consecutive structural rounds counter (Copilot/thread convergence guard)
-        if last_verdict == "structural-present":
-            consec = state.get("consecutive_structural_rounds", 0) + 1
-        else:
-            consec = 0
-        # NOTE: consecutive_codereview_structural_rounds is NOT updated here.
-        # run_round owns that counter (it receives codereview_findings as a value
-        # and updates the counter there). Updating it here too causes double-increment.
-        state = {**state,
-                 "last_verdict": last_verdict,
-                 "consecutive_structural_rounds": consec,
-                 "iteration": state.get("iteration", 0) + 1}
-
-        # --- fix round (unless dry_run or minor-only) ---
-        commit_id_after_fix = commit_id
-        fix_envelope: dict = {}
-        if not dry_run and fix_round_fn is not None and last_verdict == "structural-present":
-            fix_envelope = fix_round_fn(
-                design,
-                pr_url,
-                state.get("iteration", 1),
-                classified=kept,
-                head_ref=head_sha,
-                loop_mode=True,
-            ) or {}
-            diff_added = fix_envelope.get("diff_lines_added", 0) or 0
-            state = {**state,
-                     "cumulative_diff_lines": state.get("cumulative_diff_lines", 0) + diff_added}
-            # Advance last_loop_sha to the ACTUAL pushed head. fix_round.run_round
-            # does not return a commit_id (Copilot review #56), so resolve the
-            # live head; fall back to any envelope-provided commit_id, then to the
-            # pre-fix commit_id. Without this, last_loop_sha would stay at the
-            # pre-fix SHA and the human-push detector would re-scan a stale range.
-            resolved_head = head_resolver_fn(pr_url) if head_resolver_fn else None
-            commit_id_after_fix = (
-                resolved_head or fix_envelope.get("commit_id") or commit_id
-            )
-
-        # --- re-request Copilot review (fail-open) ---
-        _request_copilot_review(pr_url)
-
-        # --- reply-and-resolve every Copilot thread this round (Enhancement 1) ---
-        # Populates resolved_this_round, which the two-stable terminal requires:
-        # a thread left neither resolved nor deferred keeps the loop from
-        # converging (by design). The runtime reply-and-resolve lives in SKILL.md
-        # step 9.5; run_loop accepts an injectable resolver so the reference
-        # exercises the same contract. disposition is ALWAYS disposition_for's
-        # output — never a hand-judged "stale".
-        resolved_this_round: set = set()
-        if resolve_round_fn is not None:
-            resolved_this_round = set(
-                resolve_round_fn(pr_url, copilot_threads, fix_envelope, state) or []
-            )
-        # Snapshot the PRIOR-round seen set BEFORE folding in this round's
-        # threads — _two_stable_terminal's "genuinely-new unresolved thread"
-        # guard judges newness against it; folding first would make every
-        # current thread read as already-seen and silently kill that guard
-        # (Copilot review #56 — false-convergence defense-in-depth).
-        seen_before_round = {x for x in state.get("seen_thread_ids", []) if x}
-        seen_ids = seen_before_round | {
-            t.get("thread_id") for t in copilot_threads if t.get("thread_id")
-        }
-        resolved_ids = set(state.get("resolved_thread_ids", [])) | resolved_this_round
-        state = {**state,
-                 "seen_thread_ids": sorted(x for x in seen_ids if x),
-                 "resolved_thread_ids": sorted(x for x in resolved_ids if x)}
-
-        # --- update last_loop_sha ---
-        state = {**state, "last_loop_sha": commit_id_after_fix}
-
-        # --- guard checks ---
-        now = now_fn()
-        state, terminal = _apply_guards(state, pr_url, config, now)
-        if terminal:
-            return state
-
-        # --- success terminal via run_round (B1/M2) ---
-        # Delegate the convergence decision to run_round with the REAL findings.
-        # The poll legacy codereview_findings field is NOT consulted here.
-        # Pre-fetch unresolved_actionable for run_round.
-        _unresolved = (
-            unresolved_actionable_fn(pr_url)
-            if unresolved_actionable_fn is not None
-            else None
-        )
-        _reviewed = (
-            reviewed_fn(pr_url)
-            if reviewed_fn is not None
-            else None
-        )
-        # run_round checks the fourth conjunct + all prior conjuncts
-        # and returns {state, action, terminal}. Note: we pass the updated
-        # state (with last_verdict already set above) and the REAL findings.
-        # resolved_this_round is NOT passed: run_round uses unresolved_actionable
-        # (the ground-truth re-fetch) as the Copilot-threads conjunct, not the
-        # in-memory snapshot. (F-C2)
-        # Currency (enforce-review-proof B3): proof_ok is computed against the
-        # CURRENT head_sha resolved this iteration (from poll_fn), NEVER a cached
-        # SHA. run_loop now passes a BOUND True/False — never None — so the
-        # proof_ok=None legacy-permissive call-sites stay undisturbed.
-        _proof_ok = proof_ok_fn(head_sha)
-        _round_result = run_round(
-            state,
-            head_sha=head_sha,
-            codereview_findings=codereview_findings,
-            reviewed=_reviewed,
-            unresolved_actionable=_unresolved,
-            ci_rollup=last_rollup,
-            config=config,
-            now=now,
-            decisions_path=decisions_path,
-            pr_url=pr_url,
-            label_fn=None,  # use _ensure_pr_label (default)
-            proof_ok=_proof_ok,          # NEW — was previously omitted (None default)
-        )
-        state = _round_result["state"]
-        _terminal = _round_result["terminal"]
-        if _terminal is not None:
-            # Terminal reached (two-stable or blocked-no-independent-review)
-            return state
-
-        # --- Phase 6: CI-red discriminator (pr-iterate-loop-hardening Tasks 6.1–6.2) ---
-        # Applies ONLY when CI genuinely settled on this head (ci_settled) but
-        # _ci_all_success is False AND the regular fix path (last_verdict ==
-        # "structural-present") did NOT already fire (avoid double-firing in one
-        # round).  INFRA_BLOCK holds without calling fix_round_fn; CODE_FAILURE routes
-        # into the fix path. The ci_settled guard is load-bearing: without it, a
-        # head-sha-mismatch break (the head moved under the wait) would carry the
-        # moved head's still-PENDING rollup here — _ci_all_success False, classified
-        # CODE_FAILURE — and push a fix onto an unsettled, just-moved head. The head
-        # move is the human-intervention signal the loop must defer to, not fix over.
-        if (ci_settled
-                and not _ci_all_success(last_rollup, config)
-                and last_verdict != "structural-present"):
-            fc = classify_failure(last_rollup)
-            if fc is FailureClass.INFRA_BLOCK:
-                state = _transition(state, now, "ci-infra-blocked",
-                                    "startup-failure rollup — holding without fix")
-                _ensure_pr_label(pr_url, _NEEDS_HUMAN_LABEL)
-                # Fall through — keep looping (same commit_id, no fix push).
-            elif fc is FailureClass.CODE_FAILURE:
-                # Route to the fix path: call fix_round_fn if available.
-                if not dry_run and fix_round_fn is not None:
-                    fix_envelope_ci = fix_round_fn(
-                        design,
-                        pr_url,
-                        state.get("iteration", 1),
-                        classified=kept,
-                        head_ref=head_sha,
-                        loop_mode=True,
-                    ) or {}
-                    diff_added_ci = fix_envelope_ci.get("diff_lines_added", 0) or 0
-                    state = {**state,
-                             "cumulative_diff_lines": state.get("cumulative_diff_lines", 0)
-                             + diff_added_ci}
-            # INDETERMINATE — fall through and keep looping (no transition, no fix).
-
-        prev_verdict = last_verdict
 
 
 # ---------- Phase 2: per-head dedupe + findings cache helpers ----------
@@ -1145,15 +782,25 @@ def run_round(
     label_fn=None,
     unlabel_fn=None,
     proof_ok: "bool | None" = None,
+    review_base=None,
+    numstat_fn=None,
+    class_log_path=None,
+    ordinal=None,
 ) -> dict:
     """Pure per-round decision step — the heart of B1.
 
     Takes the round's real codereview_findings as a VALUE (no Agent(), no callable
-    injection). Returns a dict {state, action, terminal} where:
-    - action in {"fix", "noop"}
+    injection). Returns a dict {state, action, terminal, budget} where:
+    - action in {"fix", "noop"} ("fix" iff a finding is `structural`, sentinels included)
     - terminal is None or the terminal phase string
+    - budget is the `round_budget.tick` detail (iterate-convergence-budget)
 
-    The caller (Tier 7 prose / run_loop) is responsible for executing the
+    `round_budget.tick` runs on EVERY round, BEFORE two-stable: a budget terminal
+    labels needs-human-attention and returns action "noop". tick owns the
+    `consecutive_codereview_structural_rounds` counter; this function records
+    `budget_last_head/round/action` for the next tick.
+
+    The caller (Tier 7 prose / run_round.py) is responsible for executing the
     /code-review fan-out and /tp-pr-fix dispatch around this step.
 
     Writes the findings cache for head_sha into state BEFORE the terminal check.
@@ -1165,8 +812,7 @@ def run_round(
     directly and counts only actionable threads — the authoritative gate. The old
     `resolved_this_round` parameter was accepted but never consulted here; it has been
     removed to eliminate the dead-parameter confusion and false comment that claimed
-    _two_stable_terminal ran. The run_loop caller still populates the `seen_thread_ids`
-    / `resolved_thread_ids` state fields via _two_stable_terminal for its own bookkeeping.
+    _two_stable_terminal ran.
     """
     if now is None:
         now = _utcnow()
@@ -1205,21 +851,36 @@ def run_round(
         "last_codereview_head_sha": head_sha,
     }
 
-    # --- Derive last_verdict from the round's codereview_findings ---
-    # For run_round, the "structural-present" determination is based on codereview_findings.
-    # The existing last_verdict from state is what carries through (this round's findings
-    # drive the next action).
-    # In the full loop, classified comes from poll_fn; here we use codereview_findings directly.
-    has_structural_cr = bool(codereview_findings)  # any findings = structural-present
+    # --- Blocking filter: only `structural` findings (sentinels included, fail-closed)
+    # drive a fix; non-blocking notes never do. ---
+    import finding_class as _fc
+    import round_budget as _rb
+    tally = _fc.tally(codereview_findings)
+    structural = [f for f in codereview_findings if f.get("verdict") == "structural"]
+    action = "fix" if structural else "noop"
+    degraded_only = tally["blocking"] == 0 and tally["degraded"] > 0
 
-    # Use the state's last_verdict as the verdict (set by poll+classify upstream)
-    # run_round trusts what the caller passed in via state. The action is determined
-    # by whether codereview findings are non-empty.
-    action = "fix" if has_structural_cr else "noop"
+    # --- Budget (round_budget.tick) — before two-stable, so a clean round over
+    # budget still stops. tick owns the codereview k-counter. ---
+    state, budget_terminal, budget = _rb.tick(
+        state, head_sha=head_sha, pr_url=pr_url, tally=tally, review_base=review_base,
+        config=config, now=now, ordinal=ordinal, numstat_fn=numstat_fn,
+        class_log_path=class_log_path)
 
-    # Update the consecutive code-review escalation counter
-    cc = (state.get("consecutive_codereview_structural_rounds", 0) + 1) if codereview_findings else 0
-    state = {**state, "consecutive_codereview_structural_rounds": cc}
+    def _result(st: dict, act: str, terminal) -> dict:
+        if degraded_only:
+            last = "degraded"
+        else:
+            last = "fix" if act == "fix" and tally["blocking"] > 0 else "noop"
+        st = {**st, "budget_last_head": head_sha, "budget_last_round": ordinal,
+              "budget_last_action": last}
+        return {"state": st, "action": act, "terminal": terminal, "budget": budget}
+
+    if budget_terminal is not None:
+        state = _transition(state, now, budget_terminal, f"[budget] {budget['signal']}")
+        _do_label(_NEEDS_HUMAN_LABEL)
+        _do_unlabel("tp:ready-for-human-merge")
+        return _result(state, "noop", budget_terminal)
 
     # --- Two-stable terminal check ---
     # Preconditions:
@@ -1258,7 +919,7 @@ def run_round(
         # as quiet because they represent "no reviewer ran" (handled by _independent_review_ran)
         # rather than real structural evidence.
         import review_merge as _rm
-        codereview_quiet = (not codereview_findings
+        codereview_quiet = (not structural
                             or _rm.is_degraded_review(codereview_findings))
 
         if copilot_conjunct_ok and independent_ran and codereview_quiet:
@@ -1277,7 +938,7 @@ def run_round(
                 now=now,
                 decisions_path=decisions_path,
             )
-            return {"state": state, "action": action, "terminal": note}
+            return _result(state, action, note)
         elif not independent_ran:
             # FAIL CLOSED: no independent review ran for the current head ->
             # blocked-no-independent-review. This fires even if codereview_findings
@@ -1299,10 +960,10 @@ def run_round(
                 now=now,
                 decisions_path=decisions_path,
             )
-            return {"state": state, "action": action, "terminal": "blocked-no-independent-review"}
+            return _result(state, action, "blocked-no-independent-review")
         # else: copilot expected but reviewed is False/None -> keep looping
         #       OR independent_ran=True but codereview not quiet -> keep iterating
 
     # No terminal reached — a non-blocked round resets the degraded-review streak.
     state = {**state, "degraded_review_retries": 0}
-    return {"state": state, "action": action, "terminal": None}
+    return _result(state, action, None)

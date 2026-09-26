@@ -27,7 +27,7 @@
         "additionalProperties": false,
         "required": ["comment_id", "summary"],
         "properties": {
-          "comment_id": {"type": ["string", "integer"]},
+          "comment_id": {"type": ["string", "integer", "null"]},
           "summary": {"type": "string", "maxLength": 200}
         }
       }
@@ -39,7 +39,7 @@
         "additionalProperties": false,
         "required": ["comment_id", "reason"],
         "properties": {
-          "comment_id": {"type": ["string", "integer"]},
+          "comment_id": {"type": ["string", "integer", "null"]},
           "reason": {
             "type": "string",
             "enum": [

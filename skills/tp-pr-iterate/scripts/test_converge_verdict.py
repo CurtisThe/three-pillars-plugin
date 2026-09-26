@@ -187,3 +187,36 @@ def test_main_rejects_malformed_label_count(tmp_path):
         "--config", str(config_file), "--label-count", "bad",
     ])
     assert rc != 0
+
+
+def test_blocked_reason_reports_an_abort_as_an_abort_not_a_verdict():
+    """`wrapper-aborted` must not be rendered as "did not reach two-stable".
+
+    `_default_run_round` discards `proc.returncode` and parses stdout, so the ONLY
+    thing that distinguishes an operator Ctrl-C (or a `SystemExit` out of the wrapper)
+    from a review outcome is the envelope's `event_token`. Reading only
+    `not_converged_reason` / `terminal` laundered the abort into a sentence about the
+    PR: an interrupted run reported as a judgement that the round did not converge. The
+    operator's next move differs completely — re-run, versus investigate the review —
+    so the two must not render alike.
+    """
+    aborted = {"status": "escalate", "event_token": "wrapper-aborted",
+               "detail": "KeyboardInterrupt", "terminal": None, "converged": False}
+    reason = converge._blocked_reason(False, True, True, aborted)
+
+    assert "ABORT" in reason.upper(), (
+        f"an aborted run rendered as {reason!r} — an abort dressed up as a review "
+        "verdict, which is the exact laundering `run_round.py` emits `wrapper-aborted` "
+        "to prevent"
+    )
+    assert "two-stable" not in reason, (
+        f"{reason!r} still describes the convergence outcome of a round that never "
+        "finished reporting one"
+    )
+
+    # The ordinary non-converged rendering is unchanged, and the earlier conjuncts
+    # still win: an abort envelope on a MOVED head is still a head-moved report.
+    ordinary = converge._blocked_reason(
+        False, True, True, {"not_converged_reason": "degraded-or-absent-proof-on-head"})
+    assert ordinary.startswith("run_round did not reach two-stable")
+    assert "HEAD moved" in converge._blocked_reason(False, True, False, aborted)

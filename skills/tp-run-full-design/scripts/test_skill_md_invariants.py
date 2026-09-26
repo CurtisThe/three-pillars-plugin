@@ -799,10 +799,10 @@ def test_sigterm_abort():
 
 
 def test_phase_implement_dispatch():
-    """Task 6.2 — Form SERIAL (the committed form, selected by the P1 GATE
-    VERDICT nested-FAIL: a worktree-isolated subagent cannot spawn nested task
-    sub-subagents — decisions.md [orchestrator/probe] "nested verdict?
-    **nested-FAIL**", L41). The NESTED-OK form is omitted, not stubbed.
+    """Task 6.2 (rewritten by local-implement-and-review 7.3) — nested per task:
+    one Opus `tp-worker` per plan phase runs its tasks one after another; under
+    `--local` it spawns `tp-task-worker` per task per `local-dispatch.md` (the one
+    sanctioned depth-2 dispatch). Form SERIAL and its nested-FAIL premise are gone.
 
     Extended by phase-subagent-protocol Tasks 1.1, 1.2, 2.1, 2.2:
     - I1: Mode-A0 top-line says per-phase worker (not "single worker Agent")
@@ -811,33 +811,9 @@ def test_phase_implement_dispatch():
     - Behavior 1 polish: candidate_id and "single" co-present in dispatch section
     """
     body = _body()
-
-    assert "\n## Phase-implement dispatch" in body, (
-        "a ## Phase-implement dispatch section must exist (Form SERIAL)"
-    )
     section = body.split("\n## Phase-implement dispatch", 1)[1].split("\n## ", 1)[0]
-
-    # Serial-within-phase: tasks run sequentially inside one phase subagent.
-    assert "serial" in section.lower(), (
-        "phase-implement runs its tasks serially within the phase subagent"
-    )
-    assert (
-        "no 2-level parallelism" in section.lower()
-        or "no two-level parallelism" in section.lower()
-    ), "Form SERIAL: no 2-level parallelism inside a phase dispatch"
-
-    # A phase subagent cannot spawn task sub-subagents (the falsified NESTED form).
-    assert "sub-subagent" in section.lower(), (
-        "the prose must state a phase subagent cannot spawn task sub-subagents"
-    )
-
-    # The literal P1 M1-fallback citation + the probe verdict it implements.
-    assert "M1" in section, (
-        "Form SERIAL must cite the P1 M1 (serial-within-phase) fallback"
-    )
-    assert "nested-FAIL" in section, (
-        "the prose must name the nested-FAIL probe verdict it implements"
-    )
+    # Behaviour, not wording (#165 rulings): what the nested dispatch reads and spawns exists.
+    _assert_refs_resolve(section)
 
     # Task 1.1 (I1): Mode-A0 top-line says per-phase worker, not "single worker Agent".
     # Scope to the **Mode A0** inline-bold region (up to the next "\n## " heading).
@@ -894,10 +870,7 @@ def test_phase_implement_dispatch():
 def test_tier_3_5_uses_wrapper():
     body = _body()
 
-    # (1) Tier 3.5 section invokes the wrapper subprocess via python3
-    # (matching the repo convention used by tp-design, tp-spike-auto,
-    # tp-migrate — avoids Python 2 ambiguity). Prefixed with "$TP_ROOT"/ per
-    # the resolve-root preamble (portable-enforcement-layer Phase 3 sweep).
+    # (1) Tier 3.5 invokes the wrapper via python3, prefixed with "$TP_ROOT"/.
     assert 'python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/run_tier_3_5.py' in body, (
         "Tier 3.5 must invoke the wrapper subprocess with python3 and $TP_ROOT prefix"
     )
@@ -1076,31 +1049,23 @@ def test_retry_only_flagged_phase():
 
 
 def test_phase_implement_auto_serial_note():
-    """Task 4.1 — tp-phase-implement ## Auto Mode documents that under orchestrator
-    dispatch (Slot 7) the --auto invocation runs inside a subagent and cannot spawn
-    task sub-subagents (L23), so all tasks run serially."""
-    phase_md_path = SKILL_MD.parent.parent / "tp-phase-implement" / "SKILL.md"
-    assert phase_md_path.exists(), f"tp-phase-implement/SKILL.md must exist at {phase_md_path}"
-    phase_body = phase_md_path.read_text(encoding="utf-8")
-
-    assert "\n## Auto Mode" in phase_body, "## Auto Mode section must exist in tp-phase-implement/SKILL.md"
+    """Task 4.1 (rewritten by local-implement-and-review 7.3) — tp-phase-implement
+    ## Auto Mode's Slot-7 rules point at `local-dispatch.md` and `tp-task-worker`, and at
+    orchestrator sections. Behaviour, not wording (#165 rulings): each reference resolves."""
+    phase_md = SKILL_MD.parent.parent / "tp-phase-implement" / "SKILL.md"
+    phase_body = phase_md.read_text(encoding="utf-8")
     auto_section = phase_body.split("\n## Auto Mode", 1)[1].split("\n## ", 1)[0]
+    _assert_refs_resolve(auto_section, phase_body)
 
-    # Serial constraint under orchestrator dispatch.
-    assert any(tok in auto_section.lower() for tok in ("serial", "serially")), (
-        "## Auto Mode must document that tasks run serially under orchestrator dispatch"
-    )
 
-    # Cannot spawn sub-subagents / L23.
-    assert any(tok in auto_section for tok in ("sub-subagent", "L23", "cannot spawn")), (
-        "## Auto Mode must name the sub-subagent constraint (L23 / cannot spawn)"
-    )
-
-    # Standalone behavior preserved.
-    assert any(tok in auto_section.lower() for tok in ("standalone", "human-invoked")), (
-        "## Auto Mode must note standalone (human-invoked) --auto is unaffected"
-    )
-
+def _assert_refs_resolve(span: str, *more_docs: str) -> None:
+    """Every repo file, `tp-*worker` agent and `## heading` the span cites exists."""
+    files = re.findall(r"`((?:skills|agents)/[\w./-]+\.\w+)`", span)
+    agents = set(re.findall(r"`(tp-[\w-]*worker)`", span))
+    heads = {h.strip() for d in (_body(), *more_docs) for h in re.findall(r"^## (.+)$", d, re.M)}
+    assert files and agents and all((REPO_ROOT / f).is_file() for f in files), files
+    assert all((REPO_ROOT / "agents" / f"{a}.md").is_file() for a in agents), agents
+    assert set(re.findall(r"`## ([^`]+)`", span)) <= heads
 
 # --------------------------------------------------------------------------- #
 # Phase 5 — doc reconcile (grep-anchor over archived/living docs)

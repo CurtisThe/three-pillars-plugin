@@ -214,17 +214,25 @@ _REQUIRED_ARTIFACTS: dict[str, Tuple[str, ...]] = {
 }
 
 
-def required_artifacts(mode: str) -> Tuple[str, ...]:
+def required_artifacts(mode: str, *, weight_class: Optional[str] = "full") -> Tuple[str, ...]:
     """Return the tuple of artifact filenames required before this mode runs.
 
     Tuple order is the canonical check order — the precondition gate reports
-    missing files in this order.
+    missing files in this order.  weight_class is the Tier-1 weight class; a
+    light design has no detailed-design.md, so light + build needs only
+    design.md + plan.md.  Any value other than "light" is treated as "full"
+    (fail safe to more checking).
     """
     require_mode(mode)
-    return _REQUIRED_ARTIFACTS[mode]
+    required = _REQUIRED_ARTIFACTS[mode]
+    if weight_class == "light" and mode == "build":
+        required = tuple(a for a in required if a != "detailed-design.md")
+    return required
 
 
-def check_preconditions(mode: str, design_dir: str) -> list[str]:
+def check_preconditions(
+    mode: str, design_dir: str, *, weight_class: Optional[str] = "full"
+) -> list[str]:
     """Check required artifacts under design_dir; return list of missing names.
 
     Returns an empty list when all preconditions are satisfied.  Uses
@@ -234,7 +242,7 @@ def check_preconditions(mode: str, design_dir: str) -> list[str]:
     import os as _os
     require_mode(mode)
     missing: list[str] = []
-    for name in required_artifacts(mode):
+    for name in required_artifacts(mode, weight_class=weight_class):
         if not _os.path.isfile(_os.path.join(design_dir, name)):
             missing.append(name)
     return missing

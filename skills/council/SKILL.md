@@ -44,22 +44,22 @@ Flag priority: `--quick` / `--duo` set the mode. `--full` / `--triad` / `--membe
 |-------|--------|--------|-------|----------|
 | `council-aristotle` | Aristotle | Categorization & structure | opus | Classifies everything |
 | `council-socrates` | Socrates | Assumption destruction | opus | Questions everything |
-| `council-sun-tzu` | Sun Tzu | Adversarial strategy | sonnet | Reads terrain & competition |
-| `council-ada` | Ada Lovelace | Formal systems & abstraction | sonnet | What can/can't be mechanized |
+| `council-sun-tzu` | Sun Tzu | Adversarial strategy | opus | Reads terrain & competition |
+| `council-ada` | Ada Lovelace | Formal systems & abstraction | opus | What can/can't be mechanized |
 | `council-aurelius` | Marcus Aurelius | Resilience & moral clarity | opus | Control vs acceptance |
-| `council-machiavelli` | Machiavelli | Power dynamics & realpolitik | sonnet | How actors actually behave |
+| `council-machiavelli` | Machiavelli | Power dynamics & realpolitik | opus | How actors actually behave |
 | `council-lao-tzu` | Lao Tzu | Non-action & emergence | opus | When less is more |
-| `council-feynman` | Feynman | First-principles debugging | sonnet | Refuses unexplained complexity |
-| `council-torvalds` | Linus Torvalds | Pragmatic engineering | sonnet | Ship it or shut up |
-| `council-musashi` | Miyamoto Musashi | Strategic timing | sonnet | The decisive strike |
+| `council-feynman` | Feynman | First-principles debugging | opus | Refuses unexplained complexity |
+| `council-torvalds` | Linus Torvalds | Pragmatic engineering | opus | Ship it or shut up |
+| `council-musashi` | Miyamoto Musashi | Strategic timing | opus | The decisive strike |
 | `council-watts` | Alan Watts | Perspective & reframing | opus | Dissolves false problems |
-| `council-karpathy` | Andrej Karpathy | Neural network intuition & empirical ML | sonnet | How models actually learn and fail |
+| `council-karpathy` | Andrej Karpathy | Neural network intuition & empirical ML | opus | How models actually learn and fail |
 | `council-sutskever` | Ilya Sutskever | Scaling frontier & AI safety | opus | When capability becomes risk |
 | `council-kahneman` | Daniel Kahneman | Cognitive bias & decision science | opus | Your own thinking is the first error |
-| `council-meadows` | Donella Meadows | Systems thinking & feedback loops | sonnet | Redesign the system, not the symptom |
-| `council-munger` | Charlie Munger | Multi-model reasoning & economics | sonnet | Invert — what guarantees failure? |
+| `council-meadows` | Donella Meadows | Systems thinking & feedback loops | opus | Redesign the system, not the symptom |
+| `council-munger` | Charlie Munger | Multi-model reasoning & economics | opus | Invert — what guarantees failure? |
 | `council-taleb` | Nassim Taleb | Antifragility & tail risk | opus | Design for the tail, not the average |
-| `council-rams` | Dieter Rams | User-centered design | sonnet | Less, but better — the user decides |
+| `council-rams` | Dieter Rams | User-centered design | opus | Less, but better — the user decides |
 
 ## Polarity Pairs
 

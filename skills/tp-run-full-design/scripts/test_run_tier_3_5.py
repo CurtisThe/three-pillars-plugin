@@ -64,8 +64,8 @@ def _stdin_json(
                 "worktreePath": str(worktree_path) if worktree_path else None,
             },
             "design_dir": str(design_dir),
-            "candidate_id": candidate_id,
-            "slug": slug,
+            "candidate_id": candidate_id, "slug": slug,
+            "rerun": {"plan_path": "plan.md", "phase": 1, "phase_base_sha": "0" * 40},
         }
     )
 

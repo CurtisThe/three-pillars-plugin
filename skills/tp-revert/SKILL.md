@@ -157,7 +157,8 @@ git push -u origin revert/{slug}
 # Resolve the FREE chokepoint git-toplevel-first (see first-run.md §Resolve a FREE _shared script)
 TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TOP"/skills/_shared/resolve_script.py; else RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi
-GHPA="$(python3 "$RS" github_pr_author.py)"
+GHPA="$(python3 "$RS" github_pr_author.py)" || exit 1
+[ -n "$GHPA" ] || exit 1
 python3 "$GHPA" create --context manual -- \
     --base {base} --head revert/{slug} \
     --title "Revert: {slug} (PR #NN)" \
