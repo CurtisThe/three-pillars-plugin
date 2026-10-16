@@ -24,11 +24,21 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
+from pathlib import Path
 
-# The PR replies/threads are posted under the user's own `gh` token, so the
-# GitHub *actor* is the user. The worker identity is a content-level signature
-# — paralleling fix_round's GIT_COMMITTER_EMAIL=orchestrator+{local}@{domain}
-# override — so a reader can tell a worker reply from the human author's.
+_SHARED_DIR = str(Path(__file__).resolve().parent)
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
+
+import automation_identity  # noqa: E402
+
+# The PR replies and resolves are WRITES, so they run as the configured automation account
+# (`automation_identity.run_gh_write`; the machine account when `.three-pillars/config.json`
+# names one, else the user's own `gh` login). The READS below stay on the ambient login. Either
+# way the worker identity is also a content-level signature — paralleling fix_round's
+# GIT_COMMITTER_EMAIL=orchestrator+{local}@{domain} override — so a reader can tell a worker
+# reply from the human author's.
 WORKER_SIGNATURE = "🤖 three-pillars-worker (on behalf of @{author})"
 
 _PR_URL_RE = re.compile(r"https?://github\.com/([^/]+)/([^/]+)/(?:pull|issues)/(\d+)")
@@ -184,19 +194,35 @@ def list_review_threads(pr_url: str) -> list[dict]:
         return []
 
 
-def reply_to_thread(pr_url: str, comment_id, body: str) -> bool:
+def reply_to_thread(
+    pr_url: str,
+    comment_id,
+    body: str,
+    *,
+    config=automation_identity.DISCOVER,
+    runner=None,
+    token_runner=None,
+) -> bool:
     """Post a reply on the review comment thread via REST. Fail-open → False.
 
     Uses the comment databaseId (`comment_id`), NOT the thread node id. The
     caller signs `body` with `sign_reply` first.
+
+    Runs as the configured automation account (`config=DISCOVER` loads the repo config; an
+    explicit `None`/`{}` is the ambient login). A bot whose token cannot be fetched raises
+    `BotAuthUnavailable` rather than returning False — it must not fall back to the ambient
+    login, which would re-create the self-approval trap.
     """
     owner, repo, number = _parse_pr_url(pr_url)
-    result = subprocess.run(
+    result = automation_identity.run_gh_write(
         [
             "gh", "api",
             f"repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies",
             "-f", f"body={body}",
         ],
+        config=config,
+        runner=runner,
+        token_runner=token_runner,
         capture_output=True,
         text=True,
         check=False,
@@ -204,18 +230,28 @@ def reply_to_thread(pr_url: str, comment_id, body: str) -> bool:
     return result.returncode == 0
 
 
-def resolve_thread(thread_id: str) -> bool:
+def resolve_thread(
+    thread_id: str,
+    *,
+    config=automation_identity.DISCOVER,
+    runner=None,
+    token_runner=None,
+) -> bool:
     """Resolve a review thread via the GraphQL resolveReviewThread mutation.
 
     Uses the thread node id (`thread_id`), NOT the comment databaseId.
-    Fail-open → False. Never `gh pr edit` (broken on this repo).
+    Fail-open → False. Never `gh pr edit` (broken on this repo). Runs as the configured
+    automation account, with `reply_to_thread`'s identity contract.
     """
-    result = subprocess.run(
+    result = automation_identity.run_gh_write(
         [
             "gh", "api", "graphql",
             "-f", f"query={_RESOLVE_MUTATION}",
             "-F", f"threadId={thread_id}",
         ],
+        config=config,
+        runner=runner,
+        token_runner=token_runner,
         capture_output=True,
         text=True,
         check=False,

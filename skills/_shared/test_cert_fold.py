@@ -205,7 +205,8 @@ def test_one_finding_per_failing_or_unverified_claim():
                  ("c4", "binds"), ("c5", "known-bypass"))
     out = fold(envelope("pass"), [res], [])
     assert out["verdict"] == "needs-work" and out["status"] == "needs-work"
-    assert _cats(out) == ["certification", "certification", "certification-unverified"]
+    assert _cats(out) == ["certification-note", "certification-note",
+                          "certification-unverified"]
     assert "c1" in out["findings"][0]["description"]
     assert "c3" in out["findings"][2]["description"]
     _validate(out)
@@ -213,7 +214,7 @@ def test_one_finding_per_failing_or_unverified_claim():
 
 def test_existing_findings_are_kept_first():
     out = fold(envelope("needs-work", "needs-work"), [result(("c1", "false-red"))], [])
-    assert out["findings"][0] == FINDING and _cats(out) == ["fidelity", "certification"]
+    assert out["findings"][0] == FINDING and _cats(out) == ["fidelity", "certification-note"]
 
 
 def test_unverified_claim_alone_gives_unverified():

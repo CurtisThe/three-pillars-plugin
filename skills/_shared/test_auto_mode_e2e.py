@@ -23,6 +23,11 @@ from pathlib import Path
 
 import pytest
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_docs = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs").exists(),
+    reason="reads the dev repo's three-pillars-docs/ (dev-repo only)")
+
 VALIDATOR_SCRIPT = Path(__file__).parent / "validate_design_floor.py"
 AUTO_MODE_MD = Path(__file__).parent / "auto-mode.md"
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -227,6 +232,7 @@ class TestValidatorE2E:
     case.
     """
 
+    @_needs_dev_docs
     def test_real_repo_design_passes(self) -> None:
         """This repo's own design.md must satisfy the floor schema —
         otherwise the design driving this validator wouldn't pass its own gate.

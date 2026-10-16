@@ -290,13 +290,17 @@ def test_balloon_uses_origin_base_ref(monkeypatch, tmp_path):
 
 
 def test_stamp_receives_project_root(monkeypatch, tmp_path):
-    """Hermetic stamp path: pred_ci_local_stamp receives the project root path."""
+    """Hermetic stamp path: pred_ci_local_stamp receives the project root path.
+
+    The stamp is only ACTIVE when required (Task 2.2 default-off), so declare a
+    `ci.gate_command` in the config to activate it, then verify root threading.
+    """
     import gate_roster
     import ci_local_stamp
 
     stamp_repo_roots = []
 
-    def fake_pred_ci_local_stamp(head_oid, repo_root=None, stamp=None):
+    def fake_pred_ci_local_stamp(head_oid, repo_root=None, stamp=None, gate_command=None):
         stamp_repo_roots.append(repo_root)
         from deterministic_gate import GateVerdict, PredicateResult
         return PredicateResult(
@@ -310,12 +314,14 @@ def test_stamp_receives_project_root(monkeypatch, tmp_path):
 
     from deterministic_gate import evaluate_gate
 
+    # Activate the stamp via a declared gate command (default-off posture, Task 2.2).
+    config = {**_HERMETIC_CONFIG, "ci": {"expects_github_checks": False, "gate_command": "make ci"}}
     stamp_data = {"schema": 1, "head_sha": "deadbeef", "dirty": False}
     runners = _make_base_runners(stamp=stamp_data)
     evaluate_gate(
         "https://github.com/o/r/pull/1",
         runners=runners,
-        config=_HERMETIC_CONFIG,
+        config=config,
     )
 
     assert len(stamp_repo_roots) == 1, "pred_ci_local_stamp not called"
@@ -375,6 +381,9 @@ def test_stamp_indeterminate_on_unresolvable_root_live_path(monkeypatch):
 
     The injected-stamp carve-out (stamp key present + None root → still evaluates)
     is covered by test_injected_stamp_evaluates_from_non_repo_cwd.
+
+    Task 2.2: the stamp is only ACTIVE when required (default-OFF), so declare a
+    `ci.gate_command` to reach the live INDETERMINATE branch.
     """
     import gate_roster
 
@@ -385,6 +394,9 @@ def test_stamp_indeterminate_on_unresolvable_root_live_path(monkeypatch):
         GateVerdict,
     )
 
+    # Activate the stamp (default-off): a declared command requires it.
+    config = {**_HERMETIC_CONFIG, "ci": {"expects_github_checks": False, "gate_command": "make ci"}}
+
     # Minimal stand-ins for non-stamp predicates: threads=[], mergeable=MERGEABLE,
     # rollup=[], failure_class=INDETERMINATE (empty rollup) — only stamp branch tested.
     predicates, roster_entries = gate_roster.build_predicates_and_roster(
@@ -394,7 +406,7 @@ def test_stamp_indeterminate_on_unresolvable_root_live_path(monkeypatch):
         threads=[],
         mergeable="MERGEABLE",
         head_oid="deadbeef",
-        config=_HERMETIC_CONFIG,
+        config=config,
         r={
             # p7's hermetic seam (review finding on PR #109): running_live=True
             # below would otherwise send the default-required proof predicate to
@@ -454,6 +466,9 @@ def test_injected_stamp_evaluates_from_non_repo_cwd(monkeypatch):
     Mutation pin: if the _stamp_key_present check is moved AFTER the
     _project_root-is-None guard, this test gets INDETERMINATE instead of a
     definitive verdict — failing the assertion.
+
+    Task 2.2: the stamp is only ACTIVE when required (default-OFF), so declare a
+    `ci.gate_command` so the injected stamp reaches the active hermetic branch.
     """
     import gate_roster
     from deterministic_gate import evaluate_gate
@@ -461,12 +476,14 @@ def test_injected_stamp_evaluates_from_non_repo_cwd(monkeypatch):
     # Force project root to None so without the carve-out stamp would be INDETERMINATE
     monkeypatch.setattr(gate_roster, "find_project_root", lambda: None, raising=False)
 
+    # Activate the stamp (default-off): a declared command requires it.
+    config = {**_HERMETIC_CONFIG, "ci": {"expects_github_checks": False, "gate_command": "make ci"}}
     stamp_data = {"schema": 1, "head_sha": "deadbeef", "dirty": False}
     runners = _make_base_runners(stamp=stamp_data)
     outcome = evaluate_gate(
         "https://github.com/o/r/pull/1",
         runners=runners,
-        config=_HERMETIC_CONFIG,
+        config=config,
     )
     assert outcome.roster is not None
     stamp_entries = [e for e in outcome.roster if e.name == "ci_local_stamp"]

@@ -8,9 +8,9 @@ near-duplicates so the union can be handed to a single `tp-pr-fix` round.
 C1 architectural constraint: the normalize/parse/dedupe core is pure stdlib —
 it computes and parses only. The module has NO `import anthropic` and never
 shells out to `claude`; the `/code-review` dispatch + any model work live in
-SKILL.md prose via `Agent()`. `parse_codereview_response` mirrors
-`classifier_judge.parse_response`: it extracts the fenced JSON the dispatched
-sub-agent is told to emit, it does not invoke the model. The one I/O helper is
+SKILL.md prose via `Agent()`. `parse_codereview_result` reads the one JSON object
+the dispatched sub-agent is told to emit (the shared strict contract in
+`_shared/strict_json_reply.py`); it does not invoke the model. The one I/O helper is
 `post_codereview_comment` (the mandatory per-invocation review-summary comment);
 it shells `gh` exactly as the sibling C1 helper `thread_resolver` does for
 reply/resolve, and is injectable (`post_fn`) so the pure core stays test-isolated.
@@ -19,8 +19,7 @@ reply/resolve, and is injectable (`post_fn`) so the pure core stays test-isolate
 from __future__ import annotations
 
 import json
-import re
-import subprocess
+import subprocess  # noqa: F401 (kept: tests patch `review_merge.subprocess.run`)
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -30,8 +29,10 @@ from urllib.parse import urlparse
 # Every name is RE-EXPORTED here, so `review_merge.dedupe(...)` and the private
 # `review_merge._is_duplicate(...)` call sites are unchanged.
 _HERE = Path(__file__).resolve().parent
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
+_SHARED = _HERE.parents[1] / "_shared"
+for _p in (_HERE, _SHARED):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from review_merge_dedupe import (  # noqa: E402,F401
     _NO_RANGE,
@@ -53,10 +54,13 @@ from review_merge_dedupe import (  # noqa: E402,F401
     _verdict_rank,
     dedupe,
 )
+from automation_identity import DISCOVER, BotAuthUnavailable, run_gh_write  # noqa: E402
 from finding_class import coerce  # noqa: E402
+from strict_json_reply import one_object  # noqa: E402
 
-_JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
-_ANY_FENCED_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+# The only keys an angle reply may carry: an unknown key (`blocking_findings`, say) could hold
+# findings the loop would never read, so it is unparseable rather than ignored.
+_REPLY_KEYS = {"findings", "notes"}
 
 
 # ---------- normalization ----------
@@ -165,70 +169,34 @@ def _coerce_range(line_range, line) -> tuple[int, int]:
 # ---------- /code-review output parsing ----------
 
 
-def _array_shape(a: list) -> str:
-    """Classify a parsed JSON array as 'empty', 'findings', or 'ambiguous'.
-
-    - 'empty'     — `a` is an empty list `[]`.
-    - 'findings'  — at least one depth-1 element is a dict (real findings present).
-    - 'ambiguous' — non-empty list with NO depth-1 dicts (all-non-dict elements OR
-                    nested sub-lists — e.g. `[[{...}]]` has dicts at depth 2 only).
-
-    Used by `parse_codereview_result` to distinguish parse holes (nested/non-dict
-    arrays mis-read as clean) from genuine empty-clean arrays.
-    """
-    if not a:
-        return "empty"
-    if any(isinstance(d, dict) for d in a):
-        return "findings"
-    return "ambiguous"
-
-
 def parse_codereview_result(text: str) -> "tuple[list[dict], bool]":
-    """Parse a `/code-review` reply, distinguishing CLEAN from UNPARSEABLE.
+    """Parse a `/code-review` angle reply, distinguishing CLEAN from UNPARSEABLE.
 
+    The reply is exactly one JSON object `{"findings": [...], "notes"?: str}`, bare or in
+    one fence (`strict_json_reply.one_object`: no prose around it, no second object or
+    fence, no repeated key at any depth). `findings` must be a list of objects, lows
+    included; `notes`, if present, a string or null, is context only and is never read.
     Returns `(findings, parsed_ok)`:
-    - `([...], True)`  — a valid JSON array was found; if any array is 'findings',
-      returns the union of all depth-1 dicts across findings arrays. If EVERY array
-      is 'empty', returns `([], True)` — a literal `[]` is the only genuine clean
-      signal (design Scope L11).
-    - `([], False)`    — NO parseable JSON array (no fenced block, invalid JSON,
-      non-list payload, or every array is 'ambiguous' with no findings array).
 
-    Via `_array_shape` the three parse holes are closed:
-    - Hole 1: nested `[[{...}]]` (dicts at depth 2, none at depth 1) → 'ambiguous'
-      → `([], False)` (blocks).
-    - Hole 2: all-non-dict `[1,2,3]` alone → 'ambiguous' → `([], False)` (blocks).
-    - The coexistence case: a `[1,2,3]` fence alongside a real findings fence →
-      findings win, `ok=True` (ambiguous yields to a real findings array, union preserved).
+    - `([...], True)` — a conforming reply; `{"findings": []}` is the only clean signal.
+    - `([], False)`   — anything else: prose, a bare list (the old format), a JSON string,
+      an unknown key, a non-object finding. Never partially read.
 
     The distinction is load-bearing: the loop's two-stable terminal treats an empty
-    findings list as "clean → may converge". A fail-SOFT parse that mapped an
-    unparseable reply to `[]` would let a review that silently failed to parse read
-    as clean and contribute to a false convergence. Callers that gate convergence
-    MUST use this (or `parse_codereview_findings_or_block`), never the bare list form.
+    findings list as "clean → may converge". The earlier lenient parser searched every
+    fence for arrays, so an example `[]` fence plus a findings fence cut short by backticks
+    inside a reproducer read as clean and hid a blocker (known issue M27, PRs #188/#191).
+    Callers that gate convergence MUST use this (or `parse_codereview_findings_or_block`),
+    never the bare list form.
     """
-    arrays = _all_json_arrays(text)
-    if not arrays:
-        # No fenced block parsed as a JSON array → unparseable, NOT clean.
+    data = one_object(text)
+    notes = data.get("notes") if isinstance(data, dict) else None
+    if data is None or not set(data) <= _REPLY_KEYS or not isinstance(notes, (str, type(None))):
         return [], False
-    # Classify each array via _array_shape.
-    shapes = [_array_shape(a) for a in arrays]
-    # If any array is 'findings' → union ALL depth-1 dicts across findings arrays.
-    # This is the content-based UNION (NOT position, NOT tag): ambiguous arrays
-    # (stray code-example lists, nested arrays) contribute nothing; the union
-    # surfaces every real finding. An early `[]` draft can't shadow later findings,
-    # a trailing `[]` ("on reflection, clean") can't suppress earlier ones.
-    if "findings" in shapes:
-        return (
-            [d for a, s in zip(arrays, shapes) if s == "findings"
-             for d in a if isinstance(d, dict)],
-            True,
-        )
-    # No 'findings' array. If every array is 'empty' → genuinely clean ([], True).
-    if all(s == "empty" for s in shapes):
-        return [], True
-    # At least one 'ambiguous' and no 'findings' → unparseable, blocks.
-    return [], False
+    findings = data.get("findings")
+    if not isinstance(findings, list) or not all(isinstance(f, dict) for f in findings):
+        return [], False
+    return findings, True
 
 
 def parse_codereview_response(text: str) -> list[dict]:
@@ -258,8 +226,9 @@ def _unparseable_finding(source: str = "code-review") -> dict:
         "file": f"<review-output:{source}>",
         "line_range": [0, 0],
         "summary": (
-            f"{source} output could not be parsed as a findings array — treated as "
-            "NOT clean (fail-closed; the loop must not converge on an unparseable review)"
+            f"{source} output could not be parsed as one {{\"findings\": [...]}} JSON "
+            "object — treated as NOT clean (fail-closed; the loop must not converge on an "
+            "unparseable review)"
         ),
         "verdict": "structural",
         "source": source,
@@ -314,34 +283,6 @@ def merge_codereview_angles(responses: "list[str]") -> list[dict]:
         for f in parse_codereview_findings_or_block(resp, source=f"angle-{i + 1}"):
             collected.append(normalize_codereview(f))
     return dedupe(collected)
-
-
-def _all_json_arrays(text: str) -> "list[list]":
-    """Every fenced block in `text` whose body PARSES as a JSON list, in document order.
-
-    - Coerces a non-str input (None / an object — a misbehaving Agent reply) to "" so a
-      parse fails CLOSED (no arrays → unparseable sentinel) rather than raising and
-      crashing the loop on one bad angle.
-    - ONE pass over every fenced block (``` and ```json alike — `_ANY_FENCED_RE` matches
-      both). There is deliberately NO tag short-circuit: a `json`-tagged empty `[]` must
-      not suppress real findings emitted in an untagged fence (the cross-tag shadow).
-    - MALFORMED / non-array fences are skipped (never returned), so a malformed or
-      non-list block can neither shadow a valid one nor be mistaken for the answer. The
-      caller (`parse_codereview_result`) selects the last array that carries a finding.
-    """
-    text = text if isinstance(text, str) else ""
-    arrays: list[list] = []
-    for m in _ANY_FENCED_RE.finditer(text):
-        body = m.group(1).strip()
-        if not body.startswith("["):
-            continue
-        try:
-            data = json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(data, list):
-            arrays.append(data)
-    return arrays
 
 
 # ---------- /code-review summary comment (mandatory per invocation) ----------
@@ -420,15 +361,22 @@ def _pr_url_parts(pr_url: str) -> tuple[str, str, str]:
     return parts[0], parts[1], parts[3]
 
 
-def _default_comment_post(pr_url: str, body: str) -> bool:
+def _default_comment_post(pr_url: str, body: str, *, config=DISCOVER, runner=None,
+                          token_runner=None) -> bool:
     """Post `body` as an issue comment on the PR via REST (never `gh pr comment`/edit).
 
     Uses `gh api repos/{owner}/{repo}/issues/{n}/comments` — the same REST path the
     label and reviewer-request flows use to avoid the classic-Projects GraphQL break.
+    The write runs as the configured automation account (`automation_identity.run_gh_write`,
+    which discovers the repo config by default); an unavailable bot raises `BotAuthUnavailable`
+    and nothing is posted. `config=None` is the plain ambient call.
     """
     owner, repo, number = _pr_url_parts(pr_url)
-    result = subprocess.run(
+    result = run_gh_write(
         ["gh", "api", f"repos/{owner}/{repo}/issues/{number}/comments", "-f", f"body={body}"],
+        config=config,
+        runner=runner,
+        token_runner=token_runner,
         capture_output=True,
         text=True,
         check=False,
@@ -443,6 +391,7 @@ def post_codereview_comment(
     head_sha: str | None = None,
     post_fn=None,
     digest: "str | None" = None,
+    config=DISCOVER,
 ) -> bool:
     """MANDATORY per `/code-review` invocation: post a summary comment to the PR.
 
@@ -453,7 +402,10 @@ def post_codereview_comment(
 
     Fail-OPEN: returns True on success, False on any failure (a failed comment-post must
     not crash the loop) — but the comment is ALWAYS attempted. `post_fn(pr_url, body)`
-    is injectable for tests; the default posts via REST.
+    is injectable for tests; the default posts via REST as the configured automation account
+    (`config`: `DISCOVER` loads the repo config, `None` is the ambient login). Fail-open does
+    NOT cover an unavailable bot: `BotAuthUnavailable` is re-raised (never post as the ambient
+    login in the bot's place), with nothing posted.
 
     digest: optional proof-of-review digest (from review_proof.format_proof_digest).
     When provided, appended as `\\n` + digest to the body. Absent digest → body
@@ -462,9 +414,11 @@ def post_codereview_comment(
     body = format_codereview_comment(findings, head_sha=head_sha)
     if digest is not None:
         body = body + "\n" + digest
-    poster = post_fn or _default_comment_post
+    poster = post_fn or (lambda url, text: _default_comment_post(url, text, config=config))
     try:
         return bool(poster(pr_url, body))
+    except BotAuthUnavailable:
+        raise
     except Exception:
         return False
 

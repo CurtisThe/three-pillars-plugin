@@ -111,6 +111,9 @@ def test_certify_link_carry_broadening_design_md_certifies_k1(tmp_path):
 
 
 def test_certify_link_carry_preamble_date_only_certifies_k0(tmp_path):
+    """A date-only divergence is the mechanical `last-updated-preamble` now: the resolver keeps the
+    later side's line, so the carry lane's History-date upgrade is no longer reached for it
+    (`living_doc_carry.py` is unchanged) and strict cond5 reproduces the resolution itself."""
     path = "three-pillars-docs/architecture.md"
     base_doc = _pre_doc("2026-06-01")
     origin_doc = _pre_doc("2026-06-02")
@@ -118,10 +121,10 @@ def test_certify_link_carry_preamble_date_only_certifies_k0(tmp_path):
     h0 = _preamble_conflict(s := build_scenario(tmp_path), path,
                             base_doc=base_doc, origin_doc=origin_doc, design_doc=design_doc)
 
-    # The mechanical resolution: regenerate the *Last updated:* date from History (topmost
-    # bullet). ours = design side, theirs = base side (the cert's stage2/stage3 orientation).
+    # The mechanical resolution: the later side's line. ours = design side, theirs = base side
+    # (the cert's stage2/stage3 orientation).
     mech = _mechanical_resolution(base_doc, design_doc, origin_doc)
-    assert mech == _pre_doc("2026-07-09")   # the DEFER→date upgrade fired
+    assert mech == _pre_doc("2026-06-03")   # the later side's line, no History-derived date
 
     h1 = force_merge_commit(s, {path: mech})
     lc = certify_link_carry(str(s.repo_dir), h0, h1, base_ref=s.base_ref)
@@ -129,8 +132,7 @@ def test_certify_link_carry_preamble_date_only_certifies_k0(tmp_path):
     assert lc.conflicted_paths == ()   # K=0: committed == the zero-drop-verified mechanical merge
 
     strict = _certify_link_unchecked(str(s.repo_dir), h0, h1, base_ref=s.base_ref)
-    assert strict.ok is False   # strict cond5 defers on the prose preamble line
-    assert strict.reason == "resolver could not deterministically reproduce a resolution"
+    assert strict.ok is True, strict.reason   # strict cond5 reproduces the AUTO-SAFE resolution
 
 
 # ---- (d) richer preamble divergence: mechanical defers, hand-res carries K=1 ----
@@ -141,13 +143,14 @@ def test_certify_link_carry_richer_preamble_handres_k1(tmp_path):
     hnew = ("2026-07-20", "base advance")
     base_doc = _pre_doc("2026-06-01")
     origin_doc = _pre_doc("2026-06-02", history=[hnew, *_H])   # base prepended a History entry
-    design_doc = _pre_doc("2026-06-03")
+    # trailing text after the closing `*` puts the region outside `LAST_UPDATED`: still `preamble`
+    design_doc = _pre_doc("2026-06-03").replace(".*\n", ".* A trailing note.\n", 1)
     human = _pre_doc("2026-07-20", history=[hnew, *_H])         # keeps every atom, union History
     h0 = _preamble_conflict(s := build_scenario(tmp_path), path,
                             base_doc=base_doc, origin_doc=origin_doc, design_doc=design_doc)
 
     assert _mechanical_resolution(base_doc, design_doc, origin_doc) is None   # richer → defers
-    r = _verify.verify(design_doc, origin_doc, human, mechanical_applied=False)
+    r = _verify.verify(design_doc, origin_doc, human, base=None, mechanical_applied=False)
     assert r.ok is True, r.dropped   # the hand resolution is zero-drop clean
 
     h1 = force_merge_commit(s, {path: human})

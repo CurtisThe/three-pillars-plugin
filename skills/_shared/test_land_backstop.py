@@ -17,6 +17,11 @@ from pathlib import Path
 
 import pytest
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_audit_repro = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs/audits").exists(),
+    reason="runs the dev repo's audit repro scripts (dev-repo only)")
+
 # Ensure _shared/ is on sys.path
 _SHARED_DIR = Path(__file__).resolve().parent
 if str(_SHARED_DIR) not in sys.path:
@@ -217,6 +222,7 @@ class TestReproScripts:
         # Fallback: _shared/ -> skills/ -> repo root
         return _SHARED_DIR.parent.parent
 
+    @_needs_audit_repro
     def test_gate_integrity_4_diskread_exits_zero(self):
         """gate_integrity_4_diskread.py exits 0 (HEAD-read fix holds)."""
         repo_root = self._repo_root()
@@ -239,6 +245,7 @@ class TestReproScripts:
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
+    @_needs_audit_repro
     def test_gate_integrity_4_verify_exits_zero(self):
         """gate_integrity_4_verify.py exits 0 (both arms refuse the boundary)."""
         repo_root = self._repo_root()

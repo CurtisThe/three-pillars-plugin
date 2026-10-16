@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import skill_text
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -164,11 +166,10 @@ _SPAWNER_SURFACES = [
 
 
 def _repo_root():
-    from project_root import find_project_root
-
-    root = find_project_root()
-    assert root is not None, "Must be run from inside the repo"
-    return root
+    """The framework root this file ships in: the pins read the shipped skills and
+    agents, so they anchor on this file, never on the cwd's git checkout (a plugin
+    install has none; consumer-repo-parity L4)."""
+    return Path(__file__).resolve().parents[2]
 
 
 class TestAllSpawnerInjection:
@@ -177,6 +178,8 @@ class TestAllSpawnerInjection:
     def _read(self, parts):
         path = _repo_root().joinpath(*parts)
         assert path.is_file(), f"{path} must exist"
+        if parts == ("skills", "tp-run-full-design", "SKILL.md"):
+            return skill_text.read_skill_text("tp-run-full-design")
         return path.read_text(encoding="utf-8")
 
     def test_run_full_design_has_marker_and_helper(self):

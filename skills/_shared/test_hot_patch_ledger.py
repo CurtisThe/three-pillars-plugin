@@ -26,6 +26,8 @@ _GIT_IDENTITY_ENV = {
 # Task 1.1: seed existence + header
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not LEDGER_PATH.parent.is_dir(),
+                    reason="reads the orchestration ledger (dev-repo only)")
 def test_ledger_seed_exists_and_parses():
     """Ledger file exists, starts with the required header, and parses cleanly.
 

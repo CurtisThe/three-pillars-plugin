@@ -53,6 +53,18 @@
     "blocking": {
       "type": "boolean"
     },
+    "origin": {
+      "type": "string",
+      "enum": ["original", "regression", "unclassified"]
+    },
+    "origin_source": {
+      "type": "string",
+      "enum": ["blame", "reviewer"]
+    },
+    "fragility_class": {
+      "type": "string",
+      "enum": ["open-ended", "change-detector", "blocklist", "none", "unclassified"]
+    },
     "reproducer": {
       "type": "object",
       "required": ["kind"],
@@ -76,6 +88,32 @@
       }
     },
     "schema_note": {
+      "type": "string"
+    },
+    "reproducer_origin": {
+      "type": "string",
+      "enum": ["scaffold-adopted"]
+    },
+    "reproduction": {
+      "type": "string",
+      "enum": ["reproduced", "refuted", "inconclusive"]
+    },
+    "escape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition"],
+      "properties": {
+        "disposition": {"type": "string", "enum": ["kept", "downgraded", "opus-added"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "severity_note": {
+      "type": "string"
+    },
+    "dispositioned": {
+      "type": "boolean"
+    },
+    "disposition_note": {
       "type": "string"
     }
   }

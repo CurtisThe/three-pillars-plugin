@@ -2,23 +2,28 @@
 
 Every `tp-*` SKILL.md invokes this protocol as its **first step**. It is the single place where the framework decides whether the current repo needs migration, branch protection, or release configuration before the skill can do its real work.
 
-The protocol is **idempotent and fail-fast on the cheap path**: in the steady state where everything is configured and the user has already answered the aider-install offer, it costs two file reads (per-repo `config.json` + per-user `aider-install.json`) plus one PATH probe + one constant-time `git rev-parse` (seat probe), and zero prompts. Cost only grows when the repo or the user is in a state that demands attention.
+The protocol is **idempotent and fail-fast on the cheap path**: in the steady state where everything is configured and the user has already answered the aider-install offer, it costs two file reads (per-repo `config.json` + per-user `aider-install.json`) plus one PATH probe + one constant-time `git rev-parse` (seat probe) + one env-only `main_thread_backend.py check` (no file read, no network), and zero prompts. Cost only grows when the repo or the user is in a state that demands attention.
 
 ## Cheap-path early-exit
 
 Before any other check, run the cheap-path probe:
 
-1. Read `.three-pillars/config.json` per [`repo-config.md`](repo-config.md). It must exist, parse, and validate against the schema.
+1. Read `.three-pillars/config.json` per [`repo-config.md`](repo-config.md). It must exist and parse; invalid keys are warned and ignored per `repo-config.md`.
 2. `migration.completed_at` must be non-null (or `migration.from_layout` is null, indicating no migration was ever needed).
-3. `branch_protection.applied_at` must be non-null OR `branch_protection.declined` must be true OR no `origin` remote is configured.
+3. `branch_protection.applied_at` must be non-null OR `branch_protection.declined` must be true OR no `origin` remote is configured OR `forge.kind` is recorded and is not `github` (branch protection is a GitHub rule; the kind rides condition 1's read — zero extra I/O).
 4. **Aider-install is settled** — invoke `aider_install_check.aider_on_path()`; if it returns True, this condition is satisfied (the user already has aider, no offer needed). Otherwise invoke `aider_install_check.cheap_check()` and accept either `skip-decided` (user accepted/declined — sticky) or `skip-remind-pending` (remind-later target hasn't elapsed) as satisfying.
 5. **Seat is a confirmed-healthy coordination point** — invoke `seat_resolve.sh --am-i-seat --repo .`. **Exit 0 satisfies the condition** (path-shape says seat AND the bare-bit is false → not the footgun, not a design worktree masquerading as the seat). This adds one constant-time subprocess (`git rev-parse --is-bare-repository` + a path-string test — no `worktree list`, no network) to the hot path. **Exit 1 (uncertain) does NOT early-exit** — it falls through to the `## Seat-state detection` section below, which runs the full `--detect`.
 6. **Worktree immunization is settled** — read `worktree_immunization` from the already-loaded config. Condition is satisfied if `worktree_immunization.applied_at` is non-null OR `worktree_immunization.declined` is true. This is a single config-read condition (no network, no subprocess) that rides the config read from condition 1. Cost: zero additional I/O on the hot path.
-7. **GitHub PR-author is settled** — read `github` from the already-loaded config. Condition is satisfied if `github.pr_author_account` is non-null OR `github.declined` is true OR no `origin` remote is configured. Like condition 6, this rides condition 1's config read — a single config-read condition, zero extra I/O.
+7. **GitHub PR-author is settled** — read `github` from the already-loaded config. Condition is satisfied if `github.pr_author_account` is non-null OR `github.declined` is true OR no `origin` remote is configured OR `forge.kind` is recorded and is not `github` (the PR-author topology is a GitHub-only trade-off). Like condition 6, this rides condition 1's config read — a single config-read condition, zero extra I/O.
+8. **Consumer offers are settled** — the config half: the `ci` block has a `gate_command` key (string or null) AND (`commit_guard.applied_at` is non-null OR `commit_guard.declined` is true); it rides condition 1's read. **Offer (c) must also be settled**: `gitignore.handoffs_declined` is true (rides the same read) OR `python3 "$TP_ROOT"/skills/_shared/handoffs_ignore.py check` exits 0 (one `.gitignore` read; the `.handoffs/` rule is present). **Offer (d) too**: `local_timeouts.settled(config, root)` — not wanted (`local_implement.enabled` not true, no `local-*` `models` value), or `local_implement.client_timeouts` has `applied_at` or `declined: true` (both ride the same read), or `.claude/settings.json` `env` already holds all four timeout values (one file read); no subprocess runs on the hot path for it (`claude --version` never runs here). If the `commit_guard` part fails, the per-clone refusal marker `<git-common-dir>/three-pillars/commit-guard-manual` settles that part for this clone only (one `stat`). When `applied_at` is set or the marker exists, the cheap path also runs the clone half in `## Consumer offers` below (one `commit_guard.py status` call).
 
-If **all seven** conditions hold, **return immediately**. The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), no network.
+If **all seven** earlier conditions and condition 8 hold, **return immediately** (after condition 8's clone half, when it runs, and after the `## Main-thread backend check` below, which runs first). The skill proceeds with no prompts. This is the hot path on every invocation in a healthy repo for a settled user; it must stay bounded by two file reads + one PATH probe + one constant-time `git rev-parse` (seat probe), one env-only `main_thread_backend.py check` (no file read, no network), plus condition 8's offer-(c) `handoffs_ignore.py check` (skipped when declined), its offer-(d) settings read (only when wanted and unrecorded), and its `status` call only when the guard is recorded as installed, no network.
 
-If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state → worktree-immunization → GitHub PR-author). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section; condition 6 failing routes to the `## Worktree-immunization offer` section below; condition 7 failing routes to the `## GitHub PR-author offer` section below.
+If any condition fails, fall through to the relevant detection section below, in the order listed (migration → branch protection → aider-install → seat-state → worktree-immunization → GitHub PR-author → consumer offers). Conditions 1–3 failing routes to migration/branch-protection; condition 4 failing (aider absent + state is `needs-prompt` or `needs-prompt-remind-elapsed`) routes to the aider-install section; condition 5 failing (`seat_resolve.sh --am-i-seat` exits 1) routes to the `## Seat-state detection` section; condition 6 failing routes to the `## Worktree-immunization offer` section below; condition 7 failing routes to the `## GitHub PR-author offer` section below; condition 8 failing (no `ci.gate_command` key, or the `commit_guard` block is unsettled and no refusal marker, or offer (c) is unsettled — the `.handoffs/` rule absent and not declined, or offer (d) is unsettled — client timeouts wanted, unrecorded and not all in `.claude/settings.json`) routes to the `## Consumer offers` section below.
+
+## Main-thread backend check
+
+A separate section, not a numbered cheap-path condition (the "all seven" wording above is unchanged). Run it on **every invocation**, before the cheap path's early return, so the cheap path is covered too. Resolve `main_thread_backend.py` through the FREE-script resolver below (`resolve_script.py`; a released pro cache may lack this new module), then run `main_thread_backend.py check`. It reads only the process env (no file read, no network). Show any `W:` line it prints; it never prompts and never blocks. It is fail-open: when the script cannot be resolved, print the one loud skip line from the failure split below and continue.
 
 ## Worktree-immunization offer
 
@@ -42,7 +47,7 @@ Invoke `python3 "$TP_ROOT"/skills/_shared/github_auth_check.py --repo .` (or cal
 
 - `skip-no-origin` — no GitHub remote; nothing to offer. No write.
 - `skip-decided` — `github.pr_author_account` is set OR `github.declined` is true. The operator has already answered.
-- `skip-gh-missing` — `gh` is not on PATH; the offer is moot (no `gh`, no PR creation at all). Silent, no write, re-checks next run.
+- `skip-gh-missing` — `gh` is not on PATH; the offer is moot (no `gh`, no PR creation at all). Silent, no write, re-checks next run. `skip-non-github` — the origin is not GitHub, so the offer is moot the same way: it is skipped and the forge kind is recorded once (`forge.kind` / `forge.host`); a `no web base` result records nothing and prints the setup line `if this is a Gitea, set forge.web_base in .three-pillars/config.json, e.g. https://<host>:<port>; for a GitHub ssh alias or GitHub Enterprise host, set forge.kind: github (or set forge.kind: other to silence this)` each run until `forge.web_base` or `forge.kind` is set.
 - `auto-skip` — under `--auto`, a `[first-run]` entry was appended to `decisions.md`. Continue.
 - `needs-prompt` — offer interactively:
 
@@ -55,6 +60,12 @@ Invoke `python3 "$TP_ROOT"/skills/_shared/github_auth_check.py --repo .` (or cal
 The offer fires at most once per repo (the `github.pr_author_account` / `declined` fields suppress repeats).
 
 There is no release detection: releasing the three-pillars plugin itself is a dev-only flow documented in `three-pillars-docs/RELEASING.md`, not a per-repo concern for installed projects.
+
+## Consumer offers
+
+Runs when condition 8 fails (make the unsettled offers in [`consumer-offers.md`](consumer-offers.md), which holds the bodies, sub-asks, refusals and the `--auto` rule) and, on the cheap path, as condition 8's clone half. **Clone half** (`applied_at` set): `python3 "$TP_ROOT"/skills/_shared/commit_guard.py status` — effective → silent; effective but stale → `commit_guard.py refresh` (rewrites only its own blocks, one line); not effective and no per-clone `commit-guard-declined` marker → one loud line and the offer again as a reinstall (never auto-installed; a "no" is `commit_guard.py decline`, per clone only); not effective with that marker → the loud line only. **Refusal marker** (`commit-guard-manual` exists): the same `status` call, then the marker branch in `consumer-offers.md`. Also on the cheap path, when `applied_at` is set or the marker exists: `commit_guard.py record-tp-root "$TP_ROOT"` (a write only on change).
+
+**Gate-command ignore rules.** The `ci.gate_command` offer also checks `.gitignore` for the command's output (`__pycache__/`, `.pytest_cache/`, build output) and offers the missing rules as part of the confirmed answer — never a silent `.gitignore` edit (see offer (a) in `consumer-offers.md`). **The `.handoffs/` rule.** Offer (c) runs `handoffs_ignore.py check`, shows the four lines (both roots), and appends them only on a confirmed answer; a decline records `gitignore.handoffs_declined` true — condition 8 counts the offer settled when the rule is present or declined (see `consumer-offers.md`). **Client timeouts.** Offer (d) runs `local_timeouts.py offer`, shows `plan.diff`, and writes `.claude/settings.json` only on a yes (see `consumer-offers.md`).
 
 ## Old-layout detection
 
@@ -73,7 +84,7 @@ The full protocol is in [`branch-protection.md`](branch-protection.md). The chea
 - **Skip silently** if `git remote get-url origin` fails (no GitHub remote → no protection to apply). Record nothing in config; do not prompt. The helper's `action == "skip-no-origin"` covers this case.
 - **Skip** if `branch_protection.declined` is true OR `branch_protection.applied_at` is non-null. The user has already answered.
 - **Otherwise**, invoke `branch_protection_check.check(repo, auto=...)`. The helper's `action` field tells you what happened:
-  - `skip-no-origin` — nothing to do.
+  - `skip-no-origin` — nothing to do. `skip-non-github` — the origin is not GitHub, so there is no GitHub rule to apply: the offer is skipped and the forge kind is recorded once (`forge.kind` / `forge.host`); a `no web base` result records nothing and prints the setup line `if this is a Gitea, set forge.web_base in .three-pillars/config.json, e.g. https://<host>:<port>; for a GitHub ssh alias or GitHub Enterprise host, set forge.kind: github (or set forge.kind: other to silence this)` each run until `forge.web_base` or `forge.kind` is set. No `branch_protection` block, no `--auto` decisions entry, no `gh api` line.
   - `fail-open-gh-missing` — config was written with `declined=false`, `applied_at=null`, `offered_at=now`; the manual `gh api` command from `branch-protection.md` was printed to stdout. Continue with the calling skill.
   - `auto-skip` — under `--auto`, a `[first-run]` entry was appended to `decisions.md`. Continue.
   - `needs-prompt` — `gh` is available and the user has not yet decided. The agent runs the prompt from `branch-protection.md` (yes / no / skip), then writes the appropriate config block.
@@ -136,13 +147,14 @@ Concrete defaults under `--auto`:
 | Branch protection unset, `origin` present, `gh` available | Skip the prompt; leave config untouched. The next interactive run will offer setup. | Medium |
 | Aider absent + no prior decision | Skip the prompt; leave `~/.three-pillars/aider-install.json` untouched (so the next interactive run still gets to ask). The skill's optional aider preamble will be no-ops for this run. | Medium |
 | GitHub PR-author unconfigured, `origin` present, `gh` available | Skip the prompt; leave `github.pr_author_account` untouched. PRs open with ambient `gh` auth this run; the next interactive run still gets to offer the bot-account setup. | Medium |
+| Local client timeouts unsettled (offer (d)) | Skip the prompt; never writes `.claude/settings.json` or the config. Log a `[first-run]` entry with `plan.diff`; log nothing when `plan.add` is empty. The next interactive run still gets to offer. | Medium |
 
 The `decisions.md` lives in the design directory the skill is operating on (`three-pillars-docs/tp-designs/{name}/decisions.md`). If the file does not exist, create it with the Run Metadata header per `auto-mode.md` §Initialization. The first-run entry is appended chronologically alongside the calling skill's own entries.
 
 **Note**: worktree-operating skills (tp-phase-implement, tp-spike-implement, tp-merge-from-main,
 tp-design-complete, and the worktree-management skill) additionally run the cwd preflight after this preflight.
 See the "Inline worktree-driving is unsupported" section of `collaboration.md` for the two controls
-(fail-closed commit guard + fail-open cwd preflight) and the one-line fix.
+(the commit guard (`commit_guard.py`), only when installed, + fail-open cwd preflight) and the one-line fix.
 
 ## Resolve-root preamble
 
@@ -154,13 +166,9 @@ Every `tp-*` SKILL.md already reads this file as its first step, making this the
 TP_ROOT="$(bash <skill-dir>/../../skills/_shared/resolve_root.sh --skill-dir <skill-dir>)"
 ```
 
-Replace `<skill-dir>` with the directory of the SKILL.md the agent loaded (the agent always knows this path). This uses probe 2 (skill-dir grandparent) as the bootstrap path — the agent always has it. Subsequent helper calls use the cached `$TP_ROOT`.
+Replace `<skill-dir>` with the directory of the SKILL.md the agent loaded (the agent always knows this path). This uses probe 2 (skill-dir grandparent) as the bootstrap path — the agent always has it. Subsequent helper calls use the cached `$TP_ROOT`, for example `python3 "$TP_ROOT"/skills/_shared/deterministic_gate.py "$PR_URL"`.
 
-Example invocation after bootstrap:
-
-```bash
-python3 "$TP_ROOT"/skills/_shared/deterministic_gate.py "$PR_URL"
-```
+**Seat shell.** `resolve_root.sh` only prints a path; it does not export. A seat (any shell running `"$TP_ROOT"` commands outside a skill) runs this guarded line as its **first command** and prefixes it onto each command that uses `"$TP_ROOT"` (Bash tool env vars do not persist between calls): `TP_ROOT="${TP_ROOT:-$(bash <skill-dir>/../../skills/_shared/resolve_root.sh --skill-dir <skill-dir>)}"; [ -d "$TP_ROOT/skills" ] || echo "TP_ROOT unresolved: run resolve_root.sh"`, so an unresolved root fails with the single line `TP_ROOT unresolved: run resolve_root.sh`. A seat that never reads this file needs the line in its own startup text (an operator step).
 
 ### Probe chain
 
@@ -185,8 +193,8 @@ three-pillars: cannot locate the framework root — probed $CLAUDE_PLUGIN_ROOT, 
 
 When `TP_ROOT` cannot be resolved, the helper's failure class determines what to do:
 
-- **Enforcement-path helpers** (`deterministic_gate.py`, `diff_balloon_guard.py`, `validate_design_floor.py`, file-size and worktree guards): **stop and surface the failure line**. These are blocking gates; running without a valid root would silently skip enforcement.
-- **Fail-open convenience helpers** (`cwd_preflight.py`, `detect_unarchived.py`, registry print commands): emit exactly one loud skip line and continue:
+- **Enforcement-path helpers** (`deterministic_gate.py`, `diff_balloon_guard.py`, `validate_design_floor.py`, and the file-size and worktree guards run by the commit guard (`commit_guard.py`), only when installed): **stop and surface the failure line**. These are blocking gates; running without a valid root would silently skip enforcement.
+- **Fail-open convenience helpers** (`cwd_preflight.py`, `detect_unarchived.py`, `main_thread_backend.py`, registry print commands): emit exactly one loud skip line and continue:
 
   ```
   three-pillars: skipping <helper> (framework root not found) — fail-open

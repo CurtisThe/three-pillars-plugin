@@ -25,13 +25,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-# _shared project_root is resolved at import time once.
+# _shared and this scripts dir go on sys.path at import time, once.
 _HERE = Path(__file__).resolve().parent
 _SHARED = _HERE.parent.parent / "_shared"
 if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
-from project_root import find_project_root  # noqa: E402
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+import proof_root as _proof_root  # noqa: E402 — the one proof-root resolver
+import automation_identity as _identity  # noqa: E402 — the one identity core
 
 _MAX_TRANSCRIPT_CHARS = 20000
 _MAX_NUMSTAT_CHARS = 20000
@@ -41,14 +44,8 @@ _MAX_NUMSTAT_CHARS = 20000
 
 
 def default_proof_root(start=None) -> Path:
-    """Return <repo-root>/.three-pillars/review-proof (host-agnostic).
-
-    Falls back to Path(start or cwd()) / '.three-pillars' / 'review-proof'
-    when not in a git repo.
-    """
-    git_root = find_project_root(start)
-    base = git_root if git_root is not None else Path(start) if start is not None else Path.cwd()
-    return base / ".three-pillars" / "review-proof"
+    """Delegate: `proof_root.default_proof_root` (out-of-tree resolve + one-time migration)."""
+    return _proof_root.default_proof_root(start)
 
 
 # ---------- numstat ----------
@@ -381,36 +378,9 @@ def _default_self_login_fn() -> "str | None":
 
 
 def _trusted_digest_authors(config, self_login_fn) -> frozenset:
-    """Lowercased logins whose posted digests count as proof.
-
-    DELIBERATELY NARROWER than human_approval.automation_identities (review
-    finding on PR #109, round 2): the digest allowlist is the DUAL of the
-    approval denylist — extra members make a denylist stricter but make THIS
-    allowlist weaker. The hardcoded Copilot/native-bot floor is excluded: those
-    identities never legitimately post digests (only the framework's gh self
-    login does, via post_codereview_comment), and on expects_copilot=true repos
-    Copilot's comment bodies are model-generated from attacker-influencible PR
-    context — trusting them would let a prompt-injected Copilot comment mint
-    proof. Trusted = the gh self login + config review.automation_identities
-    extras (a team that posts digests from a dedicated identity names it
-    there). An unresolvable self login only SHRINKS the set — the framework's
-    own digests stop matching → fail-closed (dual of human_approval's F2,
-    where a shrunken set fails OPEN and must hard-abort).
-    """
-    try:
-        self_login = (self_login_fn or _default_self_login_fn)()
-    except Exception:
-        self_login = None
-    members = set()
-    if isinstance(self_login, str) and self_login:
-        members.add(self_login.lower())
-    review = config.get("review") if isinstance(config, dict) else None
-    extra = review.get("automation_identities") if isinstance(review, dict) else None
-    if isinstance(extra, list):
-        for login in extra:
-            if isinstance(login, str) and login:
-                members.add(login.lower())
-    return frozenset(members)
+    """Logins whose digests count as proof; the rule and its rationale live in
+    `automation_identity.trusted_digest_authors` (bot account when configured, else self login)."""
+    return _identity.trusted_digest_authors(config, self_login_fn or _default_self_login_fn)
 
 
 def proof_comment_on_head(pr_url, head, *, comments_fn=None, config=None,

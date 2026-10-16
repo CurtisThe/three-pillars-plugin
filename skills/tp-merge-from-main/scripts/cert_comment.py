@@ -19,8 +19,17 @@ See `three-pillars-docs/completed-tp-designs/approval-survives-safe-base-sync/de
 """
 from __future__ import annotations
 
-import subprocess
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
+
+# `automation_identity` lives in the sibling `_shared` dir; put it on the path so a script-path
+# import (from this script's own directory) resolves it.
+_SHARED = Path(__file__).resolve().parents[2] / "_shared"
+if str(_SHARED) not in sys.path:
+    sys.path.insert(0, str(_SHARED))
+
+from automation_identity import DISCOVER, run_gh_write  # noqa: E402
 
 
 def format_cert_comment(pre_sha, post_sha, resolved_classes, *, allowlist_version="v1") -> str:
@@ -63,11 +72,19 @@ def _pr_url_parts(pr_url: str) -> tuple[str, str, str]:
     return parts[0], parts[1], parts[3]
 
 
-def _default_run_gh(pr_url: str, body: str) -> bool:
-    """Post `body` as an issue comment via the REST path (never `gh pr comment`/edit)."""
+def _default_run_gh(pr_url: str, body: str, *, config=DISCOVER, runner=None,
+                    token_runner=None) -> bool:
+    """Post `body` as an issue comment via the REST path (never `gh pr comment`/edit).
+
+    The write runs as the configured automation account (`automation_identity.run_gh_write`,
+    which discovers the repo config by default); an unavailable bot raises `BotAuthUnavailable`
+    before anything is posted. `config=None` is the plain ambient call."""
     owner, repo, number = _pr_url_parts(pr_url)
-    result = subprocess.run(
+    result = run_gh_write(
         ["gh", "api", f"repos/{owner}/{repo}/issues/{number}/comments", "-f", f"body={body}"],
+        config=config,
+        runner=runner,
+        token_runner=token_runner,
         capture_output=True,
         text=True,
         check=False,
@@ -75,12 +92,13 @@ def _default_run_gh(pr_url: str, body: str) -> bool:
     return result.returncode == 0
 
 
-def post_cert_comment(pr_url, body, *, run_gh=None) -> bool:
+def post_cert_comment(pr_url, body, *, run_gh=None, config=DISCOVER) -> bool:
     """Best-effort post of the producer breadcrumb. NEVER raises -- a failure to post
-    (bad url, gh not authenticated, network error, an injected failing `run_gh`) is
-    logged and ignored by the caller (`/tp-merge-from-main` step 7); the gate never
-    reads this comment, so a failed post has ZERO effect on any verdict."""
-    poster = run_gh or _default_run_gh
+    (bad url, gh not authenticated, an unavailable bot account, network error, an injected
+    failing `run_gh`) is logged and ignored by the caller (`/tp-merge-from-main` step 7); the
+    gate never reads this comment, so a failed post has ZERO effect on any verdict. An
+    unavailable bot returns False with nothing posted (never a post as the ambient login)."""
+    poster = run_gh or (lambda url, text: _default_run_gh(url, text, config=config))
     try:
         return bool(poster(pr_url, body))
     except Exception:

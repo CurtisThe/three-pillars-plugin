@@ -30,6 +30,7 @@ if str(_LOOP_DRIVER_DIR) not in sys.path:
     sys.path.insert(0, str(_LOOP_DRIVER_DIR))
 
 from loop_driver import _CI_TERMINAL_CONCLUSIONS  # noqa: E402
+import round_log_carry  # noqa: E402
 
 
 # ============================================================
@@ -126,6 +127,9 @@ def latest_copilot_review(reviews: list[dict]) -> dict | None:
 # ============================================================
 
 
+_ROUND_LOG_NAMES = round_log_carry.ROUND_LOG_NAMES
+
+
 def _is_exempt_path(path: str) -> bool:
     """True when a single changed file path matches an exempt rule.
 
@@ -133,6 +137,7 @@ def _is_exempt_path(path: str) -> bool:
     - three-pillars-docs/tp-designs/*/decisions.md
     - three-pillars-docs/tp-designs/*/handoff.md
     - three-pillars-docs/tp-designs/*/lock.json
+    - three-pillars-docs/completed-tp-designs/<slug>/<_ROUND_LOG_NAMES> or a ruling file
     - **/CHANGELOG* (any level)
     - .three-pillars/run/** — BOUNDED (Finding F): only _RUN_EXEMPT_SUFFIXES
     """
@@ -148,6 +153,8 @@ def _is_exempt_path(path: str) -> bool:
             if filename in ("decisions.md", "handoff.md", "lock.json"):
                 return True
 
+    if round_log_carry.round_log_slug(p) is not None:
+        return True
     # CHANGELOG at any level
     basename = Path(p).name
     if basename.startswith("CHANGELOG"):

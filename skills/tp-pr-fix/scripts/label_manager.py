@@ -12,7 +12,7 @@ by `pr_url`. Idempotent and label-creation-safe:
    We deliberately do NOT use `gh pr edit --add-label`: on a repo with
    **classic Projects** enabled, `gh pr edit` fails with a GraphQL
    "Projects (classic) … deprecated" error on the `projectCards` field
-   *before* the label is applied (observed on CurtisThe/three-pillars). The
+   *before* the label is applied (observed on some repos). The
    REST issues/labels endpoint has no such dependency — the same reason
    `tp-pr-iterate` resolves threads via GraphQL `resolveReviewThread` and the
    `tp-run-full-design` Tier 6 requests the Copilot reviewer via REST, both
@@ -23,6 +23,12 @@ by `pr_url`. Idempotent and label-creation-safe:
 The function relies entirely on `gh` being authenticated and on the
 caller's network reachability — failures are intentionally surfaced so
 the orchestrator can decide whether to retry or abort the round.
+
+The WRITES (the REST add, `gh label create`, the DELETE) run as the configured automation
+account through `automation_identity.run_gh_write` (`config=DISCOVER` loads the repo config;
+an explicit `None`/`{}` is the ambient login); `gh pr view` stays a read on the ambient login.
+A bot whose token cannot be fetched raises `BotAuthUnavailable` from `ensure_pr_label` and
+posts nothing; `remove_pr_label` keeps its never-raise contract (`False`).
 
 Only the `subprocess.run` binding is module-local; tests stub it via
 `patch("label_manager.subprocess.run", ...)`. URL validation is minimal
@@ -35,7 +41,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+from pathlib import Path
 from urllib.parse import quote, urlparse
+
+_SHARED = str(Path(__file__).resolve().parent.parent.parent / "_shared")
+if _SHARED not in sys.path:
+    sys.path.insert(0, _SHARED)
+
+import automation_identity  # noqa: E402
 
 # Label constants — consistent with the tp: namespace
 READY_FOR_HUMAN_MERGE = "tp:ready-for-human-merge"
@@ -78,7 +92,7 @@ def _label_missing_signal(stderr: str) -> bool:
 
 
 def _add_label_rest(
-    owner: str, repo: str, number: str, label: str
+    owner: str, repo: str, number: str, label: str, config=automation_identity.DISCOVER
 ) -> subprocess.CompletedProcess:
     """Add `label` to the issue/PR via the REST issues/labels endpoint.
 
@@ -92,7 +106,7 @@ def _add_label_rest(
     just the argv).
     """
     body = json.dumps({"labels": [label]})
-    return subprocess.run(
+    return automation_identity.run_gh_write(
         [
             "gh",
             "api",
@@ -102,6 +116,8 @@ def _add_label_rest(
             "--input",
             "-",
         ],
+        config=config,
+        runner=subprocess.run,
         input=body,
         capture_output=True,
         text=True,
@@ -109,8 +125,10 @@ def _add_label_rest(
     )
 
 
-def ensure_pr_label(pr_url: str, label: str) -> None:
-    """Ensure `label` is applied to the PR at `pr_url`. Idempotent."""
+def ensure_pr_label(
+    pr_url: str, label: str, config=automation_identity.DISCOVER
+) -> None:
+    """Ensure `label` is applied to the PR at `pr_url`. Idempotent. Writes run as the bot."""
     _validate_pr_url(pr_url)
     if not isinstance(label, str) or not label:
         raise ValueError(f"label must be a non-empty string, got: {label!r}")
@@ -136,7 +154,7 @@ def ensure_pr_label(pr_url: str, label: str) -> None:
         return
 
     # Step 2: add the label via REST (never `gh pr edit` — broken on classic-Projects repos).
-    add = _add_label_rest(owner, repo, number, label)
+    add = _add_label_rest(owner, repo, number, label, config)
     if add.returncode == 0:
         return
 
@@ -144,8 +162,10 @@ def ensure_pr_label(pr_url: str, label: str) -> None:
     if not _label_missing_signal(add.stderr):
         raise RuntimeError(f"gh api add-label failed: {add.stderr.strip()}")
 
-    create = subprocess.run(
+    create = automation_identity.run_gh_write(
         ["gh", "label", "create", label],
+        config=config,
+        runner=subprocess.run,
         capture_output=True,
         text=True,
         check=False,
@@ -153,14 +173,16 @@ def ensure_pr_label(pr_url: str, label: str) -> None:
     if create.returncode != 0:
         raise RuntimeError(f"gh label create failed: {create.stderr.strip()}")
 
-    retry = _add_label_rest(owner, repo, number, label)
+    retry = _add_label_rest(owner, repo, number, label, config)
     if retry.returncode != 0:
         raise RuntimeError(
             f"gh api add-label failed after create: {retry.stderr.strip()}"
         )
 
 
-def remove_pr_label(pr_url: str, label: str) -> bool:
+def remove_pr_label(
+    pr_url: str, label: str, config=automation_identity.DISCOVER
+) -> bool:
     """Best-effort PROBE-FIRST remove of `label` from the PR. Never raises.
 
     Mirrors ensure_pr_label's shape: a read-only `gh pr view --json labels`
@@ -192,17 +214,16 @@ def remove_pr_label(pr_url: str, label: str) -> bool:
         if view.returncode != 0:
             return False  # probe failed → NO write attempt
         payload = json.loads(view.stdout or "{}")
-        existing = [
-            e.get("name") for e in payload.get("labels") or [] if isinstance(e, dict)
-        ]
+        existing = [e.get("name") for e in payload.get("labels") or []
+                    if isinstance(e, dict)]
         if label not in existing:
             return True  # already absent — idempotent, zero writes
 
-        proc = subprocess.run(
-            [
-                "gh", "api", "--method", "DELETE",
-                f"repos/{owner}/{repo}/issues/{number}/labels/{quote(label, safe='')}",
-            ],
+        proc = automation_identity.run_gh_write(
+            ["gh", "api", "--method", "DELETE",
+             f"repos/{owner}/{repo}/issues/{number}/labels/{quote(label, safe='')}"],
+            config=config,
+            runner=subprocess.run,
             capture_output=True,
             text=True,
             check=False,
@@ -211,5 +232,8 @@ def remove_pr_label(pr_url: str, label: str) -> bool:
             return True
         s = (proc.stderr or "").lower()
         return "404" in s or "not found" in s or "does not exist" in s
+    except automation_identity.BotAuthUnavailable:
+        print("bot auth unavailable: label write skipped", file=sys.stderr)
+        return False
     except Exception:
         return False

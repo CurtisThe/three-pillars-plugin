@@ -5,7 +5,7 @@ sentinel-guarded append and sets extensions.worktreeConfig=true, as a
 backstop against a core.bare=true bleed into the shared .git/config.
 
 Cause of the bleed (corrected 2026-09-22, hook-inherited-git-env; known_issues
-M17): self-inflicted, not the Claude Code harness. framework-check invariant 7
+M17): self-inflicted in the three-pillars dev repo: its framework-check invariant 7
 ran a temp-dir `git init` under the pre-commit hook's inherited GIT_DIR, so a
 commit from a linked worktree re-initialised that worktree's gitdir and wrote
 core.bare=true into the shared config. The init was vestigial and is deleted

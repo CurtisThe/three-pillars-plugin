@@ -1,6 +1,7 @@
-"""test_iteration_lane_gate_unchanged.py — B2: the merge gate is byte-for-byte unchanged.
+"""test_iteration_lane_gate_unchanged.py — B2: the merge gate is untouched.
 
-Two things are pinned here, both against the REAL seam (no I/O mocks):
+Two things are pinned here, both against the REAL seam (no I/O mocks, no git
+history):
 
   1. LOAD-BEARING + PERMANENT — the real `ci_local_stamp.pred_ci_local_stamp` still FAILs
      any head lacking a fresh, clean stamp and PASSes only for a head-matched clean stamp.
@@ -9,21 +10,23 @@ Two things are pinned here, both against the REAL seam (no I/O mocks):
      PR can land. This sub-assertion is unconditional — it holds post-merge on master and
      in a shallow consumer clone alike.
 
-  2. BYTE-UNCHANGED (defensive, skippable) — this design must touch neither
-     `ci_local_stamp.py` nor `gate_roster.py`. The changed-file set is derived from
-     `git diff --name-only <base>...HEAD` ONLY when a base ref resolves; when none does
-     (post-merge on master where the diff is empty anyway, or a shallow clone), the
-     sub-assertion `pytest.skip`s rather than erroring or vacuously passing.
+  2. BEHAVIOURAL (defensive, git-history independent) — the LANE ASYMMETRY that makes
+     (1) hold: the iteration lane (fast inner loop) can NEVER write the merge-gate stamp
+     (`writes_stamp` is always False), while the gate lane reports `writes_stamp=True`.
+     Pinned in a hermetic target repo in TWO shapes — shipping `scripts/ci-local.sh` and
+     one declaring `ci.gate_command` — and read from the seam's own resolution, so it
+     survives a consumer repo and any future design that legitimately edits the
+     gate-predicate files (which this design, consumer-repo-parity H1, does).
 """
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from ci_local_stamp import STAMP_SCHEMA, pred_ci_local_stamp
 from deterministic_gate import GateVerdict
+from iteration_lane import gate_command, iteration_command
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _HEAD = "a" * 40
@@ -62,31 +65,74 @@ def test_fresh_clean_stamp_passes():
     )
 
 
-# --- (2) the gate predicate files carry zero diff — defensive, skippable -----
+# --- (2) the iteration lane can never satisfy the gate — behavioural ---------
+#
+# The asymmetry that makes (1) hold: the iteration lane NEVER writes the merge-gate
+# stamp (`writes_stamp` always False) while the gate lane writes it. Verified against
+# the seam's own resolution, in a hermetic target repo, in BOTH shapes — a repo shipping
+# `scripts/ci-local.sh` and a repo declaring `ci.gate_command`. Git-history independent
+# (survives consumer repos / future designs that legitimately edit the gate-predicate
+# files).
 
-def _resolve_base() -> "str | None":
-    for ref in ("origin/master", "master", "origin/main", "main"):
-        rc = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-            capture_output=True,
-        ).returncode
-        if rc == 0:
-            return ref
-    return None
+def _ci_local_repo(root) -> None:
+    """A target repo shipping `scripts/ci-local.sh` (no config)."""
+    scripts = root / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "ci-local.sh").write_text(
+        "#!/usr/bin/env bash\n"
+        'set -euo pipefail\n'
+        'if [ "${1:-}" = "--fast" ]; then\n'
+        "  echo fast\n"
+        "  exit 0\n"
+        "fi\n"
+        "echo full\n"
+    )
 
 
-def test_gate_files_untouched_by_this_design():
-    base = _resolve_base()
-    if base is None:
-        pytest.skip("no base ref resolves (post-merge on master / shallow clone) — nothing to diff")
-    changed = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", f"{base}...HEAD"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    for guarded in ("skills/_shared/ci_local_stamp.py", "skills/_shared/gate_roster.py"):
-        assert guarded not in changed, (
-            f"{guarded} MUST carry zero diff from this design — the merge gate is "
-            "byte-for-byte untouched (design B2 / hard constraint)"
+def _config_repo(root) -> None:
+    """A target repo declaring `ci.gate_command` (a consumer repo's shape)."""
+    import json
+
+    cfg_dir = root / ".three-pillars"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.json").write_text(
+        json.dumps({"schema_version": 1, "ci": {"gate_command": "make ci"}}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _assert_lane_asymmetry(repo_root) -> None:
+    # The iteration lane (both granularities) must NEVER carry the merge-gate stamp.
+    for gran in ("task", "phase"):
+        r = iteration_command(repo_root, granularity=gran)
+        assert r.writes_stamp is False, (
+            f"the iteration lane ({gran}) must NEVER write the merge-gate stamp "
+            f"(writes_stamp is always False) — it can never satisfy the gate"
         )
+    # The gate lane is the stamp source (writes_stamp True).
+    g = gate_command(repo_root)
+    assert g.writes_stamp is True, (
+        "the gate lane is the stamp source (writes_stamp True)"
+    )
+    # The iteration lane is provably NOT the gate command in either shape.
+    for gran in ("task", "phase"):
+        it = iteration_command(repo_root, granularity=gran)
+        assert it.command != g.command, (
+            "the iteration lane must be a different command than the gate lane — "
+            "it can never stand in for the full stamp-writing run (B1)"
+        )
+
+
+def test_iteration_lane_can_never_satisfy_the_gate_with_ci_local(tmp_path):
+    """A repo shipping scripts/ci-local.sh: the fast lane never writes the stamp,
+    the gate lane does (unchanged behaviour)."""
+    _ci_local_repo(tmp_path)
+    _assert_lane_asymmetry(tmp_path)
+
+
+def test_iteration_lane_can_never_satisfy_the_gate_with_declared_command(tmp_path):
+    """A repo declaring ci.gate_command: the fast lane STILL never writes the stamp
+    (a declared gate command does not leak into the iteration lane), the gate lane
+    resolves to the wrapper and writes the stamp."""
+    _config_repo(tmp_path)
+    _assert_lane_asymmetry(tmp_path)

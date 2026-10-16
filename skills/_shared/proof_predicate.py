@@ -72,39 +72,18 @@ def _trusted_digest_heads(pr_url, *, comments_fn=None, config=None, self_login_f
         return None
 
 
-def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None,
-                              self_login_fn=None, run_git=None, derive_base_ref_fn=None,
-                              repo_root=None):
-    """Gate predicate: was THIS head reviewed-with-proof (posted digest comment),
-    directly OR via a certified no-op base-sync carry from a proof-bearing ancestor?
-
-    Config OFF (the default) is EXACTLY today's `proof_comment_on_head` path — byte-
-    identical behavior, one fetch, no git subprocess and no chain walk (`base_sync_cert`
-    is imported only for the cheap `carry_enabled` config check).
-
-    Config ON: a SINGLE comments fetch via `_trusted_digest_heads`. `None` (fetch/parse
-    failure) → INDETERMINATE with today's remediation detail. `head_oid` present in the
-    trusted-heads set → PASS with today's detail (equivalent semantics, one fetch).
-    Otherwise `base_sync_cert.find_certified_anchor(repo_root, head_oid, heads,
-    base_ref=..., max_links=...)`: certified → PASS "proof comment carried across N
-    certified base-sync merge(s) (anchor <sha7>)"; not certified → INDETERMINATE with
-    "; carry: <reason>" appended to today's remediation detail. `repo_root` defaults to
-    `project_root.find_project_root()`; `base_ref` via `derive_base_ref_fn(pr_url)` or
-    `diff_balloon_guard.derive_base_ref(pr_url)`. An unresolvable repo_root/base_ref
-    means "no carry attempted" — no "; carry:" suffix.
-
-    NEVER FAIL (D6, mirrors pred_human_approved / pred_copilot_on_head): a later
-    proof-bearing review (or a later certified base-sync) + re-evaluation flips
-    INDETERMINATE → PASS, no other change. Wraps all in try/except → INDETERMINATE on
-    any internal error. NEVER raises.
-    """
+def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
+              derive_base_ref_fn, repo_root, holder):
+    """Today's body: direct proof or certified base-sync carry. `holder` collects the
+    trusted heads when the config-on path fetched them (reused by the round-log carry)."""
     from deterministic_gate import PredicateResult, GateVerdict  # late, circular-safe
     name = "review_proof_on_head"
     try:
         import review_proof  # noqa: E402 — in tp-pr-iterate/scripts, now on sys.path
         import base_sync_cert  # noqa: E402 — in _shared/ beside this file
 
-        if not base_sync_cert.carry_enabled(config):
+        on = base_sync_cert.carry_enabled(config)
+        if not on:
             if review_proof.proof_comment_on_head(pr_url, head_oid, comments_fn=comments_fn,
                                                   config=config, self_login_fn=self_login_fn):
                 return PredicateResult(
@@ -116,6 +95,7 @@ def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None
 
         heads = _trusted_digest_heads(pr_url, comments_fn=comments_fn, config=config,
                                       self_login_fn=self_login_fn)
+        holder.append(heads)
         if heads is None:
             return PredicateResult(name=name, verdict=GateVerdict.INDETERMINATE,
                                    detail=_NO_PROOF_DETAIL)
@@ -142,9 +122,12 @@ def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None
             return PredicateResult(name=name, verdict=GateVerdict.INDETERMINATE,
                                    detail=_NO_PROOF_DETAIL)
 
+        import living_doc_carry  # noqa: E402 — in _shared/ beside this file
+
         result = base_sync_cert.find_certified_anchor(
             root, head_oid, heads, base_ref=base_ref,
             max_links=base_sync_cert.carry_max_chain(config), run_git=run_git,
+            carry_handres=living_doc_carry.carry_livingdoc_handres_enabled(config),
         )
         if result.certified:
             sha7 = (result.anchor or "")[:7]
@@ -159,6 +142,109 @@ def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None
             name=name, verdict=GateVerdict.INDETERMINATE,
             detail=f"{_NO_PROOF_DETAIL}; carry: {result.reason}",
         )
+    except Exception:
+        return PredicateResult(
+            name=name, verdict=GateVerdict.INDETERMINATE,
+            detail="internal error evaluating review proof",
+        )
+
+
+def _round_log_carry(r, pr_url, head_oid, holder, kw):
+    """After a non-PASS `r`: if head is only round-log commits above a trusted-proof anchor,
+    PASS (config-on may also compose the base-sync carry from the anchor). Else `r`."""
+    from deterministic_gate import PredicateResult, GateVerdict  # late, circular-safe
+    try:
+        import base_sync_cert  # noqa: E402
+        import round_log_carry  # noqa: E402
+        config = kw["config"]
+        on = base_sync_cert.carry_enabled(config)
+        if holder:
+            heads = holder[0]
+        else:
+            heads = _trusted_digest_heads(pr_url, comments_fn=kw["comments_fn"], config=config,
+                                          self_login_fn=kw["self_login_fn"])
+        if not heads:
+            return r
+        root = kw["repo_root"]
+        if root is None:
+            import project_root  # noqa: E402
+            root = project_root.find_project_root()
+        if root is None:
+            return r
+        res = round_log_carry.strip_round_log_commits(root, head_oid, run_git=kw["run_git"])
+        if not res.links or not res.anchor:
+            return r
+        detail = (f"proof comment carried across {res.links} round-log commit(s) "
+                  f"(anchor {res.anchor[:7]})")
+        if res.anchor in heads:
+            return PredicateResult(name=r.name, verdict=GateVerdict.PASS, detail=detail)
+        if not on:
+            return r
+        fn = kw["derive_base_ref_fn"]
+        if fn is not None:
+            base_ref = fn(pr_url)
+        else:
+            import diff_balloon_guard  # noqa: E402
+            base_ref = diff_balloon_guard.derive_base_ref(pr_url)
+        if not base_ref:
+            return r
+        import living_doc_carry  # noqa: E402 — in _shared/ beside this file
+
+        cert = base_sync_cert.find_certified_anchor(
+            root, res.anchor, heads, base_ref=base_ref,
+            max_links=base_sync_cert.carry_max_chain(config), run_git=kw["run_git"],
+            carry_handres=living_doc_carry.carry_livingdoc_handres_enabled(config))
+        if cert.certified:
+            both = (f"proof comment carried across {cert.links} certified base-sync "
+                    f"merge(s) (anchor {(cert.anchor or '')[:7]})")
+            return PredicateResult(name=r.name, verdict=GateVerdict.PASS,
+                                   detail=f"{detail}; {both}")
+        return r
+    except Exception:
+        return r
+
+
+def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None,
+                              self_login_fn=None, run_git=None, derive_base_ref_fn=None,
+                              repo_root=None):
+    """Gate predicate: was THIS head reviewed-with-proof (posted digest comment),
+    directly OR via a certified no-op base-sync carry from a proof-bearing ancestor?
+
+    Config OFF (the default) is EXACTLY today's `proof_comment_on_head` path — byte-
+    identical behavior, one fetch, no git subprocess and no chain walk (`base_sync_cert`
+    is imported only for the cheap `carry_enabled` config check).
+
+    Config ON: a SINGLE comments fetch via `_trusted_digest_heads`. `None` (fetch/parse
+    failure) → INDETERMINATE with today's remediation detail. `head_oid` present in the
+    trusted-heads set → PASS with today's detail (equivalent semantics, one fetch).
+    Otherwise `base_sync_cert.find_certified_anchor(repo_root, head_oid, heads,
+    base_ref=..., max_links=...)`: certified → PASS "proof comment carried across N
+    certified base-sync merge(s) (anchor <sha7>)"; not certified → INDETERMINATE with
+    "; carry: <reason>" appended to today's remediation detail. `repo_root` defaults to
+    `project_root.find_project_root()`; `base_ref` via `derive_base_ref_fn(pr_url)` or
+    `diff_balloon_guard.derive_base_ref(pr_url)`. An unresolvable repo_root/base_ref
+    means "no carry attempted" — no "; carry:" suffix.
+
+    A proof also carries across up to a few round-log commits (a terminal review-log
+    flush that only adds to the archived design's log files; `round_log_carry`), so the
+    two-stable flush push does not stale a converged review.
+
+    NEVER FAIL (D6, mirrors pred_human_approved / pred_copilot_on_head): a later
+    proof-bearing review (or a later certified base-sync) + re-evaluation flips
+    INDETERMINATE → PASS, no other change. Wraps all in try/except → INDETERMINATE on
+    any internal error. NEVER raises.
+    """
+    from deterministic_gate import PredicateResult, GateVerdict  # late, circular-safe
+    name = "review_proof_on_head"
+    try:
+        holder = []
+        kw = dict(comments_fn=comments_fn, config=config, self_login_fn=self_login_fn,
+                  run_git=run_git, derive_base_ref_fn=derive_base_ref_fn,
+                  repo_root=repo_root, holder=holder)
+        r = _evaluate(pr_url, head_oid, **kw)
+        if r.verdict == GateVerdict.PASS:
+            return r
+        return _round_log_carry(r, pr_url, head_oid, holder, kw)
     except Exception:
         return PredicateResult(
             name=name, verdict=GateVerdict.INDETERMINATE,

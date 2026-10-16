@@ -38,8 +38,11 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
+from pathlib import Path
 
 from label_manager import ensure_pr_label  # noqa: E402  (sibling module)
+import automation_identity  # noqa: E402  (skills/_shared, on path via label_manager's shim)
 
 
 _FIX_LABEL = "tp:do-not-merge-yet"
@@ -181,6 +184,19 @@ def _count_diff_lines() -> int:
     return total
 
 
+def _load_round_freeze():
+    """Import `round_freeze` lazily — only a frozen round pays for it.
+
+    The sibling `tp-pr-iterate` tree fixes its own `sys.path` at import. At
+    module scope it would drag `forge`/`severity` into the unfrozen path.
+    """
+    d = Path(__file__).resolve().parents[2] / "tp-pr-iterate" / "scripts"
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
+    import round_freeze  # noqa: E402  (sibling design module)
+    return round_freeze
+
+
 def _summary_from_classified(structural: list[dict]) -> str:
     n = len(structural)
     if n == 1:
@@ -261,8 +277,13 @@ def run_round(
     head_ref: str | None = None,
     loop_mode: bool = False,
     paths: list[str] | None = None,
+    frozen: bool = False,
+    follow_up_dir: str | None = None,
+    config=automation_identity.DISCOVER,
 ) -> dict:
     """Execute one end-to-end fix round. See module docstring for contract.
+
+    `config`: the identity config for the label write (default discovers; `None` = ambient).
 
     `head_ref` is the PR head branch the commit must land on (F1). When None
     (standalone convenience) it is resolved from the PR via
@@ -273,6 +294,12 @@ def run_round(
     `paths` (the loop's round tail) scopes the change check and the commit to
     those paths (`git status --porcelain -- <paths>`, `git add -- <paths>`); `[]`
     returns `no-applicable-fixes` before any gh/git call. `None`: `git add -A`.
+
+    `frozen=True` (the loop read `round_freeze.is_frozen(state)`; §D2 Behavior 9)
+    fixes blockers only: `partition` runs after the identity gate, so only a new
+    `verdict == "structural"` blocker reaches the commit. The rest is reported in
+    `fixes_deferred` with `reason="frozen-follow-up"` and, given `follow_up_dir`
+    (the `<proof_root>/rounds/<pr>` dir), stored in its `follow-up.json` too.
     """
     if paths == []:  # [Q3] first statement: nothing to stage, touch nothing
         return _make_envelope(iteration, [], [], "no-applicable-fixes", 0)
@@ -299,6 +326,17 @@ def run_round(
             fixes_deferred.append(
                 {"comment_id": c["comment_id"], "reason": "identity-gate-unreachable"}
             )
+
+    # 1.5. A frozen round (a previous round was clean) fixes blockers only; the
+    #      rest become follow-ups. Not frozen → step 2 below is unchanged.
+    if frozen:
+        rf = _load_round_freeze()
+        gated, deferred = rf.partition(gated, True)
+        fixes_deferred.extend(
+            {"comment_id": i.get("comment_id"), "reason": rf.DEFER_REASON}
+            for i in deferred)
+        if follow_up_dir:
+            rf.add_follow_ups(follow_up_dir, deferred)
 
     # 2. Filter to structural; defer the rest.
     structural: list[dict] = []
@@ -339,7 +377,7 @@ def run_round(
     subprocess.run(["git", "push"], check=True)
 
     # 5. Label.
-    ensure_pr_label(pr_url, _FIX_LABEL)
+    ensure_pr_label(pr_url, _FIX_LABEL, config=config)
 
     fixes_applied = [
         {"comment_id": c["comment_id"], "summary": c.get("issue_phrase", "")[:200]}

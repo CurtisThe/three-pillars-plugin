@@ -28,6 +28,7 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 from deterministic_gate import GateVerdict, PredicateResult  # noqa: E402
+from default_branch import resolve_default_branch, DefaultBranchError  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +232,9 @@ def main(argv=None) -> int:
         description="Diff balloon guard: block a PR whose diff balloons vs fork-point baseline.",
     )
     parser.add_argument("--repo", default=".", help="git repo root")
-    parser.add_argument("--base-ref", default="master", dest="base_ref",
-                        help="base branch (default: master)")
+    parser.add_argument("--base-ref", default=None, dest="base_ref",
+                        help="base branch (default: the repo's resolved "
+                             "default branch, falling back to master)")
     parser.add_argument("--head-ref", default="HEAD", dest="head_ref",
                         help="candidate HEAD ref (default: HEAD)")
     parser.add_argument("--factor", type=float, default=5.0,
@@ -243,6 +245,13 @@ def main(argv=None) -> int:
                         help="override baseline size (total insertions+deletions)")
     args = parser.parse_args(argv)
 
+    base_ref = args.base_ref
+    if base_ref is None:
+        try:
+            base_ref = resolve_default_branch(args.repo)
+        except DefaultBranchError:
+            base_ref = "master"
+
     # Build sizes override if both are provided
     sizes = None
     if args.candidate_size is not None and args.baseline_size is not None:
@@ -250,7 +259,7 @@ def main(argv=None) -> int:
 
     result = pred_diff_not_ballooned(
         repo=args.repo,
-        base_ref=args.base_ref,
+        base_ref=base_ref,
         head_ref=args.head_ref,
         factor=args.factor,
         sizes=sizes,

@@ -1,26 +1,21 @@
 """Prose tests pinning the tp-post-merge candidate-reap wire-in (B9, Task 3.2).
 
-Read the *shipped* `skills/tp-post-merge/SKILL.md` (resolved from the git
-toplevel) and assert teardown reaps ALL of the just-merged slug's candidate ids
+Read the *shipped* `skills/tp-post-merge/SKILL.md` (resolved from this file's
+framework root, so it also runs in a plugin install, which is not a git
+checkout) and assert teardown reaps ALL of the just-merged slug's candidate ids
 via the reaper (fail-open), the two summary cite sites are generalized to "any
 id", and the backfill sweep's `sweep_candidates.py`-only `/single` invariant is
 left intact. Assertions key on content, not exact line numbers.
 """
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 
 def _toplevel() -> Path:
-    out = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Path(out.stdout.strip())
+    """The framework root this file ships in (skills/tp-post-merge/scripts/ -> root)."""
+    return Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture

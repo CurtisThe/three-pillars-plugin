@@ -11,10 +11,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+import skill_text
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 SKILL_MD = ROOT / "skills" / "tp-run-full-design" / "SKILL.md"
 PROTOCOL = "skills/_shared/certification-protocol.md"
-DISPATCH = 'Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")'
+DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus")'
 RS_LINE = ('if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then '
            'RS="$TOP"/skills/_shared/resolve_script.py; else '
            'RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi')
@@ -22,7 +26,7 @@ CERT_LINE = 'CERT="$(python3 "$RS" certify.py)" || exit 1'
 
 
 def _text() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
+    return skill_text.read_skill_text("tp-run-full-design")
 
 
 def _flat(text: str) -> str:
@@ -50,7 +54,7 @@ def _missing(text: str, *needles: str) -> list[str]:
 
 def test_orchestrator_slot4_runs_the_slot4_form_of_step2b():
     slot4 = _slot4()
-    assert not _missing(slot4, PROTOCOL, "§Step 2b", "`tp-certifier`", "every attempt",
+    assert not _missing(slot4, PROTOCOL, "§Step 2b", "`tp-certifier`",
                         '"$CERT" run', '"$CERT" fold --slot 4', "the `tp/{slug}` HEAD")
 
 
@@ -64,16 +68,15 @@ def test_tier2_table_and_bullet_route_slot4_through_the_fan_out():
     row = next(ln for ln in lines if ln.startswith("| 4 — `design-audit`"))
     assert "/tp-design-audit" not in row
     assert not _missing(row, "## Audit fan-out", "Step 2b")
-    assert "/tp-design-audit --auto" not in tier2
+    assert "/tp-design-audit --auto" not in tier2  # tp-allow-fragile: the command + flag name is the interface Slot 4 must never invoke
     bullet = next(ln for ln in lines if ln.startswith("- **Slot 4 (`design-audit`)**"))
     assert not _missing(bullet, "## Audit fan-out", "Step 2b", "never a `/tp-design-audit` subagent")
 
 
-def test_orchestrator_step2b_dispatches_the_certifier_per_claims_file_per_attempt():
+def test_orchestrator_step2b_dispatches_the_certifier_verdict_files_first():
     step2 = _step2()
     assert "Step 2b" in step2
-    assert not _missing(step2, DISPATCH, "once per claims file **per attempt**",
-                        "verdict files first")
+    assert not _missing(step2, DISPATCH, "verdict files first")
 
 
 def test_orchestrator_step2b_fences_claims_bytes_as_untrusted_data():
@@ -93,7 +96,18 @@ def test_orchestrator_step2b_copies_records_only_after_the_sha256_check():
     assert not _missing(step2, "`records_file`", "`certifications/records/`", handoff,
                         "--unverified records-handoff")
     assert step2.index("sha256") < step2.index("`certifications/records/`")
-    assert "check_handoff" not in _text(), "no shipped caller: the CLI is `certify.py handoff` (F6)"
+
+
+def test_certify_cli_ships_handoff_as_the_caller_check():
+    """F6: the caller's records check is the CLI `certify.py handoff`, never a bare
+    `check_handoff` callable. The parsed CLI is the contract the prose cites (the
+    reference itself is covered by `skill_refs`, invariant 46)."""
+    certify_cli = pytest.importorskip("certify_cli")
+    parser = certify_cli.build_parser()
+    args = parser.parse_args(["handoff", "--certifier-return", "R", "--records", "F"])
+    assert args.command == "handoff" and args.certifier_return == "R"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["check_handoff", "--certifier-return", "R", "--records", "F"])
 
 
 def test_orchestrator_step2b_starts_with_the_claimant_check():
@@ -153,9 +167,9 @@ def test_orchestrator_step2b_commits_once_at_protocol_step7():
     assert "One commit, at protocol step 7 (after the HEAD assert)." in step2
 
 
-def test_orchestrator_light_path_runs_step2b_unchanged():
+def test_orchestrator_light_path_returns_guard_claims():
     light = _between("### Light slot mapping", "## Audit fan-out (Slots 4/6/8)")
-    assert not _missing(light, "`guard_claims[]`", "Step 2b runs unchanged")
+    assert not _missing(light, "`guard_claims[]`")
 
 
 def _escalation() -> str:
@@ -172,7 +186,7 @@ def test_escalation_names_three_triggers_including_certification_unverified():
     # a closed set of three triggers, read as the decision-log tokens (prose wording free)
     assert _log_tokens(esc, "[orchestrator/<audit-slot>]") == {
         "retry-exhausted", "certification-unverified", "map-check-escalated"}
-    assert not _missing(esc, "`certification-unverified`", "`verdict == unverified`", "`tree_mutated`",
+    assert not _missing(esc, "`certification-unverified`", "`tree_mutated`",
                         "`claimant-records`", "`records-handoff`", "certify.py exit ≠ 0", "incomplete `--out`",
                         "`tp:needs-human-attention`", "[orchestrator/<audit-slot>] certification-unverified")
 
@@ -195,11 +209,6 @@ def test_escalation_audit_rejection_lists_four_terminal_causes():
     assert _log_tokens(rejection, "[tp-run-full-design/tier-2]") == {
         "audit-retry-exhausted", "design-floor-blocked", "map-check-escalated"}
     assert "certification-unverified" in rejection
-
-
-def test_escalation_tier5_outcomes_row():
-    outcomes = _between("### Tier 5 outcomes", "## Tier 5.6")
-    assert "**Step 2b (unverified)** → escalate, exit non-zero" in outcomes
 
 
 def test_escalation_budget_table_has_a_per_dispatch_certifier_row():

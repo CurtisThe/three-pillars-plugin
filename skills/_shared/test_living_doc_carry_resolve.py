@@ -144,7 +144,7 @@ def test_mechanical_resolution_resolved_returns_merged(monkeypatch):
     # correctly return None), which would no longer exercise the VERIFIED path this test names.
     merged = "### L1: alpha\n### L2: beta\n"
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (RESOLVED, merged))
+                        lambda *, base, ours, theirs, path=None: (RESOLVED, merged))
     assert _mechanical_resolution("b\n", "### L1: alpha\n", "### L2: beta\n") == merged
 
 
@@ -155,9 +155,9 @@ def test_mechanical_resolution_m2_drop_returns_none(monkeypatch):
     theirs = "### L2: dropped entry\n"
     merged = "### L1: kept entry\n"        # L2 dropped
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (RESOLVED, merged))
+                        lambda *, base, ours, theirs, path=None: (RESOLVED, merged))
     # sanity: verify independently flags the drop
-    r = _verify.verify(ours, theirs, merged, mechanical_applied=True)
+    r = _verify.verify(ours, theirs, merged, base=None, mechanical_applied=True)
     assert r.ok is False and r.dropped
     assert _mechanical_resolution("", ours, theirs) is None
 
@@ -168,20 +168,27 @@ def test_mechanical_resolution_f1_keyword_only_call(monkeypatch):
     # which the helper's own `except → None` swallows — so a non-None return is the ONLY
     # observable proof the call went through by keyword. (Do NOT wrap pytest.raises around
     # the never-raises helper — it would never see the TypeError.)
+    # `path` is the decisions-lane opener (basesync-three-way-verifier 5.4): it must reach the
+    # resolver by keyword too, and be None when the caller names no path.
     merged = "### L1: alpha\n### L2: beta\n"          # atom-bearing: see the RESOLVED test above
+    lane = "three-pillars-docs/tp-designs/x/decisions.md"
+    seen = []
 
-    def kwonly_spy(*, base, ours, theirs):
+    def kwonly_spy(*, base, ours, theirs, path=None):
+        seen.append(path)
         return (RESOLVED, merged)
 
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes", kwonly_spy)
+    assert _mechanical_resolution("b\n", "### L1: alpha\n", "### L2: beta\n", path=lane) == merged
     assert _mechanical_resolution("b\n", "### L1: alpha\n", "### L2: beta\n") == merged
+    assert seen == [lane, None]
 
 
 def test_mechanical_resolution_defer_date_only_upgrade(monkeypatch):
     # DEFER + the two sides differ SOLELY in the preamble date → regenerate the date from
     # History (topmost bullet), zero-drop-verify, return the upgraded doc.
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (DEFER, ""))
+                        lambda *, base, ours, theirs, path=None: (DEFER, ""))
     out = _mechanical_resolution(_doc("2026-06-01"), _doc("2026-06-03"), _doc("2026-06-02"))
     assert out == _doc("2026-07-09")   # preamble regenerated to the topmost History date
 
@@ -190,14 +197,14 @@ def test_mechanical_resolution_defer_richer_divergence_returns_none(monkeypatch)
     # DEFER + a divergence richer than the date (an extra ours-only prose line) → genuine
     # defer → None (never fabricates prose).
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (DEFER, ""))
+                        lambda *, base, ours, theirs, path=None: (DEFER, ""))
     ours = _doc("2026-06-03", extra="an ours-only prose line\n")
     theirs = _doc("2026-06-02")
     assert _mechanical_resolution(_doc("2026-06-01"), ours, theirs) is None
 
 
 def test_mechanical_resolution_total_on_exception(monkeypatch):
-    def boom(*, base, ours, theirs):
+    def boom(*, base, ours, theirs, path=None):
         raise RuntimeError("resolver blew up")
 
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes", boom)
@@ -220,8 +227,8 @@ def test_mechanical_resolution_returns_none_on_unverifiable(monkeypatch):
     three-state verdict this returned the merged text and the carry trusted it."""
     merged = "# Doc\n\nA merged paragraph with no recognized atom.\n"
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (RESOLVED, merged))
-    r = _verify.verify(_NO_ATOMS_OURS, _NO_ATOMS_THEIRS, merged, mechanical_applied=True)
+                        lambda *, base, ours, theirs, path=None: (RESOLVED, merged))
+    r = _verify.verify(_NO_ATOMS_OURS, _NO_ATOMS_THEIRS, merged, base=None, mechanical_applied=True)
     assert r.verdict == _verify.UNVERIFIABLE          # non-vacuous: the verdict really fires
     assert _mechanical_resolution("# Doc\n", _NO_ATOMS_OURS, _NO_ATOMS_THEIRS) is None
 
@@ -238,16 +245,18 @@ def test_mechanical_resolution_date_upgrade_declares_mechanical_applied(monkeypa
     seen = {}
     real_verify = _verify.verify
 
-    def spy(ours, theirs, resolved, *, mechanical_applied):
+    def spy(ours, theirs, resolved, *, base, mechanical_applied):
         seen["mechanical_applied"] = mechanical_applied
-        return real_verify(ours, theirs, resolved, mechanical_applied=mechanical_applied)
+        seen["base"] = base
+        return real_verify(ours, theirs, resolved, base=base, mechanical_applied=mechanical_applied)
 
     monkeypatch.setattr(base_sync_cert, "resolve_conflict_bytes",
-                        lambda *, base, ours, theirs: (DEFER, ""))
+                        lambda *, base, ours, theirs, path=None: (DEFER, ""))
     monkeypatch.setattr(_verify, "verify", spy)
     out = _mechanical_resolution(_doc("2026-06-01"), _doc("2026-06-03"), _doc("2026-06-02"))
     assert out == _doc("2026-07-09")
     assert seen["mechanical_applied"] is True
+    assert seen["base"] == _doc("2026-06-01")
 
 
 def test_relaxed_resolve_handres_blob_is_not_unverifiable():
@@ -275,7 +284,7 @@ def test_relaxed_resolve_handres_blob_is_not_unverifiable():
 
     # Non-vacuous: the same blobs on the MECHANICAL lane would be UNVERIFIABLE.
     assert _verify.verify(_NO_ATOMS_OURS, _NO_ATOMS_THEIRS, committed,
-                          mechanical_applied=True).verdict == _verify.UNVERIFIABLE
+                          base=None, mechanical_applied=True).verdict == _verify.UNVERIFIABLE
 
     reason, carry = _relaxed_resolve(fake_git, {_CARRY: _stages()}, "h1")
     assert reason == ""

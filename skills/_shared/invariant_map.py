@@ -1,6 +1,6 @@
-"""invariant_map — canonical invariant map parsed from framework-check.sh headers.
+"""invariant_map — canonical invariant map parsed from framework-check.sh headers (dev-repo only).
 
-Single source of truth for the invariant enumeration: parses the top-level
+Dev-repo only: single source of truth for the invariant enumeration; parses the top-level
 `# N. <title>` headers out of framework-check.sh into a `dict[int, Invariant]`.
 There is NO json sidecar — retirement is expressed purely by a header marker
 `# N. [RETIRED] <title>`. `active_count()` counts non-retired headers;
@@ -10,6 +10,12 @@ in-range-but-retired, reportable with its status).
 stdlib-only: re, pathlib, dataclasses.
 
 design: invariant-citation-coherence
+
+Ships because verify_learn.py / citation_liveness.py import it, but it is a
+framework-dev helper (dev-repo only); no-op in user repos — a consumer repo
+has no framework-check.sh, so every caller either guards the missing path
+(verify_learn.stale_invariant_cites short-circuits before calling in) or is
+itself reached only from the dev-only invariant_check.py.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 design: local-implement-and-review
 
-Every attempt worktree lives under ``<dispatcher>/.claude/worktrees/tp-attempt-``:
+Every attempt worktree lives under ``<dispatcher>/.tp-scratch/tp-attempt-``:
 there the isolation guard (inv #32) sees an agent-style worktree (case 5) and a
 hooked commit passes, while a worktree anywhere else (the ``/tmp`` control) is
 classified as the seat and refused once a ``tp/<slug>`` worktree is live. Real tmp
@@ -21,7 +21,7 @@ from attempt_fixture import DD, SLUG, agent_worktree, git, make_seat, porcelain
 def _open_and_assert_guard(dispatcher: Path, seat: Path) -> dict:
     att = task_attempts.open_attempt(dispatcher, "1.1", DD)
     adir = Path(att["attempt_dir"])
-    prefix = os.path.join(os.path.realpath(dispatcher), ".claude", "worktrees", "tp-attempt-")
+    prefix = os.path.join(os.path.realpath(dispatcher), ".tp-scratch", "tp-attempt-")
     assert str(adir).startswith(prefix)
     assert adir.name.startswith(f"tp-attempt-{SLUG}-1.1-")
     assert adir.is_dir()
@@ -43,7 +43,7 @@ def test_attempt_in_agent_worktree_passes_guard(tmp_path):
     seat, _wt = make_seat(tmp_path)
     agent = agent_worktree(seat)
     att = _open_and_assert_guard(agent, seat)
-    assert f"{os.sep}agent-x{os.sep}.claude{os.sep}worktrees{os.sep}" in att["attempt_dir"]
+    assert f"{os.sep}agent-x{os.sep}.tp-scratch{os.sep}" in att["attempt_dir"]
 
 
 def test_tmp_worktree_fails_guard(tmp_path):

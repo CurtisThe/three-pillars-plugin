@@ -82,8 +82,8 @@ action apart from a framework self-apply when both wear the same login).
    GitHub account for automation (e.g. `YourNameBot`), add it as a repo collaborator,
    and authenticate `gh` as that account. You then submit your APPROVED review as your
    human account (`YourName`) — a login distinct from the automation set — and the gate
-   PASSES. This is the **recommended default solo setup** (see CLAUDE.md §Solo operator
-   setup for the short version). The framework implements the flip end-to-end:
+   PASSES. This is the **recommended default solo setup**. The framework implements
+   the flip end-to-end:
    the first-run preflight offers to record the machine account as
    `github.pr_author_account` in `.three-pillars/config.json` (see `first-run.md`
    §GitHub PR-author offer), after which both PR-creation sites author as that

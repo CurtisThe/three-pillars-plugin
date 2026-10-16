@@ -235,9 +235,12 @@ def test_age_boundary_exact_14d(tmp_path, monkeypatch):
     assert rows[0].evidence["axis"] == "age"
 
 
-def test_empty_committerdate_is_age_unknown(monkeypatch):
+def test_empty_committerdate_is_age_unknown(tmp_path, monkeypatch):
     """Empty committerdate ⇒ age-unknown ⇒ never deletable-on-age (fail-safe).
-    With parent not MERGED the row falls through to left-untouched."""
+    With parent not MERGED the row falls through to left-untouched. Runs in a tmp
+    repo: the live-worktree enumeration needs a git checkout, and the cwd is not
+    one in a plugin install (consumer-repo-parity L4)."""
+    _origin, work = make_origin_and_work(tmp_path)
     monkeypatch.setattr(gcb, "pr_state", _fake_pr("UNKNOWN"))
 
     def fake_enum(repo, *, slug=None):
@@ -247,7 +250,7 @@ def test_empty_committerdate_is_age_unknown(monkeypatch):
 
     monkeypatch.setattr(gcb, "enumerate_candidate_refs", fake_enum)
     # now huge — if empty date were read as 0, age would be enormous (false pos).
-    rows = gcb.classify_candidates(Path("."), now=9_999_999_999)
+    rows = gcb.classify_candidates(work, now=9_999_999_999)
     assert rows[0].action == "left-untouched"
 
 

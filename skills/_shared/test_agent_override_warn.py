@@ -8,11 +8,23 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import agent_override_warn as aow  # noqa: E402
 
 SCRIPT = Path(__file__).resolve().parent / "agent_override_warn.py"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_profile(tmp_path, monkeypatch):
+    """Keep the real profile's effort pins out of the 'no warning' cases."""
+    home = tmp_path / "_home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.delenv("CLAUDE_CODE_EFFORT_LEVEL", raising=False)
 
 
 def _agent(root: Path, name: str, model: str | None, body: str = "Worker.\n") -> Path:
@@ -57,6 +69,11 @@ def test_detect_cases(tmp_path):
     assert aow.detect(tmp_path) is None
 
 
+def test_model_family_strips_bracket_suffix():
+    assert aow.model_family("opus[1m]") == "opus"
+    assert aow.model_family("claude-opus-4-8[1m]") == "opus"
+
+
 def _cli(*args: str):
     return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
 
@@ -78,3 +95,15 @@ def test_cli_prints_and_exits_0(tmp_path):
     here = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True,
                           cwd=str(tmp_path))
     assert here.returncode == 0 and "tp-worker.md" in here.stdout
+
+
+def test_detect_appends_effort_pin_lines(tmp_path):
+    msg = aow.detect(tmp_path, env={"CLAUDE_CODE_EFFORT_LEVEL": "high"})
+    assert msg is not None and "effort pin" in msg
+
+
+def test_cli_prints_effort_pin_and_exits_0(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_EFFORT_LEVEL", "high")
+    r = subprocess.run([sys.executable, str(SCRIPT), "--root", str(tmp_path)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "effort pin" in r.stdout

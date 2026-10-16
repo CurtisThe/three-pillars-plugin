@@ -83,7 +83,7 @@ def test_two_rounds_and_degraded_rerun_share_the_tree(pr):
 
     # Round 2: one angle leaves no reply → degraded-only → no fix, rerun-review.
     rd2 = loop.prepare(wt, base, head2)
-    it.write_replies(rd2, drop=1)
+    it.write_replies(rd2, drop=len(it.manifest(rd2)["angles"]) - 1)
     rep = loop.reproduce(rd2, wt, head2)
     assert rep.returncode == 0, rep.stdout + rep.stderr
     assert it.last_json(rep)["tally"]["degraded"] == 1
@@ -105,7 +105,9 @@ def test_two_rounds_and_degraded_rerun_share_the_tree(pr):
     # No loop step wrote decisions.md; the terminal flush appends the log once.
     assert decisions.read_text(encoding="utf-8") == before
     logged = [ln for ln in loop.log.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    assert logged and logged[0].startswith("[tp-pr-iterate/note] round 1 C src/feature.py:30")
+    first = logged[0].split() if logged else []
+    assert first[:4] == ["[tp-pr-iterate/note]", "round", "1", "C"]
+    assert "src/feature.py:30" in first
     assert loop.flush(wt, decisions) == {"appended": len(logged)}
     assert decisions.read_text(encoding="utf-8") == before + "\n".join(logged) + "\n"
     assert loop.log.read_text(encoding="utf-8") == ""

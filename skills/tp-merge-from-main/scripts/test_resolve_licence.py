@@ -113,9 +113,14 @@ def test_s_j3_a_deduped_duplicate_is_a_drop_for_the_verbatim_classes(label):
 
 def test_s_j3_the_dedupe_licence_is_named_not_implied():
     """The licence lives in a named constant, not in the choice of `set` over `Counter`. That
-    implicitness is what hid S-J3 and S-J4 — this asserts the two classes that hold it and, by
-    equality rather than membership, that no class quietly joins them."""
-    assert CROSS_SIDE_DEDUPE == frozenset({"append-only-log", "design-inventory-row-merge"})
+    implicitness is what hid S-J3 and S-J4 — this asserts the three classes that hold it and, by
+    equality rather than membership, that no class quietly joins them. `last-updated-preamble`
+    joined deliberately: its licence is narrowed to the one `*Last updated:` key.
+    `log-entry-insertion` joined deliberately too (PR #206): its licence is narrowed to the whole
+    log entries both blocks open or close with (`resolve_totality.shared_entry_affix`)."""
+    assert CROSS_SIDE_DEDUPE == frozenset(
+        {"append-only-log", "design-inventory-row-merge", "last-updated-preamble",
+         "log-entry-insertion"})
 
 
 # ---- S-K1 / S-K2: WHERE the licence applies, not only what it says -----------------------------

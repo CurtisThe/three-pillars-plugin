@@ -25,6 +25,7 @@ _SHARED = str(Path(__file__).resolve().parent)
 if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
+import scratch_root
 from task_scope_files import (  # noqa: E402,F401 — re-exported public API
     classify_path,
     norm_path,
@@ -32,11 +33,14 @@ from task_scope_files import (  # noqa: E402,F401 — re-exported public API
 )
 from task_targets import NON_CANONICAL, parse_targets  # noqa: E402,F401 — re-exported
 from task_scope_runner import (  # noqa: E402,F401 — re-exported public API
+    NEEDS_SHELL,
     RUNNER_BROKEN_RCS,
     pytest_config,
+    runner_broken,
     resolve_runner,
     run_capture,
     runner_argv,
+    shell_token,
 )
 
 # --- Task blocks and status --------------------------------------------------------
@@ -105,6 +109,7 @@ _GIT_LOCAL_ENV = (
     "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
 )
 _WORKTREES_PREFIX = ".claude/worktrees/"
+_SCRATCH_PREFIX = scratch_root.SCRATCH_DIR + "/"
 
 
 def row_test_paths(row: dict) -> list[str]:
@@ -122,8 +127,9 @@ def _git_env(**extra: str) -> dict:
 
 def dirty_outside(root, design_dir_rel: str) -> list[str]:
     """Uncommitted paths (``git status --porcelain -uall``) outside the design dir and
-    outside ``.claude/worktrees/`` — the dispatcher's own lock/decisions writes and
-    nested attempt dirs are not dirt."""
+    outside ``.tp-scratch/`` and the legacy ``.claude/worktrees/`` — the
+    dispatcher's own lock/decisions writes and nested attempt dirs are not
+    dirt."""
     out = subprocess.run(
         ["git", "-C", str(root), "status", "--porcelain", "-uall", "-z"],
         capture_output=True, text=True, check=True, env=_git_env(),
@@ -142,7 +148,7 @@ def dirty_outside(root, design_dir_rel: str) -> list[str]:
             i += 1
     design = norm_path(design_dir_rel or "").strip("/")
     keep = [p for p in paths
-            if not p.startswith(_WORKTREES_PREFIX)
+            if not p.startswith((_WORKTREES_PREFIX, _SCRATCH_PREFIX))
             and not (design and (p == design or p.startswith(design + "/")))]
     return sorted(set(keep))
 

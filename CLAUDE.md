@@ -53,7 +53,9 @@ For structured implementations with full confidence:
 /tp-phase-implement → execute a phase (red-green-refactor)
 /tp-phase-review   → review completed phase
 /tp-implementation-audit → final audit
+/tp-design-learn    → propagate results into project docs (closeout, before complete)
 /tp-design-complete → archive to three-pillars-docs/completed-tp-designs/ (offers PR to base)
+/tp-pr-iterate      → review loop on the closed PR (refuses an un-archived design)
 ```
 
 ## Spike Pipeline
@@ -110,18 +112,22 @@ Most spike skills support `--auto` for autonomous execution:
 /tp-session-clear   → clear stale context when switching tasks
 ```
 
-**Context window hygiene**: When context exceeds 200k tokens (visible in the status line as `>200k`), proactively recommend the user save and restart:
+**Context window hygiene**: one threshold (~300k), two rules. A **design run's orchestrator** (its own top-level session, per `skills/_shared/design-run-launch.md`) is cycled save → `/clear` → restore at ~300k context by the **seat**, which runs `python3 skills/_shared/context_rollover_drive.py <slug>` on each `idle` event its run watcher prints; the seat never rolls itself over. The mechanism, the abort rule and the degrade lines are in `skills/_shared/context-rollover.md`. For **the seat itself and any interactive session** the rule stays advisory — proactively recommend the user save and restart before context gets critical:
 1. Run `/tp-session-save {active-design}` to capture current state
 2. Suggest the user run `/clear` or start a new conversation
 3. After restore: `/tp-session-restore {design-name}` to pick up where they left off
 
-This preserves continuity while keeping context lean. Don't wait until context is critical — recommend at 200k so the user has room to finish their current thought.
+This preserves continuity while keeping context lean. Don't wait until context is critical — recommend at ~300k so the user has room to finish their current thought.
 
 **After `/clear`**: Check if `.claude/last-design` exists (project root). If it does, read the design name and proactively offer to restore: "You were working on `{name}`. Want me to run `/tp-session-restore`?"
 
 ## File Size Limits
 
 Keep individual files under **500 lines / 50k characters** where possible. Claude Code's Read tool returns ~2000 lines per call and its Edit tool needs a unique string match, so oversized files degrade code review, design analysis, and council deliberation. If a file grows beyond this range, split it by responsibility.
+
+## The consumer-repo rule
+
+Every enforcement the framework relies on must ship and run in a user's repo; a floor that exists only in the three-pillars dev repo raises nobody's floor. See `skills/_shared/consumer-repo-rule.md` for the canonical rule, the audit question, and where it applies.
 
 ## Commits
 
@@ -145,6 +151,8 @@ Graceful handoff: run `/tp-design-release {name}` to step away cleanly — `owne
 Read-only skills (`/tp-session-restore`, review/audit/learn) inspect the lock and warn, but never block.
 
 See `skills/_shared/collaboration.md` for the full protocol, lock.json schema, and stale-lock handling.
+
+**Launching design runs** (the seat): start every design run with `python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> …` — it opens the run's own tmux session, links it into the seat, writes the seat brief and types the first message (`skills/_shared/design-run-launch.md`). **Never** start one with a hand-written `tmux new-session`. Pass `--local-mode wait` when the run must wait for the GPU rather than fall back to Sonnet. **Precedence for every launch**, highest first: flags passed on this launch (`--model`, `--local-mode`) > the role (backend and Remote Control only) > routes.conf (everything else) > never the parent session's env; a design run launches with `CLAUDE_LAUNCHER_ROLE=run`.
 
 ## Council
 

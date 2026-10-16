@@ -1,15 +1,14 @@
 ---
 name: tp-pr-iterate
 description: "Autonomous PR-iteration loop driver — poll review comments, classify (heuristic + Sonnet), defer conflicting structural fixes, dispatch to `tp-pr-fix` per round, reply-and-resolve every thread, apply caps + guards, and terminate only at two-stable: both review sources quiet AND zero unresolved actionable threads verified against GitHub. Classifier-flip is necessary but not sufficient."
-argument-hint: "{design} [--max-iterations N=8] [--max-wall-clock 4h] [--dry-run] [--dispose-only]"
+argument-hint: "{design} [--max-iterations N=8] [--max-wall-clock 4h] [--dry-run] [--dispose-only] [--cheap-tier[=ab]]"
 ---
 
 # tp-pr-iterate — PR-Iteration Loop Driver
 
 A long-running loop over a single open PR. Each iteration polls for new
-review comments, classifies them, defers conflicts to a human, calls
-`tp-pr-fix.run_round` for the structural subset, and re-enters the wait.
-Terminates on:
+review comments, classifies them, defers conflicts to a human, and calls
+`tp-pr-fix.run_round` for the structural subset. Terminates on:
 
 - **Two-stable** (the one success terminal) — in a single round **both**
   review sources are quiet (`/code-review` returns `[]` AND no new `structural`
@@ -29,61 +28,61 @@ Terminates on:
 - **Mid-loop human push** (yield to human) — a non-`[tp-pr-fix iter-` commit
   appeared on the branch since `last_loop_sha`.
 - **Round budget** (`round_budget.tick`, every round, limits from `pdw.guards.*`) —
-  `budget-exhausted` (blocking findings at `round_cap`, default 6; diff growth past 1.5×
+  `budget-exhausted` (blocking findings at `round_cap`, default 3; 2 under review-weight just-do-it; diff growth past 1.5×
   the round-1 baseline; test/code ratio; `budget-error`), `cap-exhausted` (wall clock,
   default 4h) or `convergence-failure` (three consecutive blocking review rounds).
-- **All-conflicting deferral** — every comment in a round had an
-  overlapping `line_range` with another, so the loop couldn't proceed.
+- **All-conflicting deferral** — every comment in a round had an overlapping `line_range` with another, so the loop couldn't proceed.
 
 ## Arguments
 
 - `{design}` — kebab-case design name, validated per `skills/_shared/validate-name.md`.
   Resolves the worktree on branch `tp/{design}` and the design directory.
-- `--max-iterations N` / `--max-wall-clock <duration>` — accepted but informational: the
-  enforced limits are `pdw.guards.round_cap` / `wall_clock_sec` in config (Termination matrix).
-- `--dry-run` — fetch + classify + log what the loop *would* do, but do
-  NOT invoke `tp-pr-fix.run_round`. Use this to verify classifier output
-  on a real PR before letting the loop write commits.
-- `--dispose-only` — calls `thread_dispose.dispose_threads` once and exits;
-  no iteration, no fix dispatch, no backoff/poll loop. Use this to
-  reply-and-resolve all open review threads out-of-band (e.g. after a
-  manual head-SHA bump or when threads arrive outside a loop run). This is
-  a flag, NOT a new skill. See the `--dispose-only mode` section below.
+- `--max-iterations N` / `--max-wall-clock <duration>` — informational; the enforced limits are
+  `pdw.guards.round_cap` / `wall_clock_sec` in config (Termination matrix).
+- `--dry-run` — fetch + classify + log what the loop *would* do, but do NOT invoke
+  `tp-pr-fix.run_round`; verify classifier output on a real PR before letting the loop write commits.
+- `--dispose-only` — calls `thread_dispose.dispose_threads` once and exits; no iteration,
+  no fix dispatch, no poll loop. Reply-and-resolve open threads out-of-band (after a
+  manual head-SHA bump, or when threads arrive outside a loop run). See the `--dispose-only mode` section.
+- `--cheap-tier[=ab]` — deprecated, a no-op: the cheap tier is always on (review prep, scaffolds, classifier); only
+  `models.<slot>: "off"` opts a slot out. Protocol: `cheap-tier.md`. The cheap review finders: `strata-finders.md`.
 
 ## Prerequisites
 
 - `gh` CLI installed and authenticated.
 - A clean `tp/{design}` worktree with an open PR on `origin`.
-- `.three-pillars/config.json` — `pdw.guards.*` (`round_cap`, `growth_multiplier`,
-  `test_code_ratio`, `ratio_floor_lines`, `k_consecutive`, `wall_clock_sec`,
-  `idle_timeout_sec`) override the defaults; `review.angles` overrides the review angles.
-  `review.expects_copilot` (default true) declares whether Copilot code review is an
-  available reviewer here; set it **false** on a repo with no Copilot entitlement so
-  the two-stable terminal converges on the `/code-review` arm alone instead of
-  spinning to `cap-exhausted` (see step 10b — Copilot-optional terminal).
+- Design closed first: `… → /tp-design-learn → /tp-design-complete → /tp-pr-iterate → merge → /tp-post-merge` (the loop converges the head the human merges).
+- `.three-pillars/config.json` — `pdw.guards.*` (`round_cap`, `growth_multiplier`, `test_code_ratio`, `ratio_floor_lines`, `growth_floor_lines`, `k_consecutive`, `wall_clock_sec`, `idle_timeout_sec`) override the defaults; `growth_floor_lines` (default 300 changed lines) means growth and ratio are judged only above it; `review.angles` overrides the review angles.
+  `review.expects_copilot` (default true) declares whether Copilot review is available; set it
+  **false** on a repo with no Copilot entitlement so the terminal converges on the `/code-review`
+  arm alone instead of spinning to `cap-exhausted`.
 - The worker `/tp-pr-fix` is installed (built by Phase 4).
+
+### First run: review guidance (M5)
+
+Run `python3 "$TP_ROOT"/skills/_shared/review_instructions.py status` once before the first round; on `present` or `declined` the step is silent (without the file, rounds apply the review bar alone):
+
+- status `absent` → offer to scaffold. **Yes** → `python3 "$TP_ROOT"/skills/_shared/review_instructions.py scaffold` (writes `.github/review-instructions.md` + `.github/copilot-instructions.md`, never overwrites) and tell the user to commit them. **No** → `python3 "$TP_ROOT"/skills/_shared/repo_config_load.py set review.instructions_declined true`.
+- Without `gh` the scaffold is local-only — Copilot reads the file only after the user pushes it.
+- **`--auto`** (loop run unattended, e.g. `/tp-run-full-design` Tier 7): do not scaffold; log the `review_instructions` status/offer to `decisions.md`.
 
 ## Loop body
 
 Each round follows **`round-topology.md`** (angles as data, per-round and per-angle scratch,
-path authority, round tail, inline-fix contract, log flush, recovery). The round decision is
+path authority, round tail, inline-fix contract, log flush, recovery). The convergence rules
+(severity authority, freeze, delta rounds, review weight, dispositions, evidence-complete, caps)
+are in **`convergence-rules.md`**. The round decision is
 `loop_driver.run_round` (shelled as `run_round.py`), which calls `round_budget.tick` every round.
 Pure helpers, all independently tested in `test_loop_driver.py`:
 
-- `_compute_next_wait(prev) -> int` — doubling backoff (60s → 600s cap).
-- `_poll_step(state, new_comments, now, config) -> (state, terminal?)` —
-  pre-classification checks: idle-timeout, human-push detection.
-- `_detect_conflicts(classified) -> (deferred_ids, kept)` — line-range
-  overlap predicate for the structural subset.
-- `_apply_conflicts(state, classified, now) -> (state, kept, terminal?)` —
-  wraps the detect step with transition + terminal logic.
+- `_compute_next_wait` (backoff 60s → 600s), `_poll_step` (idle-timeout, human-push),
+  `_detect_conflicts` / `_apply_conflicts` (structural line-range overlap → deferred).
 - `round_budget.tick(state, ...) -> (state, terminal?, detail)` — round cap, diff
   growth, test/code ratio, k-consecutive, wall clock; a terminal gets the F9 label.
 
 ### Single iteration
 
-0. **Run first-run preflight** per `skills/_shared/first-run.md`. (Runs once at
-   loop open, before the first iteration.)
+0. **Run first-run preflight** per `skills/_shared/first-run.md` (once, before round 1), then `python3 "$TP_ROOT"/skills/_shared/closeout_gate.py --design {design}`: exit 1 → print its line and stop; `--dispose-only` skips it. `converge.py` returning `design-not-archived` (exit 3) is a stop: run `/tp-design-learn` then `/tp-design-complete`, re-run the loop.
 1. **Backoff sleep** — `time.sleep(_compute_next_wait(prev_wait))`. First
    pass uses 60s.
 2. **Poll** — `gh pr view <pr_url> --json comments,reviews` (and
@@ -97,24 +96,29 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
    sub-subagents), so a lone dispatch is a single-pass review that misses what the full
    harness catches.** The loop driver runs at the **top level**, so it fans out the
    angles ITSELF — several parallel finder dispatches (each a 1-level fan-out), merged
-   fail-closed. The ANGLES are data (`angles.py` `DEFAULT_ANGLES`, or `review.angles`);
-   the round runs the round-dir flow of `round-topology.md`:
+   fail-closed. The ANGLES are data (`angles.py` `DEFAULT_ANGLES`, or `review.angles`); the
+   round runs the round-dir flow of `round-topology.md`:
+   `cheap-tier.md` §Pre-round runs before sub-step 1 (and `prepare` takes `--prep-dir`), §Scaffold
+   between sub-steps 2 and 3, and §Tail lines adds its lines to the round tail's prompt.
+   Before round 1, run the context scout (`strata-finders.md` §Context scout; its `rulings.md` lands in
+   `<proof_root>/rounds/<pr>/`); re-run it when `context_scout.py needs-refresh` exits 0.
 
-   1. `round_scratch.py prepare --effort <_codereview_effort(state)> …` → round dir `R` and
+   1. `round_scratch.py prepare --effort <_codereview_effort(state)> --rulings <proof_root>/rounds/<pr>/rulings.md …` → round dir `R` and
       `R/angles.json`, the path authority (state, loop log, per-angle reply paths, `base`).
-   2. Fan out every manifest angle as `Agent(subagent_type="general-purpose", model="opus",
-      prompt=<manifest prompt>)` — reviews always Opus. Each writes its reply to its own
-      per-angle `reply_path` and returns one line.
+   2. Fan out every manifest angle as `Agent(subagent_type=<the entry's agent_ref>, model=<the
+      entry's dispatch_model>, prompt=<manifest prompt>)` (`agent_ref`: `-deep`/xhigh on round 1, high after; `angles.review_agent`) on the cheap engine: Sonnet in parallel, Strata one at a time. Dispatch the `opus-check` angle last, after every finder `reply.md` exists. Skipped angles are not dispatched. Each pipes its
+      reply into its prompt's `round_scratch.py put` command (never a direct write) and returns one line.
    3. Round tail: `reproduce.py --round-dir R --cwd . --head <head>` merges the replies
       (`review_merge.merge_codereview_angles`, fail-closed) and runs each blocking finding's
       reproducer; a non-reproducing finding becomes a non-blocking note.
-   4. Clean round: `converge.py --round-dir R`. Otherwise
-      `review_merge.post_codereview_comment` (MANDATORY, every invocation, even on `[]`), then
-      shell `run_round.py` with stdin `pr_url`, `round`, `ordinal`, `class_log_path` and
+   4. Clean round: `converge.py --round-dir R`. Otherwise `proof_post.py` (MANDATORY, every
+      invocation, even on `[]`; posts as `github.pr_author_account` via the helper, never add a
+      `GH_TOKEN` prefix; a PR already carrying a human-authored digest must re-run `converge` or
+      `proof_post.py` to repost as the bot), then shell `run_round.py` with stdin `pr_url`, `round`, `ordinal`, `class_log_path` and
       `review_base` (the base-branch tip, re-fetched every round) from the manifest.
    5. On `action == "fix"`: the inline fix (step 9), `paths=` from `tree_scope.derive_fix_paths`.
-   6. `round_scratch.py tail-check --round-dir R`; at a terminal `round_scratch.py flush` moves
-      the loop log into `decisions.md` (committed only at `two-stable`, never pushed).
+   6. `round_scratch.py tail-check --round-dir R`; a non-null tail-envelope `finalizer_stop` runs `finalizer_cli prepare` → `tp-finalizer` → `apply` (`finalizer-first.md`) before any label; `resolved` starts the next round (the grant lifts the terminal); any operator question per `skills/_shared/escalation.md`;
+      otherwise, at a terminal, `round_scratch.py flush` moves the loop log into `decisions.md` (committed and pushed only at `two-stable`; the gate carries the proof across it via `round_log_carry`); an operator stop runs `round_scratch.py stop` (`round-topology.md` §Log flush).
 
    - **Multi-angle, not single-pass.** Dispatch the angle set every round at the
      `--effort` level `_codereview_effort(state)` computes: `max` when the prior round had
@@ -124,16 +128,16 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
      inside the loop; a single `/code-review` subagent reviewing in one pass
      demonstrably misses real defects.
    - **Fail-closed parse — an UNPARSEABLE review is NOT a clean one.**
-     `review_merge.merge_codereview_angles` (via `parse_codereview_findings_or_block`)
-     parses each angle with `parse_codereview_result`, which distinguishes a genuine
-     `[]` (clean) from "no parseable JSON array" (unparseable). An unparseable angle
+     `review_merge.merge_codereview_angles` parses each angle: exactly one `{"findings": [...]}`
+     object (`_shared/strict_json_reply.py`); `{"findings": []}` is clean, anything else
+     (prose, a bare list, a second fence, a repeated key) is unparseable. An unparseable angle
      contributes a **structural** `_unparseable_finding` sentinel rather than collapsing
      to `[]`, so a silent parse failure can **never** read as clean and false-converge
      the two-stable terminal. Never use the bare `parse_codereview_response` on the
      convergence path.
    - **Posting the summary comment is mandatory on every invocation, including a clean
      (`[]`) result** — `review_merge.post_codereview_comment` renders a Copilot-style
-     body grouped by severity and posts it via REST. No silent reviews: each round
+     body grouped by severity and posts it via REST as `github.pr_author_account` (the helper discovers the config). No silent reviews: each round
      leaves a visible, auditable PR record (a parse failure shows as a structural
      "could not be parsed" finding, not "no findings"). Fail-open (a failed post is
      logged, never crashes the loop) but always attempted.
@@ -155,28 +159,30 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
      may satisfy `_independent_review_ran`; a same-context pass does not.
 3. **Pre-classification checks** — call `_poll_step(state, new_comments,
    now, config)`. If terminal, persist + return.
-4. **Heuristic prefilter** — for each comment, call
+4. **Heuristic prefilter** — first pass the comment list through `drop_marked`
+   (`from skills._shared.explainer_marker import drop_marked`), so the explainer's
+   brief and rulings comments never reach `classify`. Then for each comment, call
    `from skills._shared.classifier_heuristic import classify` directly
    (no Agent — this is pure deterministic Python). Split into `decided`
    and `borderline`.
-5. **Sonnet judge on borderlines** — invoke the model via SKILL prose:
+5. **Classifier judge on borderlines** — invoke the model via SKILL prose:
+   <!-- cheap-tier:classifier_judge -->
+   **Cheap-tier classifier:** run `python3 "$TP_ROOT"/skills/_shared/cheap_engine.py resolve pr_classifier [--local]`; `cheap_tier_cli.classifier_gate` stays an eval gate in front of it (Strata only when the gate passes, else the cheap default). Then `cheap-tier.md` §Classifier (the `skills/_shared/cheap-dispatch.md` loop, `--cheap-tier <mode>`, `<mode>` = `on`); a null rung or a drop means today's call below.
+   <!-- /cheap-tier -->
 
    ```
    prompt   = classifier_judge.build_prompt(borderline, diff_context)
    response = Agent(
        subagent_type="general-purpose",
-       model="claude-sonnet-4-6",
+       model=model_policy.model_for("classifier", config),
        prompt=prompt,
        description="classify-borderline-pr-comments",
    )
    classified_borderline = classifier_judge.parse_response(response)
    ```
 
-   `classifier_judge` only constructs the prompt and validates the
-   response against `classified-comment.v1.json` — **it has no
-   `import anthropic`** (asserted by Task 5.8's `ast.parse` invariant
-   test). The model invocation is the only step that lives in this
-   prose, not in the helper.
+   Default `sonnet`; override via `models.classifier`. See `model_policy.py`.
+   Why the call lives in prose, not the helper: `round-topology.md` §Classifier judge.
 
 6. **Merge** — `classified = decided + classified_borderline`.
 6b. **Normalize + dedupe both sources (Enhancement 1).** Map the classified
@@ -240,7 +246,7 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
     re-posts comments anchored to unchanged diff lines every round; without
     reply-and-resolve the loop re-litigates already-fixed items forever and
     the new-vs-stale signal is unusable. Resolve uses GraphQL
-    `resolveReviewThread` — never `gh pr edit` (broken on this repo). Track
+    `resolveReviewThread` — never `gh pr edit`, which breaks on some repos (observed where label edits silently no-op). Track
     every observed `thread_id` in `state.seen_thread_ids` and every resolved
     one in `state.resolved_thread_ids`.
 
@@ -255,7 +261,7 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
     "stale re-flags," skipped 9.5, and declared a bare classifier-flip; the
     ground-truth assertion in step 10b now makes that impossible.
 10. **Round budget** — `run_round` calls `round_budget.tick` before two-stable. A terminal
-    (`budget-exhausted` | `cap-exhausted` | `convergence-failure`) gets the F9 label.
+    (`budget-exhausted` | `cap-exhausted` | `convergence-failure`) gets the F9 label — a newly fired one only after the finalizer escalates (`skills/_shared/finalizer-first.md`).
 10b. **Two-stable termination (the only success terminal).** The round decision step
     (`run_round.py` / `loop_driver.run_round`) evaluates four conjuncts before converging.
     Only when all hold in the same round do you transition to `awaiting-human-review`:
@@ -330,9 +336,9 @@ exclusive-create and its `os.replace` leaves behind, it has no bytes worth prese
 deliberately does **not** cover schema-invalidity: `loop_driver.py` writes `consecutive_codereview_structural_rounds`, a key the shipped schema's
 `additionalProperties: false` rejects, so a real round-2 state is already schema-invalid and read-path validation would refuse every round after the first. **What a schema-invalid-but-parseable state does instead is *run*** — measured: the round proceeds to a normal `status: "ok"` envelope at exit 0 and the write-back overwrites the file. It does not escalate under some other token; it is not refused at all. Correspondingly, the never-overwrite promise is a property of the **refusal**, not of the file: what `load_or_bootstrap` rejects it leaves byte-identical, and what it accepts the round overwrites.
 
-**Where the state lives — and the honest limit.** `run_round.py`'s `state_path` is a **flat** iterate-state.v1 document; its only home is `.three-pillars/review-proof/iterate-state.v1.json`, the untracked convergence seed (`converge.py::_seed_state`, also `converge.py`'s default).
+**Where the state lives — and the honest limit.** `run_round.py`'s `state_path` is a **flat** iterate-state.v1 document; it lives at `<proof_root>/iterate-state.v1.json`, the untracked convergence seed (`converge.py::_seed_state`, also `converge.py`'s default). The proof root is what `proof_root.py` resolves: `<absolute git-dir>/three-pillars/review-proof`, **outside the working tree** (`review.proof_dir`, relative, or the uncommitted `TP_REVIEW_PROOF_DIR` overrides it; a legacy in-tree `.three-pillars/review-proof/` moves there once).
 **Never point `state_path` at `<worktree>/.three-pillars/run/state.json`** — that is the **merged-namespace** worktree-state document (step 11) owned by `state_io.py::write_state_atomic`, where iterate state nests under an `iterate` key beside `supervisor` and `state.v1.json` requires `schema_version` + `supervisor` with `additionalProperties: false`. Neither direction errors: absent, the bootstrap seeds a flat round-0 doc with no `supervisor`; present, the merged doc passes the read's `isinstance(dict)` check and the write-back replaces it with flat keys the schema forbids. A wrong `state_path` is a silent wrong result, not a refusal.
-Both paths are **gitignored** (the `.gitignore` patterns `.three-pillars/run/` and `.three-pillars/review-proof/`) and **no code path commits** either — resume survives a process crash **inside a live worktree** but **not** a **fresh clone**, which starts cold and bootstraps round 0 again. A *committed* per-round state is the **intended** contract, **not** one any current code path performs.
+Neither path is tracked (`.three-pillars/run/` is gitignored; the proof root sits under the worktree's git-dir and is removed with `git worktree remove`) and **no code path commits** either — resume survives a process crash **inside a live worktree** but **not** a **fresh clone**, which starts cold and bootstraps round 0 again. A *committed* per-round state is the **intended** contract, **not** one any current code path performs.
 
 ### Termination matrix
 
@@ -341,11 +347,11 @@ Both paths are **gitignored** (the `.gitignore` patterns `.three-pillars/run/` a
 | `awaiting-human-review`            | **two-stable** (success: both sources quiet + GitHub shows zero unresolved actionable threads) / idle-timeout (time-based yield — no ground-truth check) / human-push / all-conflicting | no        |
 | `blocked-no-independent-review`    | conjuncts 1–3 hold but no independent review ran for the current head (`_independent_review_ran` False) — terminal, not a keep-looping yield | yes       |
 | `budget-exhausted`                 | `round-cap` (blocking findings at `iteration >= round_cap`) / `growth-lines` / `test-code-ratio` / `budget-error` — raise the limit in config and re-run (`round-topology.md`) | yes |
-| `cap-exhausted`                    | `wall-clock` (`now - started_at > wall_clock_sec`)            | yes       |
+| `cap-exhausted`                    | `wall-clock` (active in-round time: `budget_active_elapsed_sec > wall_clock_sec`)            | yes       |
 | `convergence-failure`              | `k-consecutive` blocking review rounds                         | yes       |
 | `errored`                          | unhandled exception in the loop body                          | yes       |
 
-The `termination_reason` field records which trigger fired. **Two-stable is the
+A **newly fired** budget terminal (`run_round` returns `finalizer_stop`; the round tail copies it into `R/tail/envelope.json`, delivered via `put --slot tail`) runs the finalizer before any label: `prepare` → `tp-finalizer` → `apply`, per `skills/_shared/finalizer-first.md`; a held one labels as before. The `termination_reason` field records which trigger fired. **Two-stable is the
 only success terminal** — a round where `/code-review` returns `[]`, every Copilot
 thread is freshly resolved, AND a ground-truth `list_review_threads` re-fetch shows
 zero unresolved actionable threads. One clean round converges: a second clean round is not
@@ -429,8 +435,8 @@ source of truth).
   you to finish, re-run tests, and re-push. `/tp-merge-from-main` is the dedicated
   base-sync conflict-resolution skill for exactly this case; a free-hand `git merge` skips
   its zero-drop verifier and risks a silent content-drop. Resume the loop once
-  `/tp-merge-from-main` reports the branch green and pushed. (Landing the PR to
-  the base is the separate `/tp-merge` land gate, the human's call.)
+  `/tp-merge-from-main` reports the branch green and pushed. (Landing the PR to the base is the separate `/tp-merge` land gate, the human's call.)
+  An agent never resolves by hand what the driver defers; it reports and stops, per `/tp-merge-from-main`'s Resolution boundary. A new known issue takes a placeholder ID (see `skills/_shared/issue-id-placeholders.md`).
 
 ## Copilot review gotchas (observed)
 

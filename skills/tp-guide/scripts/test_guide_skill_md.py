@@ -1,50 +1,26 @@
-"""Grep invariants for `/tp-guide` SKILL.md (Phase 6 of parallel-design-worktrees).
+"""Structured check for `/tp-guide` SKILL.md.
 
-Two tests:
-- Section `## Other worktrees in flight` is present.
-- The section mentions reading per-worktree `state.json` so the cross-
-  worktree dashboard knows its data source.
+The SKILL.md prose (section headings, weight-class table wording, `state.json`
+mention) is not asserted here. The doc's references (paths such as
+`skills/_shared/weight-class.md`, helper scripts, flags, skills) are checked by
+`skill_refs` (invariant 46).
 
 Run with: pytest skills/tp-guide/scripts/test_guide_skill_md.py -q
 """
-
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
+import pytest
+
+SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
+REPO_ROOT = SKILL_MD.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "skills" / "_shared"))
 
 
-def _read() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
-
-
-def test_other_worktrees_section_present() -> None:
-    assert "## Other worktrees in flight" in _read(), (
-        "Phase 6 Task 6.1 — section header must be present"
-    )
-
-
-def test_reads_state_json_per_worktree() -> None:
-    assert "state.json" in _read(), (
-        "the Other-worktrees section must name the data source `state.json`"
-    )
-
-
-def test_weight_class_table() -> None:
-    """design-depth-axis Task 2.1 — step-7 four-class table + step-8 class line."""
-    text = _read()
-    # Four-class table rows, one per weight class.
-    for klass in ("Just do it", "Light", "Spike", "Full"):
-        assert f"**{klass}" in text, f"step-7 table must have a {klass!r} row"
-    # References the rubric axes and the protocol doc.
-    for axis in ("risk", "blast radius", "reversibility", "novelty"):
-        assert axis in text.lower(), f"step 7 must reference the {axis!r} rubric axis"
-    assert "skills/_shared/weight-class.md" in text, (
-        "step 7 must point at the weight-class protocol doc"
-    )
-    # Synthesis step requires class + one-line justification.
-    assert "weight class" in text.lower()
-    assert "justification" in text.lower(), (
-        "step 8 must require a class + one-line justification in the recommendation"
-    )
+def test_guide_skill_references_resolve(tmp_path):
+    """Every path, helper script and `/tp-*` skill SKILL.md names exists."""
+    skill_refs = pytest.importorskip("skill_refs")
+    assert SKILL_MD.exists()
+    assert skill_refs.check(REPO_ROOT, [SKILL_MD], cache_dir=tmp_path).issues == []

@@ -11,9 +11,30 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
+
+
+# gh reads these from the environment. A seat-launched run exports GH_TOKEN,
+# and the unconfigured create path passes os.environ through untouched, so an
+# inherited token would leak into the child env these tests inspect.
+_AMBIENT_GH_ENV = (
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GH_HOST",
+    "GH_REPO",
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_gh_env(monkeypatch):
+    for var in _AMBIENT_GH_ENV:
+        monkeypatch.delenv(var, raising=False)
 
 
 def _cfg(account="CurtisTheBot", used_for=None, github_overrides=None):

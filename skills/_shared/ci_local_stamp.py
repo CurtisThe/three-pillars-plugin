@@ -1,11 +1,11 @@
 """ci_local_stamp.py — CI-local green stamp for the merge gate.
 
-Writes a SHA-keyed stamp under the git dir when ci-local.sh completes
-successfully. The merge gate requires a fresh, clean stamp matching the PR head.
+Writes a SHA-keyed stamp under the git dir when the repo's gate command completes
+successfully (`ci_gate_run.py`, or the local CI script in the three-pillars dev repo). The merge gate requires a fresh, clean stamp matching the PR head.
 
 Threat model: DRIFT, not forgery. The stamp guards against a PR that is
 evaluated against a head the operator never ran CI on — e.g. a late force-push
-after a green ci-local run. A forged stamp requires a deliberate act (writing a
+after a green gate run. A forged stamp requires a deliberate act (writing a
 file under .git/) that the git transcript does not record; this is a considered
 residual, documented honestly. The stamp is NOT a cryptographic proof — it is a
 mechanical drift guard that requires intentional circumvention to bypass.
@@ -82,17 +82,84 @@ def _get_head_sha(repo_root: Path) -> str:
 def _is_dirty(repo_root: Path) -> bool:
     """Return True if there are uncommitted changes in the working tree.
 
-    Uses check=True so any git failure raises (matching _get_head_sha's posture).
+    Untracked files count, listed with an explicit --untracked-files=all so a
+    repo-local `status.showUntrackedFiles=no` cannot hide an untracked
+    conftest.py (A2-F1). Uses check=True so any git failure raises (matching
+    _get_head_sha's posture).
     Fail-closed: a git error propagates to the caller (write_stamp) rather than
     silently recording dirty=False on a tree whose cleanliness was never proven.
     """
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "status", "--porcelain"],
+        ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all"],
         capture_output=True,
         text=True,
         check=True,
     )
     return bool(result.stdout.strip())
+
+
+def _status_paths(repo_root: Path) -> "tuple[list[str], list[str]]":
+    """(changed tracked paths, untracked paths) from `git status --porcelain -z`.
+
+    NUL-separated, so non-ASCII names arrive unquoted; a rename/copy entry's
+    second (source) field is skipped. Untracked paths are listed PER FILE
+    (--untracked-files=all): a new directory's `tests/new/conftest.py` is never
+    collapsed to `tests/`, whatever `status.showUntrackedFiles` says, so the
+    post-run allowlist judges each file. Raises on git failure.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(repo_root), "status", "--porcelain", "-z",
+         "--untracked-files=all"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    tracked: list = []
+    untracked: list = []
+    fields = out.split("\0")
+    i = 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        if code == "??":
+            untracked.append(path)
+            continue
+        tracked.append(path)
+        if "R" in code or "C" in code:
+            i += 1  # the rename/copy source path
+    return tracked, untracked
+
+
+def _listing(paths: "list[str]", limit: int = 10) -> str:
+    shown = ", ".join(paths[:limit])
+    return shown + (f" (+{len(paths) - limit} more)" if len(paths) > limit else "")
+
+
+def _is_cache_output(path: str) -> bool:
+    """True iff an untracked `path` is a known test/bytecode cache (A2-F1).
+
+    Whole-path-component matching only — no directory-prefix acceptance:
+      * a `.pyc` file with a `__pycache__` directory component (a sourceless
+        `.pyc` outside `__pycache__` can shadow an import, so it is refused);
+      * anything under a `.pytest_cache` directory component;
+      * a file whose basename is exactly `.coverage` or matches `.coverage.*`
+        (NOT `.coverage*` — `.coveragerc` can override a committed fail_under).
+    Everything else (conftest.py, sitecustomize.py, build/, dist/, *.egg-info,
+    .mypy_cache, ...) can alter a test outcome and is not accepted."""
+    parts = path.split("/")
+    dirs, base = parts[:-1], parts[-1]
+    if base.endswith(".pyc") and "__pycache__" in dirs:
+        return True
+    if ".pytest_cache" in dirs:
+        return True
+    return base == ".coverage" or (base.startswith(".coverage.") and len(base) > 10)
+
+
+def _untracked_advice(untracked: "list[str]") -> str:
+    return (f"untracked, not ignored: {_listing(untracked)} — if this is build or "
+            "test output (__pycache__/, .pytest_cache/, build/), add an ignore rule "
+            "to .gitignore and commit it; otherwise commit or remove it")
 
 
 def _stamp_path(repo_root: Path) -> Path:
@@ -125,7 +192,13 @@ def write_stamp(
                             CI run (True=dirty, False=clean). write_stamp re-samples
                             dirty at write time and refuses (raises StampError) if:
                               (a) the run started dirty (expect_start_dirty=True), or
-                              (b) the write-time dirty state disagrees with start dirty.
+                              (b) the write-time dirty state disagrees with start dirty
+                                  through a TRACKED change, or through a new
+                                  untracked path that is not a known test/bytecode
+                                  cache (`_is_cache_output`). New cache files
+                                  after a clean start are the test run's own
+                                  output: stamped clean, reported as needing an
+                                  ignore rule.
                             This closes the asymmetric-drift window: a stash/revert or
                             temp-commit + hard-reset mid-run would otherwise produce a
                             false-clean stamp.  ci-local.sh captures dirtiness before
@@ -150,26 +223,52 @@ def write_stamp(
         raise StampError(
             f"HEAD drifted during CI run: expected {expect_head!r} "
             f"(captured at run start) but current HEAD is {head_sha!r}. "
-            "A commit landed mid-run; re-run ci-local.sh on the new HEAD."
+            "A commit landed mid-run; re-run the gate command on the new HEAD."
         )
 
     dirty = _is_dirty(repo_root)
 
     if expect_start_dirty is not None:
+        tracked, untracked = _status_paths(repo_root) if dirty else ([], [])
         if expect_start_dirty:
+            parts = []
+            if tracked:
+                parts.append(f"changed tracked files: {_listing(tracked)} — commit them")
+            if untracked:
+                parts.append(_untracked_advice(untracked))
             raise StampError(
                 "CI run started with uncommitted changes (dirty working tree); "
-                "stamps must be written from a clean tree. "
-                "Commit or stash your changes and re-run ci-local.sh."
+                "stamps must be written from a clean tree"
+                + ("".join(f"\n  {p}" for p in parts) or ".")
+                + "\nThen re-run the gate command."
             )
-        if dirty != expect_start_dirty:
+        if dirty and (tracked or not untracked):
             raise StampError(
-                f"Working tree dirty state changed during CI run: "
-                f"started {'dirty' if expect_start_dirty else 'clean'} "
-                f"but now {'dirty' if dirty else 'clean'}. "
-                "A stash/revert or mid-run change was detected; "
-                "re-run ci-local.sh on a consistently clean tree."
+                "Working tree dirty state changed during CI run: started clean "
+                "but now dirty"
+                + (f" (changed tracked files: {_listing(tracked)})" if tracked else "")
+                + ". A tracked file changed mid-run; "
+                "re-run the gate command on a consistently clean tree."
             )
+        foreign = [p for p in untracked if not _is_cache_output(p)]
+        if foreign:
+            raise StampError(
+                "Working tree dirty state changed during CI run: started clean "
+                "but new untracked paths appeared that are not a known test/bytecode "
+                "cache (__pycache__/**/*.pyc, .pytest_cache/, .coverage[.*]) and "
+                "could have altered the result"
+                f"\n  {_untracked_advice(foreign)}"
+                "\nThen re-run the gate command on a consistently clean tree."
+            )
+        if dirty:
+            # Only NEW allowlisted cache files (_is_cache_output): the test
+            # run's own bytecode/cache/coverage output. HEAD and every tracked
+            # file are unchanged since the clean start, so the stamp is honest —
+            # report the output as needing an ignore rule (the next run's
+            # untracked-inclusive start check would refuse it).
+            print(f"ci-local stamp: the gate command left output — "
+                  f"{_untracked_advice(untracked)}", file=sys.stderr)
+            dirty = False
 
     created_at = datetime.now(tz=timezone.utc).isoformat()
 
@@ -217,11 +316,20 @@ def read_stamp(repo_root: Path) -> "dict | None":
     return data
 
 
+def _gate_run_phrase(gate_command: "str | None") -> str:
+    """The "run …" clause for FAIL details: the declared command, or `declare
+    ci.gate_command` when unset; the `ci_gate_run.py` wrapper always. Never `ci-local.sh`."""
+    if gate_command is not None:
+        return f"run {gate_command} (or python3 $TP_ROOT/skills/_shared/ci_gate_run.py)"
+    return "declare ci.gate_command (then run it, or python3 $TP_ROOT/skills/_shared/ci_gate_run.py)"
+
+
 def pred_ci_local_stamp(
     head_oid: str,
     *,
     repo_root: str,
     stamp: "dict | None | object" = _UNSET,
+    gate_command: "str | None" = None,
 ) -> PredicateResult:
     """Predicate: a fresh, clean ci-local stamp exists matching head_oid.
 
@@ -265,7 +373,7 @@ def pred_ci_local_stamp(
             return PredicateResult(
                 name="ci_local_stamp",
                 verdict=GateVerdict.FAIL,
-                detail="no ci-local stamp — run scripts/ci-local.sh on this head before landing",
+                detail=f"no ci-local stamp — {_gate_run_phrase(gate_command)} on this head before landing",
             )
 
         stamp_schema = resolved_stamp.get("schema")
@@ -284,10 +392,8 @@ def pred_ci_local_stamp(
             return PredicateResult(
                 name="ci_local_stamp",
                 verdict=GateVerdict.FAIL,
-                detail=(
-                    f"stale stamp: stamp.head_sha={stamp_sha!r} != head_oid={head_oid!r} "
-                    "(drift — run ci-local.sh on the current head)"
-                ),
+                detail=(f"stale stamp: stamp.head_sha={stamp_sha!r} != head_oid={head_oid!r} "
+                        f"(drift — {_gate_run_phrase(gate_command)} on the current head)"),
             )
 
         dirty_val = resolved_stamp.get("dirty")
@@ -295,10 +401,8 @@ def pred_ci_local_stamp(
             return PredicateResult(
                 name="ci_local_stamp",
                 verdict=GateVerdict.FAIL,
-                detail=(
-                    f"stamp was written with uncommitted changes (dirty={dirty_val!r}) — "
-                    "tests ran on uncommitted state; commit your changes and re-run ci-local.sh"
-                ),
+                detail=(f"stamp was written with uncommitted changes (dirty={dirty_val!r}) — "
+                        f"tests ran on uncommitted state; commit and re-run {_gate_run_phrase(gate_command)}"),
             )
 
         return PredicateResult(

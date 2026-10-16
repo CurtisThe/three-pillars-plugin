@@ -112,3 +112,64 @@ def test_nondict_json_is_absent_not_crash(tmp_path):
         )
         assert r.returncode != 0
         assert "Traceback" not in (r.stderr + r.stdout)
+
+
+def test_warn_count_round_trip(tmp_path):
+    # H4: a WARN-only pass still records a CURRENT artifact that carries the
+    # WARN count (so `--check` can report "N WARN(s)") and the warning bodies
+    # (truncated to at most 20 for a readable artifact).
+    _write_plan(tmp_path, "# Plan\n\n### Task 1.1: do the thing\n")
+    warnings = [f"phase {i} budget note" for i in range(1, 30)]  # 29 warns
+    record = audit_artifact.write_pass_artifact(tmp_path, "standard", warnings=warnings)
+
+    # The on-disk record agrees with the return value and stores the count +
+    # at most 20 warnings (29 → 20, first 20 preserved in order).
+    on_disk = json.loads((tmp_path / ".plan-audit-pass.json").read_text(encoding="utf-8"))
+    assert on_disk == record
+    assert record["warn_count"] == len(warnings)
+    assert record["warnings"] == warnings[:20]
+    assert len(record["warnings"]) <= 20
+
+    # The status gate still passes (digest bound only) and reports the count.
+    status, reason = audit_artifact.artifact_status(tmp_path)
+    assert status == "ok"
+    assert reason == "29 WARN(s)"
+
+    # `--check` exits 0 and surfaces the count plus the first 5 warnings.
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0
+    assert "plan-audit: current pass (29 WARN(s))" in r.stdout
+    for i in range(1, 6):
+        assert f"phase {i} budget note" in r.stdout
+    assert "phase 6 budget note" not in r.stdout  # only first 5 surfaced
+
+
+def test_old_artifact_without_warn_count_reads_zero(tmp_path):
+    # Back-compat: an artifact written BEFORE warn_count/warnings existed (no
+    # such keys at all) must read as a current pass with warn_count 0, not
+    # crash and not flip to absent/stale.
+    _write_plan(tmp_path, "# Plan\n\n### Task 1.1: t\n")
+    digest = audit_artifact.plan_digest(tmp_path / "plan.md")
+    (tmp_path / ".plan-audit-pass.json").write_text(json.dumps({
+        "verdict": "pass",
+        "plan_digest": digest,
+        "plan_audit_mode": "light",
+        "audited_at": "2026-01-01T00:00:00+00:00",
+    }))
+    record = audit_artifact.read_pass_artifact(tmp_path)
+    assert record is not None and "warn_count" not in record
+
+    status, reason = audit_artifact.artifact_status(tmp_path)
+    assert status == "ok"
+    assert reason == "0 WARN(s)"
+
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0
+    assert "plan-audit: current pass (0 WARN(s))" in r.stdout
+    assert "Traceback" not in (r.stderr + r.stdout)

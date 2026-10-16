@@ -10,17 +10,29 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Ensure _shared/ is on sys.path for sibling imports (diff_balloon_guard.py pattern).
+_SHARED_DIR = Path(__file__).resolve().parent
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
+
+from default_branch import (  # noqa: E402
+    DefaultBranchError,
+    default_branch_names,
+    default_ref,
+    resolve_default_branch,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 BASELINE = "2026-06-12T23:59:59Z"  # anomaly baseline date pin (committer date)
-# Inclusive at exactly this timestamp: --since-as-filter matches >= BASELINE
-# (accepted one-second edge; all six evidence commits predate it by days).
+# Inclusive at exactly this timestamp: --since-as-filter matches >= BASELINE.
 LEDGER_RELPATH = "three-pillars-docs/tp-designs/orchestration/hot-patches.md"
 
 # Framework paths flagged by the anomaly scan (post-baseline non-merge commits)
@@ -29,10 +41,10 @@ FRAMEWORK_PREFIXES = (
     "framework-check.sh",
     "test-framework-check.sh",
     ".three-pillars/",
+    "scripts/fc-selftest/",
 )
 
-# Anomaly carve-out: three-pillars-docs/ paths are implicitly exempt because
-# no docs path can ever match FRAMEWORK_PREFIXES (no overlap by construction).
+# Anomaly carve-out: three-pillars-docs/ paths are implicitly exempt (no overlap with FRAMEWORK_PREFIXES).
 
 LEDGER_ENTRY_RE = re.compile(
     r"^-\s+([0-9a-f]{7,})\s+\|\s+(\d{4}-\d{2}-\d{2})\s+\|\s+trigger:\s*([^|]+?)\s*\|"
@@ -50,12 +62,53 @@ _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 
 def _git(args: list[str], repo: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a git command in repo; return the CompletedProcess."""
-    return subprocess.run(
-        ["git", "-C", repo] + args,
-        capture_output=True,
-        text=True,
-        check=check,
-    )
+    return subprocess.run(["git", "-C", repo] + args,
+                          capture_output=True, text=True, check=check)
+
+
+def _resolve_scan_ref(repo: str) -> str | None:
+    """default_ref, with a plain-verify fallback for a ref default_branch's
+    stricter object-existence check rejects (e.g. a corrupted object store) —
+    a git-log-time failure that must still reach git log/show (fail-closed),
+    not the degraded-clone warning."""
+    ref = default_ref(repo, prefer="local")
+    if ref is not None:
+        return ref
+    for name in default_branch_names(repo):
+        r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", name],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return name
+    return None
+
+
+def union_ledger_text(repo: str, local_text: str) -> str:
+    """Union of the ledger text at both verifying default refs and `local_text`.
+
+    `local_text` is the work-tree ledger text or the `--ledger-file` text (empty
+    string if neither exists). For the resolved default-branch name `<n>`, the
+    ledger is read from `<n>:LEDGER_RELPATH` and `origin/<n>:LEDGER_RELPATH`
+    via `git show`; a ref that does not verify or that lacks the file
+    contributes nothing, and a `DefaultBranchError` (no refs) is caught.
+    Concatenation is the union: a ledger entry only discharges, and
+    `parse_ledger` parses each line independently, so duplicates are harmless.
+    """
+    chunks: list[str] = []
+    try:
+        name = resolve_default_branch(repo)
+    except DefaultBranchError:
+        name = None
+    if name is not None:
+        for ref in (name, f"origin/{name}"):
+            result = subprocess.run(
+                ["git", "-C", repo, "show", f"{ref}:{LEDGER_RELPATH}"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                chunks.append(result.stdout)
+    if local_text:
+        chunks.append(local_text)
+    return "\n".join(chunks)
 
 
 def _commit_date_utc(sha: str, repo: str) -> str | None:
@@ -75,56 +128,44 @@ def _commit_date_utc(sha: str, repo: str) -> str | None:
 
 
 def _trailered_commits_on_head(repo: str) -> list[str]:
-    """Return full SHAs of commits on HEAD that carry a hot-patch trailer.
+    """Full SHAs of commits on the resolved default-branch ref carrying a
+    hot-patch trailer (any key casing: 'hot-patch', 'Hot-Patch', 'HOT-PATCH :').
 
-    Scans only the default branch HEAD (master then origin/master) — never --all.
-    Unmerged hot-patch PRs never incur a ledger obligation.
-
-    Raises RuntimeError on git log failure so caller exits 2.
-    """
-    # Resolve the default branch ref
-    for ref in ("master", "origin/master"):
-        r = subprocess.run(
-            ["git", "-C", repo, "rev-parse", "--verify", ref],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            head_ref = ref
-            break
-    else:
+    Prefilter with `git log -i --grep=^hot-patch` (admits mid-message mentions
+    too), then confirm each candidate by the `%(trailers:key=hot-patch)` parse
+    (a mid-message `hot-patch:` line is NOT a trailer and is dropped). Only
+    confirmed SHAs count; no hits → [] without the confirm call. Scans only
+    the resolved ref, never --all. Raises RuntimeError on git log failure."""
+    head_ref = _resolve_scan_ref(repo)
+    if head_ref is None:
         warnings.warn(
-            "hot_patch_check: neither 'master' nor 'origin/master' resolves; "
+            "hot_patch_check: no default-branch ref resolves; "
             "trailered-commit scan skipped (degraded clone)",
             stacklevel=2,
         )
         return []
 
-    # unfold=true avoids multi-line folded trailer issues.
-    # Validate each SHA token against ^[0-9a-f]{40}$ to skip parser garbage.
     result = subprocess.run(
-        ["git", "-C", repo, "log", head_ref,
-         "--format=%H %(trailers:key=hot-patch,valueonly,separator=%x2C,unfold=true)"],
+        ["git", "-C", repo, "log", head_ref, "-i", "--grep=^hot-patch", "--format=%H"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"git log failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
+        raise RuntimeError(f"git log failed (exit {result.returncode}): {result.stderr.strip()}")
+    candidates = [s for s in (ln.strip() for ln in result.stdout.splitlines()) if _SHA40_RE.match(s)]
+    if not candidates:
+        return []
 
-    shas = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split(" ", 1)
-        sha = parts[0]
-        # Validate full SHA token to catch parser garbage
-        if not _SHA40_RE.match(sha):
-            continue
-        trailer_val = parts[1].strip() if len(parts) > 1 else ""
-        if trailer_val:
-            shas.append(sha)
-    return shas
+    fmt = "%H %(trailers:key=hot-patch,valueonly,separator=%x2C,unfold=true)"
+    confirm = subprocess.run(["git", "-C", repo, "log", "--no-walk", *candidates, f"--format={fmt}"],
+                             capture_output=True, text=True)
+    if confirm.returncode != 0:
+        raise RuntimeError(f"git log failed (exit {confirm.returncode}): {confirm.stderr.strip()}")
+    confirmed = []
+    for line in confirm.stdout.splitlines():
+        parts = line.strip().split(" ", 1)
+        if len(parts) == 2 and _SHA40_RE.match(parts[0]) and parts[1].strip():
+            confirmed.append(parts[0])
+    return confirmed
 
 
 # ---------------------------------------------------------------------------
@@ -144,39 +185,28 @@ def parse_ledger(text: str) -> list[dict]:
     else:
         body = text[idx + len(anchor):]
 
-    entries = []
-    for m in LEDGER_ENTRY_RE.finditer(body):
-        entries.append({
-            "sha": m.group(1),
-            "date": m.group(2),
-            "trigger": m.group(3).strip(),
-            "broke": m.group(4).strip(),
-            "fix": m.group(5).strip(),
-            "touched": m.group(6).strip(),
-        })
+    entries = [
+        {"sha": m.group(1), "date": m.group(2), "trigger": m.group(3).strip(),
+         "broke": m.group(4).strip(), "fix": m.group(5).strip(),
+         "touched": m.group(6).strip()}
+        for m in LEDGER_ENTRY_RE.finditer(body)
+    ]
 
     # Near-miss diagnostic: lines that look like entries but did not parse.
-    # Check both the stripped line (must match LEDGER_ENTRY_RE) and the raw
-    # line (must be anchored at column 0 — indented entries are not parsed).
-    import sys as _sys  # noqa: PLC0415
+    # Check the stripped line (must match LEDGER_ENTRY_RE) and the raw line
+    # (must be anchored at column 0 — indented entries are not parsed).
     for raw_line in body.splitlines():
         stripped = raw_line.strip()
         if not stripped.startswith("- "):
             continue
-        if LEDGER_ENTRY_RE.match(stripped):
-            # Looks syntactically valid but was not at column 0 → indented
-            if not raw_line.startswith("-"):
-                print(
-                    f"hot_patch_check: indented ledger entry not parsed: {raw_line!r}",
-                    file=_sys.stderr,
-                )
-        else:
+        if LEDGER_ENTRY_RE.match(stripped) and not raw_line.startswith("-"):
+            # Looks valid but was not at column 0 → indented
+            print(f"hot_patch_check: indented ledger entry not parsed: {raw_line!r}",
+                  file=sys.stderr)
+        elif not LEDGER_ENTRY_RE.match(stripped):
             # Starts with "- " but doesn't match the full regex
-            print(
-                f"hot_patch_check: ledger line looks like an entry but failed to parse: "
-                f"{stripped!r}",
-                file=_sys.stderr,
-            )
+            print(f"hot_patch_check: ledger line looks like an entry but failed to parse: "
+                  f"{stripped!r}", file=sys.stderr)
     return entries
 
 
@@ -242,35 +272,19 @@ def check_ledger_coverage(
 
 
 def check_anomaly(repo: str) -> list[str]:
-    """Return VIOLATION messages for post-baseline unsanctioned non-merge commits.
+    """VIOLATION messages for post-baseline unsanctioned non-merge commits.
 
-    Scans --first-parent --no-merges --since-as-filter=BASELINE on master.
-    Using --since-as-filter (git >= 2.37) ensures full-history traversal so a
-    backdated commit cannot truncate the walk and hide later post-baseline commits.
-    Commits touching only three-pillars-docs/** are silent (carve-out implied:
-    docs paths can never match FRAMEWORK_PREFIXES).
-    When neither master nor origin/master resolves, warns and skips (degraded clone).
-
-    Arm (c) keys on committer date, which a determined actor can backdate.
-    Accepted limitation: this lane's threat model is honest-operator-under-pressure,
-    not adversarial forgery.
-
-    Raises RuntimeError on git log failure so caller exits 2.
-    """
-    # Resolve the default branch ref
-    head_ref = None
-    for ref in ("master", "origin/master"):
-        r = subprocess.run(
-            ["git", "-C", repo, "rev-parse", "--verify", ref],
-            capture_output=True, text=True,
-        )
-        if r.returncode == 0:
-            head_ref = ref
-            break
+    Scans --first-parent --no-merges --since-as-filter=BASELINE (git >= 2.37,
+    full-history traversal so a backdated commit can't hide later ones) on the
+    resolved default branch. Docs-only commits are silent (three-pillars-docs/**
+    can never match FRAMEWORK_PREFIXES); no ref resolves → warn + skip. Arm (c)
+    keys on committer date (a determined actor can backdate; accepted limit).
+    Raises RuntimeError on git log failure so caller exits 2."""
+    head_ref = _resolve_scan_ref(repo)
 
     if head_ref is None:
         warnings.warn(
-            "hot_patch_check: neither 'master' nor 'origin/master' resolves; "
+            "hot_patch_check: no default-branch ref resolves; "
             "anomaly scan skipped (degraded clone)",
             stacklevel=2,
         )

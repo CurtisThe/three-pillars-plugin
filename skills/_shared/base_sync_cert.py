@@ -30,7 +30,8 @@ if str(_SHARED_DIR) not in sys.path:
 
 from auto_safe_resolution import AUTO_SAFE_PATHS, RESOLVED, resolve_conflict_bytes  # noqa: E402
 from base_sync_oracle import oracle_independent  # noqa: E402
-# Pure git-plumbing output parsers, split out per CLAUDE.md §File Size Limits. Re-imported into
+from numbering_carry import certify_numbering_link, numbering_trailer  # noqa: E402
+# Pure git-plumbing output parsers, split out per skills/_shared/file-size-caps.md. Re-imported into
 # THIS namespace so `base_sync_cert._parse_ls_tree_line` (and the suite's monkeypatch seams)
 # keep resolving exactly as before the split.
 from base_sync_plumbing import (  # noqa: E402,F401
@@ -45,6 +46,7 @@ from base_sync_plumbing import (  # noqa: E402,F401
 _MERGE_SCRIPTS = _SHARED_DIR.parent / "tp-merge-from-main" / "scripts"
 if str(_MERGE_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_MERGE_SCRIPTS))
+import archive_moves  # noqa: E402
 import verify as _verify  # noqa: E402
 
 GIT_MIN_VERSION = (2, 38)          # git merge-tree --write-tree floor
@@ -235,7 +237,7 @@ def _cat_blob_strict(git, oid: str) -> str:
     return _redecode_strict_utf8(out)
 
 
-def _cond5_resolve(git, conflicts: dict, h1: str, repo_root=None) -> str:
+def _cond5_resolve(git, conflicts: dict, h1: str, repo_root=None, *, sides=None) -> str:
     for path, stages in conflicts.items():
         if not all(s in stages for s in (1, 2, 3)):
             return "non-content conflict"
@@ -254,12 +256,15 @@ def _cond5_resolve(git, conflicts: dict, h1: str, repo_root=None) -> str:
             return "undecodable (non-UTF-8) blob content"
         except _GitOpError:
             return "git error: cat-file blob failed"
-        status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt)
+        status, merged = resolve_conflict_bytes(base=base_txt, ours=ours_txt, theirs=theirs_txt,
+                                               path=path)
         if status != RESOLVED:
             return "resolver could not deterministically reproduce a resolution"
         # Only reached after `status == RESOLVED`, so a mechanical resolution WAS applied here
         # and the fact is a constant True.
-        r = _verify.verify(ours_txt, theirs_txt, merged, mechanical_applied=True)
+        r = archive_moves.verify_with_moves(
+            base_txt, ours_txt, theirs_txt, merged, mechanical_applied=True,
+            archives=archive_moves.seam_archives(git, path, sides))
         if r.verdict == _verify.UNVERIFIABLE:
             # Zero atoms parsed on a file the resolver DID resolve: the verifier examined
             # nothing, so it cannot certify zero-drop. Fail the conjunct with its own reason.
@@ -278,6 +283,9 @@ def _certify_link_unchecked(repo_root, h0: str, h1: str, *, base_ref: str, run_g
     at entry, `find_certified_anchor`'s walk once-per-evaluation) own that."""
     git = run_git or _make_default_git(repo_root)
     try:
+        trailer = numbering_trailer(git, h1)   # a `number_issues.py --commit` commit: its own check
+        if trailer is not None:
+            return LinkCheck(*certify_numbering_link(git, h0, h1, trailer, base_ref))
         parents, reason = _cond1_merge_shape(git, h0, h1, base_ref)
         if reason:
             return LinkCheck(False, reason)
@@ -291,7 +299,7 @@ def _certify_link_unchecked(repo_root, h0: str, h1: str, *, base_ref: str, run_g
         reason = _cond4_containment(git, tree, conflicts, h1)
         if reason:
             return LinkCheck(False, reason, tuple(sorted(conflicts)))
-        reason = _cond5_resolve(git, conflicts, h1, repo_root)
+        reason = _cond5_resolve(git, conflicts, h1, repo_root, sides=(h0, p2))
         if reason:
             return LinkCheck(False, reason, tuple(sorted(conflicts)))
         return LinkCheck(True, "", tuple(sorted(conflicts)))

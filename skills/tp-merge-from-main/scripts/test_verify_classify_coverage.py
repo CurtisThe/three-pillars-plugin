@@ -12,8 +12,10 @@ Two directions, because the forward assertion alone does not cover both:
                 Fails when a NEW MECHANICAL CLASS lands with no verifier shape.
   5b REVERSE  — every kind in `verify.ATOM_KINDS` is produced by some MECHANICAL hunk in the
                 corpus. Fails when a NEW ATOM KIND lands with no mechanical class, or no fixture.
-                Since round 20 one kind, `entry`, comes only from the GATED
-                `id-renumber-collision`; that is pinned exactly, so the gap cannot widen unseen.
+                Every kind has an AUTO_RESOLVE producer since `keyed-heading-insertion`: its
+                fixture's plain `### M48:` heading is an `entry` atom, which only the GATED
+                `id-renumber-collision` produced from round 20 until then. Pinned exactly (an
+                empty gap), so a kind left to a class that cannot auto-resolve shows up here.
 
 `verify.ATOM_KINDS` is verify's self-description of the kinds it emits, consumed ONLY here. It
 names kinds, never shapes, so it is not a shared shape registry and does not couple the regexes.
@@ -54,6 +56,11 @@ def test_every_mechanical_hunk_yields_at_least_one_atom():
     found = list(_mechanical_hunks())
     assert found, "corpus produced no mechanical hunks — the assertion would be vacuous"
     for name, hunk in found:
+        if hunk.label == "last-updated-preamble":
+            # A date line, deliberately NOT an atom: the merge keeps the later date and may rewrite
+            # the summary, so any atom of the line would report that legitimate rewrite as a drop.
+            # The resolver-side backstops (`unplaceable`, `overproduced`) are what guard this class.
+            continue
         atoms = verify.atoms("\n".join(hunk.ours + hunk.theirs))
         assert len(atoms) >= 1, f"{name}: {hunk.label} hunk yields no verify atom"
 
@@ -64,14 +71,15 @@ def test_every_verify_atom_kind_has_a_mechanical_class():
 
     Over MECHANICAL (gated classes included): a gated class keeps its classifier and fixture, and
     the verifier still guards its atoms wherever they sit. The part of the inventory no class that
-    may AUTO-resolve produces is pinned separately — exactly `entry`, the gated renumber's."""
+    may AUTO-resolve produces is pinned separately — now empty: `entry` comes from the keyed
+    fixture's `### M48:` heading as well as from the gated renumber."""
     produced = _kinds(MECHANICAL)
     assert produced == set(verify.ATOM_KINDS), (
         f"kinds produced by mechanical hunks {sorted(produced)} != "
         f"verify.ATOM_KINDS {sorted(verify.ATOM_KINDS)}"
     )
     assert GATED == {"id-renumber-collision"}
-    assert set(verify.ATOM_KINDS) - _kinds(AUTO_RESOLVE) == {"entry"}
+    assert set(verify.ATOM_KINDS) - _kinds(AUTO_RESOLVE) == set()
 
 
 def test_corpus_covers_all_auto_resolve_classes():
@@ -106,7 +114,7 @@ def test_collision_fixture_keeps_both_and_a_drop_of_either_is_reported():
     merged = "\n".join(lines)
 
     assert len(verify.atoms(ours + "\n" + theirs)) == 2        # two distinct atoms, not one
-    assert verify.verify(ours, theirs, merged, mechanical_applied=True).verdict == verify.VERIFIED
+    assert verify.verify(ours, theirs, merged, base=None, mechanical_applied=True).verdict == verify.VERIFIED
 
     # The resolver keeps both blocks verbatim, ours-then-theirs, after the clean pre-context line,
     # so each side is an exact contiguous slice of the merged lines — delete one slice at a time.
@@ -119,9 +127,28 @@ def test_collision_fixture_keeps_both_and_a_drop_of_either_is_reported():
     for label, without in (("ours", drop_ours), ("theirs", drop_theirs)):
         text = "\n".join(without)
         assert text != merged
-        r = verify.verify(ours, theirs, text, mechanical_applied=True)
+        r = verify.verify(ours, theirs, text, base=None, mechanical_applied=True)
         assert r.verdict == verify.DROPS_DETECTED, (label, text)
         assert [kind for kind, _sig in r.dropped] == ["decision-entry"], (label, r.dropped)
+
+
+def test_shaped_line_merge_fixture_is_covered_and_its_rows_are_verifier_atoms():
+    """5a/5b for `shaped-line-merge`: the #219 fixture is labelled, confident and auto-resolvable,
+    its three slug rows are `row` atoms (so the zero-drop check is a real control for this class),
+    and the resolution verifies against the hunk's own base."""
+    from conflict_fixtures import SHAPED_LINE_MERGE
+
+    (hunk,) = [h for name, h in _mechanical_hunks() if name == "shaped-line-merge"]
+    assert hunk.label == "shaped-line-merge" and is_confident(hunk)
+    ours, theirs = "\n".join(hunk.ours), "\n".join(hunk.theirs)
+    found = verify.atoms(ours + "\n" + theirs)
+    assert {kind for kind, _sig in found} == {"row"} and len(found) == 3
+
+    status, lines, results = resolve_file(SHAPED_LINE_MERGE)
+    assert status == RESOLVED and results[0].label == "shaped-line-merge"
+    merged = "\n".join(lines)
+    assert verify.verify(ours, theirs, merged, base="\n".join(hunk.base),
+                         mechanical_applied=True).verdict == verify.VERIFIED
 
 
 def test_nested_atom_fixture_produces_both_kinds():

@@ -70,7 +70,7 @@ def test_the_blank_line_drop_verified_clean_so_only_a_byte_check_catches_it():
     stripped = merged.replace("## History\n\n", "## History\n")
     ours = "## History\n\n- **2026-02-01** — ours\n- **2026-01-01** — old\n"
     theirs = "## History\n\n- **2026-02-02** — theirs\n- **2026-01-01** — old\n"
-    assert verify(ours, theirs, stripped, mechanical_applied=True).verdict == VERIFIED
+    assert verify(ours, theirs, stripped, base=None, mechanical_applied=True).verdict == VERIFIED
 
 
 def test_every_blank_line_survives_across_multiple_clean_segments():
@@ -137,7 +137,7 @@ def test_crlf_survives_the_full_shared_byte_production_path():
     assert status == RESOLVED and mechanical is True
     assert "\r\n" in merged and "\n" not in merged.replace("\r\n", ""), repr(merged)
     assert "- **2026-02-01** — ours\r\n- **2026-02-02** — theirs\r\n" in merged
-    assert verify(ours, theirs, merged, mechanical_applied=mechanical).verdict == VERIFIED
+    assert verify(ours, theirs, merged, base=None, mechanical_applied=mechanical).verdict == VERIFIED
 
 
 def test_exotic_unicode_separators_do_not_split_a_prose_line():

@@ -19,6 +19,14 @@ import pytest
 HARD_CAP = 12_288
 SOFT_CAP = 10_240
 
+# The framework root this file ships in: the SKILL.md injection pins read the shipped
+# skills from here, never from the cwd's git checkout (a plugin install has none).
+_FRAMEWORK_ROOT = Path(__file__).resolve().parents[2]
+# The project's own living doc is the dev repo's three-pillars-docs/ (dev-repo only).
+_needs_dev_context_doc = pytest.mark.skipif(
+    not (_FRAMEWORK_ROOT / "three-pillars-docs" / "project-context.md").is_file(),
+    reason="reads the dev repo's three-pillars-docs/project-context.md (dev-repo only)")
+
 
 def _make_doc(tmp_path: Path, content_bytes: bytes) -> Path:
     """Write content_bytes to a project-context.md inside a mock project root."""
@@ -372,15 +380,14 @@ class TestSoftWarnBlockReturnsBlock:
 # ---------------------------------------------------------------------------
 
 
+@_needs_dev_context_doc
 class TestShippedLivingDoc:
     """Behavior 2.1: three-pillars-docs/project-context.md loads cleanly."""
 
     def test_shipped_doc_loads_via_helper(self):
-        from project_context import load_context_block, measure
-        from project_root import find_project_root
+        from project_context import load_context_block
 
-        root = find_project_root()
-        assert root is not None, "Must be run from inside the repo"
+        root = _FRAMEWORK_ROOT
         doc_path = root / "three-pillars-docs" / "project-context.md"
         assert doc_path.is_file(), "three-pillars-docs/project-context.md must exist"
 
@@ -388,22 +395,18 @@ class TestShippedLivingDoc:
         assert block != "", "Block should be non-empty for a present doc"
 
     def test_shipped_doc_has_required_sections(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
+        root = _FRAMEWORK_ROOT
         doc_path = root / "three-pillars-docs" / "project-context.md"
         content = doc_path.read_text(encoding="utf-8")
-        assert "## Conventions" in content
-        assert "## Stack" in content
-        assert "## Domain rules" in content
+        # The three headings are the fixed schema project_context.STUB_CONTENT scaffolds.
+        assert "## Conventions" in content  # tp-allow-fragile: fixed-schema heading of the dev repo's project-context.md, outside the four prose-pin rules
+        assert "## Stack" in content  # tp-allow-fragile: fixed-schema heading of the dev repo's project-context.md, outside the four prose-pin rules
+        assert "## Domain rules" in content  # tp-allow-fragile: fixed-schema heading of the dev repo's project-context.md, outside the four prose-pin rules
 
     def test_shipped_doc_under_soft_cap(self):
         from project_context import measure
-        from project_root import find_project_root
 
-        root = find_project_root()
-        assert root is not None
+        root = _FRAMEWORK_ROOT
         doc_path = root / "three-pillars-docs" / "project-context.md"
         byte_count = measure(doc_path)
         assert byte_count <= SOFT_CAP, (
@@ -413,82 +416,20 @@ class TestShippedLivingDoc:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3, Task 3.1 — council SKILL.md injection (behavior 10)
+# Phase 3 — SKILL.md / read-project-docs.md wiring (behaviors 10, 11, cross-link)
 # ---------------------------------------------------------------------------
+# The wording of these docs is not pinned here. Every path and script they name
+# (project_context.py, project-context.md) is covered by invariant 46
+# (`skill_refs`), run in-suite below.
 
 
-class TestCouncilInjection:
-    """Behavior 10: council/SKILL.md contains the injection marker."""
-
-    def test_council_skill_md_has_marker(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
-        skill_path = root / "skills" / "council" / "SKILL.md"
-        content = skill_path.read_text(encoding="utf-8")
-        assert "{project_context_block}" in content, (
-            "council/SKILL.md missing {project_context_block} marker"
-        )
-
-    def test_council_skill_md_references_helper(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
-        skill_path = root / "skills" / "council" / "SKILL.md"
-        content = skill_path.read_text(encoding="utf-8")
-        assert "project_context.py" in content, (
-            "council/SKILL.md missing reference to project_context.py"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Phase 3, Task 3.2 — tp-phase-implement SKILL.md injection (behavior 11)
-# ---------------------------------------------------------------------------
-
-
-class TestPhaseImplementInjection:
-    """Behavior 11: tp-phase-implement/SKILL.md contains the injection marker."""
-
-    def test_phase_implement_skill_md_has_marker(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
-        skill_path = root / "skills" / "tp-phase-implement" / "SKILL.md"
-        content = skill_path.read_text(encoding="utf-8")
-        assert "{project_context_block}" in content, (
-            "tp-phase-implement/SKILL.md missing {project_context_block} marker"
-        )
-
-    def test_phase_implement_skill_md_references_helper(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
-        skill_path = root / "skills" / "tp-phase-implement" / "SKILL.md"
-        content = skill_path.read_text(encoding="utf-8")
-        assert "project_context.py" in content, (
-            "tp-phase-implement/SKILL.md missing reference to project_context.py"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Phase 3, Task 3.3 — read-project-docs.md cross-link
-# ---------------------------------------------------------------------------
-
-
-class TestReadProjectDocsCrossLink:
-    """Cross-link: read-project-docs.md references project-context.md."""
-
-    def test_read_project_docs_references_context_doc(self):
-        from project_root import find_project_root
-
-        root = find_project_root()
-        assert root is not None
-        docs_path = root / "skills" / "_shared" / "read-project-docs.md"
-        content = docs_path.read_text(encoding="utf-8")
-        assert "project-context.md" in content, (
-            "read-project-docs.md missing reference to project-context.md"
-        )
+@pytest.mark.parametrize("doc", [
+    "skills/council/SKILL.md",
+    "skills/tp-phase-implement/SKILL.md",
+    "skills/_shared/read-project-docs.md",
+])
+def test_wiring_references_resolve(doc, tmp_path):
+    """Every reference in the consumer docs resolves through invariant 46."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(_FRAMEWORK_ROOT, [_FRAMEWORK_ROOT / doc], cache_dir=tmp_path)
+    assert report.issues == []

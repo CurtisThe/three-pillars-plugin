@@ -51,7 +51,7 @@ MERGED = _conflict("```python\nsome code\n", "| D3 | a real row |\n```\n")
 def test_a_row_present_verbatim_across_a_marker_is_not_reported_dropped():
     """The exact case. Fence-blind, the question never arises: the row is a row wherever it sits."""
     assert "| D3 | a real row |" in MERGED
-    r = verify(OURS, THEIRS, MERGED, mechanical_applied=True)
+    r = verify(OURS, THEIRS, MERGED, base=None, mechanical_applied=True)
     assert r.verdict == VERIFIED, r.dropped
     assert r.dropped == []
 
@@ -118,7 +118,7 @@ def test_an_atom_swallowed_by_the_example_would_be_an_invisible_drop():
     loses `### L1:` on BOTH input sides, deleting it from the merged output is not a drop the
     verifier can see."""
     dropped = FENCED_EXAMPLE.replace("### L1: Real Entry\nsome text\n", "")
-    r = verify(FENCED_EXAMPLE, FENCED_EXAMPLE, dropped, mechanical_applied=True)
+    r = verify(FENCED_EXAMPLE, FENCED_EXAMPLE, dropped, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED, r.verdict
     assert ("entry", "real entry") in r.dropped, r.dropped
 
@@ -143,7 +143,7 @@ def test_a_stray_fence_does_not_hide_an_entry():
 def test_deleting_the_entry_a_stray_fence_hid_is_reported():
     """The full verdict path, and the assertion that fails against every one of rounds 3-5."""
     merged = STRAY_FENCE.replace("### L1: real atom ONE\n", "")
-    r = verify(STRAY_FENCE, STRAY_FENCE, merged, mechanical_applied=True)
+    r = verify(STRAY_FENCE, STRAY_FENCE, merged, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED, r.verdict
     assert ("entry", "real atom one") in r.dropped, r.dropped
 
@@ -164,7 +164,7 @@ def test_a_fenced_example_is_an_atom_and_that_is_the_safe_direction():
     assert ("entry", "example entry") in got, got
     assert ("row", "example row") in got, got
     edited = doc.replace("Example entry", "Reworded example")
-    r = verify(doc, doc, edited, mechanical_applied=True)
+    r = verify(doc, doc, edited, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED, r.verdict
 
 
@@ -183,9 +183,9 @@ def test_markers_are_no_longer_removed_from_a_digest():
     ours = "### [a] t\nbody ours\n"
     theirs = "### [b] u\nbody theirs\n"
     resolved = _conflict("### [a] t\nbody ours\n", "### [b] u\nbody theirs\n", prefix="")
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED
     assert r.pre_atoms == 2
     assert all(kind == "decision-entry" for kind, _sig in r.dropped), r.dropped
     # Marker-free — the only state in which the driver stages anything — verifies clean.
-    assert verify(ours, theirs, ours + theirs, mechanical_applied=True).verdict == VERIFIED
+    assert verify(ours, theirs, ours + theirs, base=None, mechanical_applied=True).verdict == VERIFIED

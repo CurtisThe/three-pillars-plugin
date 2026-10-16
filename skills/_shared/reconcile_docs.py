@@ -1,9 +1,10 @@
 """reconcile_docs — rewriter + sweep (the ONLY doc writer for this design).
 
-Three CLI modes (mutually exclusive):
+Four CLI modes (mutually exclusive):
   --slug {name} [--pr NN] --apply   post-merge micro-step
   --archive-cites --slug {name}     archive-time cite rewrite (no status flip)
   --sweep                           one-time (or re-runnable) debt sweep
+  --pre-merge --slug {name} [--pr NN]  pre-merge `Completion PR pending` -> Done
 
 Reporter by default; --apply to write.
 Always exits 0.
@@ -38,6 +39,7 @@ from citation_liveness import (
     owner_slug_of_row,
     stale_status_rows,
 )
+import living_doc_archive
 
 
 # ------------------------------------------------------------------ #
@@ -309,55 +311,35 @@ def _read_strict_utf8(path: Path) -> tuple[str | None, bool]:
         return None, True
 
 
-def flip_status_with_skipped(
-    repo_root, slug: str, pr_number: int | None, *, apply: bool
+def _flip_one_file(
+    root: Path, rel: str, slug: str, replacement: str, *, apply: bool
 ) -> tuple[list[Edit], list[dict]]:
-    """Rewrite STALE_STATUS_RE rows naming {slug} to the merged label.
+    """Flip STALE_STATUS_RE rows naming {slug} in ONE living-doc file.
 
-    Returns (edits, skipped) where skipped is a list of dicts:
-      {file: str, line_no: int, reason: "ambiguous-multi-match"|"decode-failure"|"unattributable"}
-
-    Only touches rows outside ## History sections and outside fenced code blocks.
-    After applying, bumps *Last updated:* date.
-    Does NOT append a History line (that's the calling SKILL's job).
-
-    Attribution: uses owner_slug_of_row (directory-resolving, shared with
-    citation_liveness). A row is attributed to {slug} only when owner_slug_of_row
-    returns exactly {slug}.
-
-    Status-flip anchoring (quote-aware): scans for STALE_STATUS_RE matches that
-    are NOT inside double-quote or backtick pairs (those are prose mentions, never
-    flipped). If exactly one unquoted match -> flip it. If zero -> no edit.
-    If >1 unquoted matches -> skip + add to skipped list with reason
-    'ambiguous-multi-match' (loud, not silent).
-
-    Write path safety: if the file contains bytes that would introduce U+FFFD on
-    decode-then-encode, the file is skipped entirely with reason 'decode-failure'.
+    Missing file -> ([], []) (a no-op, not an error). Same per-file rules for
+    both product_roadmap.md and product_roadmap_archive.md:
+    skips fenced code blocks and ## …History… sections, quote-aware status
+    anchoring, directory-resolving attribution, and the decode-failure guard.
+    Bumps *Last updated:* when writing.
     """
-    root = Path(repo_root)
-    roadmap = root / "three-pillars-docs" / "product_roadmap.md"
+    path = root / rel
     skipped: list[dict] = []
 
-    if not roadmap.is_file():
+    if not path.is_file():
         return [], skipped
-
-    try:
-        rel_str = str(roadmap.relative_to(root))
-    except ValueError:
-        rel_str = str(roadmap)
 
     # Read with replacement for detection pass (lenient)
     try:
-        original = roadmap.read_text(encoding="utf-8", errors="replace")
+        original = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return [], skipped
 
     # Safety: check for undecodable bytes in BOTH plan and apply modes so that
     # plan is a faithful preview of what --apply will do (finding 4 fix).
-    _, had_error = _read_strict_utf8(roadmap)
+    _, had_error = _read_strict_utf8(path)
     if had_error:
         skipped.append({
-            "file": rel_str,
+            "file": rel,
             "line_no": 0,
             "reason": "decode-failure",
         })
@@ -366,11 +348,6 @@ def flip_status_with_skipped(
     lines = original.splitlines(keepends=True)
     new_lines = list(lines)
     edits: list[Edit] = []
-
-    if pr_number is not None:
-        replacement = f"merged PR #{pr_number}"
-    else:
-        replacement = "merged"
 
     in_history = False
     in_fence = False
@@ -417,7 +394,7 @@ def flip_status_with_skipped(
         row_slug = owner_slug_of_row(line, root)
         if row_slug is None:
             skipped.append({
-                "file": rel_str,
+                "file": rel,
                 "line_no": idx + 1,
                 "reason": "unattributable",
             })
@@ -427,7 +404,7 @@ def flip_status_with_skipped(
         if len(unquoted) > 1:
             # Ambiguous: >1 unquoted match — skip with loud reporting
             skipped.append({
-                "file": rel_str,
+                "file": rel,
                 "line_no": idx + 1,
                 "reason": "ambiguous-multi-match",
             })
@@ -439,7 +416,7 @@ def flip_status_with_skipped(
             continue
         edits.append(
             Edit(
-                path=rel_str,
+                path=rel,
                 line=idx + 1,
                 before=stripped,
                 after=new_line.rstrip("\n"),
@@ -452,8 +429,60 @@ def flip_status_with_skipped(
     if edits and apply:
         new_content = "".join(new_lines)
         new_content = _bump_last_updated(new_content)
-        roadmap.write_text(new_content, encoding="utf-8")
+        path.write_text(new_content, encoding="utf-8")
 
+    return edits, skipped
+
+
+def flip_status_with_skipped(
+    repo_root, slug: str, pr_number: int | None, *, apply: bool
+) -> tuple[list[Edit], list[dict]]:
+    """Rewrite STALE_STATUS_RE rows naming {slug} to the merged label.
+
+    Processes BOTH the live roadmap (three-pillars-docs/product_roadmap.md)
+    and its archive sibling (product_roadmap_archive.md, per
+    living_doc_archive.archive_for) with the same per-file rules, in that
+    order — a row that moved to the archive at design-complete still gets its
+    post-merge flip.
+
+    Returns (edits, skipped) where skipped is a list of dicts:
+      {file: str, line_no: int, reason: "ambiguous-multi-match"|"decode-failure"|"unattributable"}
+
+    Only touches rows outside ## History sections and outside fenced code blocks.
+    After applying, bumps *Last updated:* date on each touched file.
+    Does NOT append a History line (that's the calling SKILL's job).
+
+    Attribution: uses owner_slug_of_row (directory-resolving, shared with
+    citation_liveness). A row is attributed to {slug} only when owner_slug_of_row
+    returns exactly {slug}.
+
+    Status-flip anchoring (quote-aware): scans for STALE_STATUS_RE matches that
+    are NOT inside double-quote or backtick pairs (those are prose mentions, never
+    flipped). If exactly one unquoted match -> flip it. If zero -> no edit.
+    If >1 unquoted matches -> skip + add to skipped list with reason
+    'ambiguous-multi-match' (loud, not silent). The ambiguity rule applies per
+    file: an ambiguous row in both files yields one skipped entry per file.
+
+    Write path safety: if a file contains bytes that would introduce U+FFFD on
+    decode-then-encode, that file is skipped entirely with reason
+    'decode-failure'.
+    """
+    root = Path(repo_root)
+    replacement = (
+        f"merged PR #{pr_number}" if pr_number is not None else "merged"
+    )
+    targets = (
+        "three-pillars-docs/product_roadmap.md",
+        living_doc_archive.archive_for("three-pillars-docs/product_roadmap.md"),
+    )
+    edits: list[Edit] = []
+    skipped: list[dict] = []
+    for rel in targets:
+        file_edits, file_skipped = _flip_one_file(
+            root, rel, slug, replacement, apply=apply
+        )
+        edits.extend(file_edits)
+        skipped.extend(file_skipped)
     return edits, skipped
 
 
@@ -710,6 +739,11 @@ def main(argv) -> int:
         help="Archive-time mode (repoint only, no flip); requires --slug, conflicts with --sweep",
     )
     parser.add_argument(
+        "--pre-merge", action="store_true", dest="pre_merge",
+        help="Pre-merge flip (pending -> Done); requires --slug, conflicts with "
+             "--archive-cites and --sweep",
+    )
+    parser.add_argument(
         "--remote",
         action="store_true",
         default=True,
@@ -746,6 +780,12 @@ def main(argv) -> int:
             print(f"error: {msg}")
         return 0
 
+    if args.pre_merge and (args.archive_cites or args.sweep or not args.slug):
+        msg = "--pre-merge requires --slug and conflicts with --archive-cites and --sweep"
+        print(json.dumps({"error": msg, "edits": [], "skipped": []}) if args.json
+              else f"error: {msg}")
+        return 0
+
     repo_root = Path(args.repo)
     edits: list[Edit] = []
     all_skipped: list[dict] = []
@@ -755,6 +795,11 @@ def main(argv) -> int:
         if args.sweep:
             edits, all_skipped = sweep_with_skipped(
                 repo_root, apply=args.apply, remote=args.remote
+            )
+        elif args.slug and args.pre_merge:
+            import pending_flip  # lazy: pending_flip imports this module's helpers
+            edits, all_skipped = pending_flip.flip(
+                repo_root, args.slug, args.pr, apply=args.apply
             )
         elif args.slug and args.archive_cites:
             arc_edits, arc_skipped = archive_cites_with_skipped(

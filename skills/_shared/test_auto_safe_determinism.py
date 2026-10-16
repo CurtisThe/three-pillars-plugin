@@ -53,10 +53,12 @@ def _uses_environ_or_getenv(tree: ast.AST) -> bool:
 # executed since round 12 without being listed. `auto_safe_resolution.py` is deliberately NOT
 # listed: it draws the per-call marker-label nonce from `secrets`, which reaches marker lines only,
 # and `test_the_nonce_never_reaches_resolved_output_and_resolved_bytes_are_stable` pins that.
+# `shaped_merge.py` joined with the `shaped-line-merge` class (basesync-three-way-verifier), and
+# `decisions_union.py` with the design-dir `decisions.md` lane the shared byte path takes before diff3.
 
 def test_resolve_and_classify_have_no_time_env_random_imports():
     for name in ("resolve.py", "resolvers.py", "resolve_totality.py", "classify.py",
-                 "conflict_parse.py"):
+                 "conflict_parse.py", "shaped_merge.py", "decisions_union.py"):
         path = os.path.join(_MERGE_SCRIPTS, name)
         src = open(path, encoding="utf-8").read()
         tree = ast.parse(src, filename=name)

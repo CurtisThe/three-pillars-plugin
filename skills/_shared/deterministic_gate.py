@@ -567,49 +567,36 @@ def _diff_balloon_factor(config: dict) -> float:
         return 5.0
 
 
-def _load_repo_config(repo_root: "str | None" = None) -> dict:
-    """Read .three-pillars/config.json from committed HEAD. Fail-CLOSED to {}.
+def _load_config_load(repo_root: "str | None" = None):
+    """Resolve the repo root, then read + prune committed HEAD via the shared loader.
 
-    Reads the file via `git show HEAD:.three-pillars/config.json` so the gate always
-    sees the COMMITTED value, never an uncommitted working-tree edit. This closes the
-    traceless-disarm channel: an agent cannot delete the human-approval predicate with
-    an uncommitted one-line Edit — the change must be committed (creating a trace) and
-    reviewed before it affects the gate.
-
-    `repo_root`, when given, is used VERBATIM in place of `find_project_root()` (the
-    dispatch-from-seat `--repo` override, task 8.1) — the explicit override always wins
-    over cwd-derived resolution. When `repo_root` is None (the default), resolution
-    falls back to the invocation cwd's repo (the project under operation), never
-    from the module path — `find_project_root()` resolves the toplevel of whatever
-    git repo contains the cwd at call time.
-
-    Fail-closed contract: ANY error (git failure, unborn HEAD, missing path at HEAD,
-    unreadable, non-dict, bad JSON, not a git repo, unresolvable root) returns {} so the
-    _expects_copilot_review / _expects_github_checks / _require_human_approval
-    interpreters map to their strict defaults (True) — a missing/corrupt config
-    NEVER relaxes the gate. The loader NEVER falls back to reading the working-tree file.
+    Returns `repo_config_load.ConfigLoad(config, warnings, status)` — never raises.
+    `repo_root`, when given, wins over `find_project_root()` (the `--repo` override,
+    task 8.1). `find_project_root` is imported HERE (call-time, never module-level)
+    so a monkeypatch of `project_root.find_project_root` still takes effect; no repo
+    at cwd short-circuits to `ConfigLoad({}, [], "absent")` with no git call.
+    `source="head"` keeps an uncommitted edit invisible until committed.
     """
-    try:
-        if repo_root is not None:
-            root = Path(repo_root)
-        else:
-            from project_root import find_project_root
-            root = find_project_root()
-            if root is None:
-                return {}
-        root_str = str(root)
-        result = subprocess.run(
-            ["git", "-C", root_str, "show", "HEAD:.three-pillars/config.json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return {}
-        data = json.loads(result.stdout)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    from repo_config_load import load_repo_config, ConfigLoad
+    if repo_root is not None:
+        root = Path(repo_root)
+    else:
+        from project_root import find_project_root
+        root = find_project_root()
+        if root is None:
+            return ConfigLoad({}, [], "absent")
+    return load_repo_config(root, source="head")
+
+
+def _load_repo_config(repo_root: "str | None" = None) -> dict:
+    """Read .three-pillars/config.json from committed HEAD; `{}` on any failure.
+
+    Thin wrapper over `_load_config_load` — same signature/zero-arg shape `land.py`
+    uses. Every failure (fatal `schema_version`, no repo, unreadable, absent) folds
+    to `{}`. `{}` is NOT strict for the default-OFF stamp: evaluate_gate reads the
+    load status so a present-but-broken config is INDETERMINATE, not OMITTED (F1).
+    """
+    return _load_config_load(repo_root).config
 
 
 def _parse_github_owner_repo(url: str) -> "tuple[str, str] | None":
@@ -738,14 +725,29 @@ def evaluate_gate(
     try:
         r = runners or {}
         _config_root_mismatch_note: "PredicateResult | None" = None
+        _config_warning_entries: tuple = ()
+        _stamp_trust = None  # F1: the stamp is tighten-only under untrusted config
         if config is None:
-            config = _load_repo_config(repo_root=repo_root)
+            _cl = _load_config_load(repo_root)
+            config = _cl.config
+            import gate_roster as _gr_trust  # noqa — in _shared/ beside this file
+            _stamp_trust = _gr_trust.stamp_trust_from_load(_cl)  # broken → INDET
+            # Absent is the normal consumer state, not a warning (decisions.md
+            # `[tp-plan]` retry 3); a pruned key or fatal `schema_version` is.
+            _config_warnings = list(_cl.warnings) if _cl.status != "absent" else []
+            if _config_warnings:
+                import gate_roster as _gr_cfg  # noqa — in _shared/ beside this file
+                _config_warning_entries = (
+                    _gr_cfg.RosterEntry.omitted(
+                        "config_warning", reason="; ".join(_config_warnings)),
+                )
             # Binding check (W4): verify the config root's git remote owner/repo
             # matches the PR's owner/repo. A caller running the gate from a DIFFERENT
             # repo (wrong cwd) with a relaxed committed config would silently relax
             # p3/p4 for the real PR.  On mismatch or unreadable remote, treat the
-            # config as untrusted — use {} (strict defaults) and surface an
-            # INFORMATIONAL roster note (roster-only, NOT folded into predicates).
+            # config as untrusted — use {} (strict defaults; the default-OFF stamp is
+            # held tighten-only via _stamp_trust, F1) and surface an INFORMATIONAL
+            # roster note (roster-only, NOT folded into predicates).
             #
             # NON-BLOCKING semantics (strict-defaults + roster-only note):
             # The strict defaults themselves are the protection against wrong-cwd
@@ -790,6 +792,7 @@ def evaluate_gate(
                             verdict=GateVerdict.INDETERMINATE,
                             detail=_mismatch_reason,
                         )
+                        _stamp_trust = ("untrusted", config)  # may only tighten the stamp
                         config = {}  # fail-closed: untrusted config → strict defaults
                 except Exception:
                     # Unexpected error in binding check: set a roster note for
@@ -802,6 +805,7 @@ def evaluate_gate(
                             "config as untrusted (strict defaults apply; informational only)"
                         ),
                     )
+                    _stamp_trust = ("untrusted", config)  # may only tighten the stamp
                     config = {}  # fail-closed on any binding-check error
 
         # Extract seam functions (or use live defaults)
@@ -830,16 +834,19 @@ def evaluate_gate(
         # Step 2: null-SHA fail-closed
         if not head_oid:
             import gate_roster as _gr  # noqa — in _shared/ beside this file
+            import review_loop_forge as _rlf; _cause = _rlf.gitea_cause(repo_root or ".")  # noqa — _shared/ beside this file
             _null_sha_pred = PredicateResult(
                 name="head_oid",
                 verdict=GateVerdict.INDETERMINATE,
-                detail="null or empty head SHA — cannot prove any predicate",
+                detail="null or empty head SHA — cannot prove any predicate"
+                + (f"; {_cause}" if _cause else ""),
             )
             _null_sha_roster: list = [_gr.RosterEntry.from_result(_null_sha_pred)]
             if _config_root_mismatch_note is not None:
                 _null_sha_roster.append(
                     _gr.RosterEntry.from_result(_config_root_mismatch_note)
                 )
+            _null_sha_roster.extend(_config_warning_entries)
             return GateOutcome(
                 verdict=GateVerdict.INDETERMINATE,
                 blocking=[_null_sha_pred],
@@ -890,6 +897,7 @@ def evaluate_gate(
             copilot_runners=copilot_runners,
             running_live=_running_live,
             shared_dir=_SHARED_DIR,
+            stamp_trust=_stamp_trust,
         )
 
         # Step 6: append config-root mismatch note to ROSTER ONLY (never to predicates).
@@ -899,6 +907,7 @@ def evaluate_gate(
         if _config_root_mismatch_note is not None:
             import gate_roster as _gr2  # noqa — already imported above
             roster_entries.append(_gr2.RosterEntry.from_result(_config_root_mismatch_note))
+        roster_entries.extend(_config_warning_entries)
 
         # Step 7: fold fail-closed, then attach roster
         outcome = _fold(predicates)

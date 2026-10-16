@@ -9,7 +9,8 @@ Targets green on disk while ``land`` fast-forwarded a red test. ``check`` now de
 the attempt's ignored files before any Target runs (both the commit path and the
 ``pre_exists`` path) and logs each one it removed, bytecode caches aside. A33 adds the
 two r13 residuals: a tracked edit hidden by ``skip-worktree`` / ``assume-unchanged`` is
-uncommitted work, and the scrub runs only in a placed attempt dir. Real tmp repos.
+uncommitted work, and the scrub runs only in a placed attempt dir. Committed work is the
+red/green pair (``_commit_work``: the test, then the force-added ``lib/``). Real tmp repos.
 """
 from __future__ import annotations
 
@@ -37,6 +38,16 @@ def _seat(tmp_path: Path, files: dict | None = None) -> Path:
     _seat_dir, wt = make_seat(tmp_path)
     commit(wt, {".gitignore": IGNORE, **(files or {})}, "ignore lib/ and caches")
     return wt
+
+
+def _commit_work(att) -> Path:
+    """The red/green pair: the Targets test, then the ignored ``lib/`` force-added."""
+    adir = Path(att["attempt_dir"])
+    commit(adir, {"tests/test_helpers.py": TEST}, "Red: demo 1.1")
+    write(adir, "lib/helpers.py", "def two():\n    return 2\n")
+    git(adir, "add", "-f", "--", "lib/helpers.py")
+    git(adir, "commit", "-q", "-m", "Implement: demo 1.1")
+    return adir
 
 
 def test_ignored_implementation_never_passes_and_never_lands(tmp_path):
@@ -71,11 +82,7 @@ def test_committed_work_still_passes_and_caches_are_not_logged(tmp_path):
     """A worker that ran pytest leaves ignored caches: removed, never named, still PASS."""
     wt = _seat(tmp_path)
     att = task_attempts.open_attempt(wt, "1.1", DD)
-    adir = Path(att["attempt_dir"])
-    write(adir, "lib/helpers.py", "def two():\n    return 2\n")
-    write(adir, "tests/test_helpers.py", TEST)
-    git(adir, "add", "-f", "--", "lib/helpers.py", "tests/test_helpers.py")
-    git(adir, "commit", "-q", "-m", "Implement: demo 1.1")
+    adir = _commit_work(att)
     env = {k: v for k, v in os.environ.items()  # the worker's run writes its caches
            if k not in ("PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX")}
     subprocess.run([sys.executable, "-m", "pytest", "-q", "tests"], cwd=adir, env=env,
@@ -155,15 +162,6 @@ def test_an_ignored_name_that_is_not_utf8_is_scrubbed_not_a_crash(tmp_path):
 
 # A34/A35: r14's and r15's regressions — sparse checkout, a symlinked .claude, a hidden
 # deletion or mode change — closed by writing HEAD over the attempt before any Target.
-def _commit_work(att) -> Path:
-    adir = Path(att["attempt_dir"])
-    write(adir, "lib/helpers.py", "def two():\n    return 2\n")
-    write(adir, "tests/test_helpers.py", TEST)
-    git(adir, "add", "-f", "--", "lib/helpers.py", "tests/test_helpers.py")
-    git(adir, "commit", "-q", "-m", "Implement: demo 1.1")
-    return adir
-
-
 def _check(att, rung="local"):
     return task_verify.check(att, task_row(("lib/helpers.py",), TARGET), RUNNER,
                              rung=rung, timeout=120)

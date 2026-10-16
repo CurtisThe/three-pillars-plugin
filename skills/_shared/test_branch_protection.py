@@ -84,6 +84,28 @@ def test_gh_missing_writes_fail_open_config_and_prints_manual_command(
     assert bp["offered_at"].endswith("Z")
 
 
+def test_github_com_origin_never_consults_the_resolver(
+    tmp_path: Path, capsys, monkeypatch
+):
+    """Task 1.8 — the forge gate leaves a github.com origin on its old outcomes:
+    no resolver call, no `forge` block, same actions as before."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo, with_origin=True)  # git@github.com:Acme/widget.git
+    monkeypatch.setattr(branch_protection_check, "_gh_available", lambda: False)
+
+    def forbidden(_repo):
+        raise AssertionError("github.com must not reach the forge resolver")
+
+    result = check(repo=repo, auto=False, resolver=forbidden)
+
+    captured = capsys.readouterr()
+    assert result.action == "fail-open-gh-missing"
+    assert "gh api -X PUT" in captured.out
+    data = json.loads((repo / ".three-pillars" / "config.json").read_text(encoding="utf-8"))
+    assert "forge" not in data
+
+
 def test_auto_mode_skips_protection_and_logs_decision(tmp_path: Path, capsys, monkeypatch):
     """--auto → no prompt, decisions.md gets a [first-run] entry, config untouched."""
     repo = tmp_path / "repo"

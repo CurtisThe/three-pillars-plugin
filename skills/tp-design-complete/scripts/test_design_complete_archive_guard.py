@@ -1,14 +1,10 @@
 """Archive-guard invariants for skills/tp-design-complete/SKILL.md.
 
-The design-complete-stamp-guard Phase 2 staged-blob guard pins: step 6f must
-run verify_archive_staged.py between staging and the archival commit, with the
-two-anchor ordering git_add < guard < commit < gh pr create, the exit-1
-double-add / exit-2 immediate-abort disposition, the --json staging loop, the
-unpiped / HEAD-advanced commit, and the ## Auto Mode guard inheritance.
-
-Split out of test_design_complete_skill_md.py (inv #34 file-size cap). The
-pre-existing SKILL.md pins remain in that module; this file carries only the
-staged-blob archive-guard pins.
+The design-complete-stamp-guard staged-blob guard: step 6f runs
+verify_archive_staged.py between staging and the archival commit, commits
+unpiped with a HEAD-advanced check, stages the reconcile --json list by loop, and
+stages one pathspec per `git add`. The command checks run on the parsed shell
+spans (`skill_spans.code_spans`: line, span, is-shell), never on prose wording.
 
 Run with: pytest skills/tp-design-complete/scripts/test_design_complete_archive_guard.py -q
 """
@@ -16,9 +12,17 @@ Run with: pytest skills/tp-design-complete/scripts/test_design_complete_archive_
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
+import pytest
+
 SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+_SHARED = str(Path(__file__).resolve().parents[2] / "_shared")
+if _SHARED not in sys.path:
+    sys.path.insert(0, _SHARED)
+_CUT = {"||", "&&", ";", "|", "2>/dev/null", ">&2"}
 
 
 def _read() -> str:
@@ -32,43 +36,90 @@ def _auto_mode_block(text: str) -> str:
     return match.group(0)
 
 
-# ---------------------------------------------------------------------------
-# design-complete-stamp-guard Task 2.1: staged-blob guard on the archival commit
-# ---------------------------------------------------------------------------
-
-def test_verify_archive_staged_runs_between_staging_and_commit() -> None:
-    """Two-anchor ordering pin (mirrors test_cleanup_pending_set_before_pr_open):
-    git_add < verify_archive_staged.py < git commit < gh pr create.
-
-    The guard must run strictly BEFORE the archival commit — inspecting an
-    already-committed blob is inert. It must also run AFTER staging (it asserts
-    the STAGED index blobs) and BEFORE PR-open.
-    """
-    text = _read()
-    git_add_pos = text.find("git add three-pillars-docs/completed-tp-designs/{design-name}/design.md")
-    guard_pos = text.find("verify_archive_staged.py")
-    commit_pos = text.find('git commit -m "Complete design:')
-    pr_pos = text.find("gh pr create")
-    assert git_add_pos != -1, "step 6f must stage the archival paths"
-    assert guard_pos != -1, "step 6f must invoke verify_archive_staged.py"
-    assert commit_pos != -1, "step 6f must contain the 'Complete design:' commit"
-    assert pr_pos != -1, "step 6g must open the PR via gh pr create"
-    assert git_add_pos < guard_pos < commit_pos < pr_pos, (
-        "ordering must be git_add < verify_archive_staged.py < git commit < gh pr create "
-        f"(git_add={git_add_pos}, guard={guard_pos}, commit={commit_pos}, pr={pr_pos})"
-    )
+def _shell_spans(shell_only: bool = True) -> list[tuple[int, list[str]]]:
+    """(line, tokens) of every (shell, unless shell_only=False) code span in the SKILL.md."""
+    skill_spans = pytest.importorskip("skill_spans")
+    return [(line, skill_spans.tokens_of(span, shell))
+            for line, span, shell in skill_spans.code_spans(_read()) if shell or not shell_only]
 
 
-def test_verify_archive_staged_invoked_with_repo_and_slug() -> None:
-    """The guard is called with --repo $(git rev-parse --show-toplevel) --slug {design-name}."""
-    text = _read()
-    assert '"$TP_ROOT"/skills/tp-design-complete/scripts/verify_archive_staged.py' in text, (
-        "the guard must be invoked via the $TP_ROOT anchor"
-    )
-    assert "git rev-parse --show-toplevel" in text, (
-        "the guard --repo arg must resolve via git rev-parse --show-toplevel"
-    )
-    assert "--slug {design-name}" in text, "the guard must be passed --slug {design-name}"
+def _first(spans, pred, after: int = 0) -> int:
+    hits = [line for line, toks in spans if line > after and pred(toks)]
+    assert hits, "no shell span matches"
+    return hits[0]
+
+
+def _is_add(t): return t[:2] == ["git", "add"]
+def _is_commit(t): return t[:2] == ["git", "commit"]
+def _is_guard(t): return t[:1] == ["python3"] and any(x.endswith("verify_archive_staged.py") for x in t)
+def _is_pr_open(t):
+    return t[:3] == ["gh", "pr", "create"] or (t[:1] == ["python3"] and "pr-create" in t[1:3])
+
+
+def test_skill_references_resolve(tmp_path) -> None:
+    """Invariant 46's check over this SKILL.md: every path, script, flag and skill it
+    names (verify_archive_staged.py, reconcile_docs.py --archive-cites --json,
+    forge.py) exists and parses with its own argparse."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(REPO_ROOT, [SKILL_MD], cache_dir=tmp_path)
+    assert report.issues == []
+
+
+def test_guard_runs_after_staging_before_commit_before_pr() -> None:
+    """The staged-blob guard is inert unless it runs after a `git add` and before the
+    archival `git commit`, which itself precedes opening the PR."""
+    spans = _shell_spans()
+    add = _first(spans, _is_add)
+    guard = _first(spans, _is_guard)
+    commit = _first(spans, _is_commit)
+    pr = _first(spans, _is_pr_open)
+    assert add < guard < commit < pr, (add, guard, commit, pr)
+
+
+def test_guard_invoked_with_repo_and_slug() -> None:
+    """The guard command carries --repo (resolved from the toplevel) and --slug {design-name}."""
+    spans = dict(_shell_spans())
+    toks = spans[_first(list(spans.items()), _is_guard)]
+    assert toks[toks.index("--repo") + 1] == "$(git rev-parse --show-toplevel)"
+    assert toks[toks.index("--slug") + 1] == "{design-name}"
+
+
+def test_archival_commit_unpiped_and_head_advance_checked() -> None:
+    """The archival commit is unpiped (a pipe hides its exit status), HEAD is captured
+    before it, and a span after it compares HEAD against the captured value."""
+    spans = _shell_spans()
+    commit = _first(spans, _is_commit)
+    toks = dict(spans)[commit]
+    assert "|" not in toks and "||" not in toks, toks
+    pre = _first(spans, lambda t: t and t[0].startswith("PRE=$(git") and "rev-parse" in t)
+    assert pre < commit
+    after = _first(spans, lambda t: any("rev-parse HEAD" in x for x in t) and "$PRE" in t, after=commit)
+    assert after > commit
+
+
+def test_reconcile_json_staged_by_loop() -> None:
+    """The reconcile --json capture precedes a `for ... in` loop whose body `git add`s
+    the loop variable (each rewritten path), not a fixed path set."""
+    spans = _shell_spans(shell_only=False)
+    cap = _first(spans, lambda t: bool(t) and t[0].startswith("RECONCILE_JSON="))
+    loop = _first(spans, lambda t: t[:1] == ["for"] and "$RECONCILE_JSON" in t, after=cap)
+    var = dict(spans)[loop][1]
+    body = _first(spans, lambda t: _is_add(t) and t[2:] == ["$" + var], after=loop)
+    assert cap < loop < body <= loop + 3
+
+
+def test_each_git_add_stages_one_pathspec() -> None:
+    """After step 6c's `git mv`, a non-matching pathspec aborts the WHOLE `git add`, so
+    every shell `git add` carries at most one pathspec, and the archived design.md has its own."""
+    adds = []
+    for line, toks in _shell_spans():
+        if not _is_add(toks):
+            continue
+        cut = next((i for i, t in enumerate(toks) if t in _CUT), len(toks))
+        specs = [t for t in toks[2:cut] if not t.startswith("-")]
+        assert len(specs) <= 1, (line, specs)
+        adds += specs
+    assert "three-pillars-docs/completed-tp-designs/{design-name}/design.md" in adds
 
 
 def test_guard_exit1_double_add_exit2_immediate_abort() -> None:
@@ -80,64 +131,24 @@ def test_guard_exit1_double_add_exit2_immediate_abort() -> None:
     guard_pos = text.find("verify_archive_staged.py")
     commit_pos = text.find('git commit -m "Complete design:')
     span = text[guard_pos:commit_pos]
+    # Kept on purpose: the agent's response to each guard exit code is SKILL.md prose
+    # with no parsed structure or eval owner (test_verify_archive_staged*.py own the
+    # helper's exit codes, not this disposition), so each assert carries a waiver.
     # exit 1 -> double-add retry
-    assert re.search(r"exit.{0,6}1", span), "the guard sub-step must name exit 1"
+    assert re.search(r"exit.{0,6}1", span), "the guard sub-step must name exit 1"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     assert re.search(r"double-add|re-`?git add`?|re-add", span, re.IGNORECASE), (
-        "on exit 1 the step must re-`git add` the offending path (double-add)"
+        "on exit 1 the step must re-`git add` the offending path (double-add)"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     )
     assert re.search(r"still.{0,20}(exit|fail)|abort", span, re.IGNORECASE), (
-        "on a still-failing double-add the step must abort loudly"
+        "on a still-failing double-add the step must abort loudly"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     )
     # exit 2 -> immediate abort, no retry
-    assert re.search(r"exit.{0,6}2", span), "the guard sub-step must name exit 2"
+    assert re.search(r"exit.{0,6}2", span), "the guard sub-step must name exit 2"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     assert re.search(r"immediate", span, re.IGNORECASE), (
-        "on exit 2 the step must abort IMMEDIATELY"
+        "on exit 2 the step must abort IMMEDIATELY"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     )
     assert re.search(r"no(t)?\b.{0,30}retry|without.{0,20}double-add|do not.{0,20}re-?add", span, re.IGNORECASE), (
-        "on exit 2 the step must NOT run the double-add retry"
-    )
-
-
-def test_6f_stages_reconcile_json_list_by_loop() -> None:
-    """Step 6f must LOOP over the reconcile --archive-cites --json edits[] list and
-    git add each rewritten path — not rely only on a fixed hardcoded path set.
-    """
-    text = _read()
-    # A capture of the --json output and a loop that git adds each rewritten path.
-    assert "RECONCILE_JSON" in text, (
-        "step 6f must capture the reconcile --json output (RECONCILE_JSON)"
-    )
-    assert re.search(r'edits', text), "the loop must read the --json edits[] array"
-    assert re.search(r"for\s+\w+\s+in", text), "step 6f must contain a for-loop over the rewritten paths"
-    assert re.search(r'git add "\$\w+"', text), (
-        "the loop body must git add each rewritten path"
-    )
-    assert re.search(r"loop", text, re.IGNORECASE), (
-        "step 6f must describe looping over the --json list (not a fixed set)"
-    )
-
-
-def test_archival_commit_unpiped_head_advanced() -> None:
-    """The 'Complete design:' commit runs UNPIPED and the step asserts HEAD advanced
-    past a pre-commit rev-parse before reporting success (a hook-blocked, HEAD-
-    unchanged commit is a failure)."""
-    text = _read()
-    assert "PRE=$(git rev-parse HEAD)" in text, (
-        "step 6f must capture PRE=$(git rev-parse HEAD) before the archival commit"
-    )
-    assert re.search(r"unpiped", text, re.IGNORECASE), (
-        "the archival commit must be documented as running unpiped"
-    )
-    # After the commit, assert HEAD differs from PRE.
-    pre_pos = text.find("PRE=$(git rev-parse HEAD)")
-    commit_pos = text.find('git commit -m "Complete design:')
-    assert pre_pos < commit_pos, "PRE must be captured before the commit"
-    after = text[commit_pos:]
-    assert re.search(r'\$PRE|"\$PRE"', after), (
-        "after the commit the step must compare HEAD against $PRE"
-    )
-    assert re.search(r"HEAD.{0,40}(advanc|differ|unchanged|=)", after, re.IGNORECASE | re.DOTALL), (
-        "the step must assert HEAD advanced (differs from $PRE) after the commit"
+        "on exit 2 the step must NOT run the double-add retry"  # tp-allow-fragile: guard exit-code disposition, no structured owner
     )
 
 
@@ -155,60 +166,3 @@ def test_auto_mode_inherits_staged_blob_guard() -> None:
     assert re.search(r"abort|BLOCK|escalat", block, re.IGNORECASE), (
         "## Auto Mode must state the guard aborts / escalates on failure"
     )
-
-
-# ---------------------------------------------------------------------------
-# design-complete-staging-loses-stamp Task 1.1: the dead old-path pathspec
-# ---------------------------------------------------------------------------
-
-BUNDLED_ADD = (
-    "git add three-pillars-docs/tp-designs/{design-name} "
-    "three-pillars-docs/completed-tp-designs/{design-name}/design.md"
-)
-ARCHIVED_DESIGN_ADD = (
-    "git add three-pillars-docs/completed-tp-designs/{design-name}/design.md"
-)
-
-
-def _step_6f_bash_block(text: str) -> str:
-    """Return the step-6f fenced ```bash block that carries the `git add` staging."""
-    for match in re.finditer(r"```bash\n(.*?)```", text, re.DOTALL):
-        body = match.group(1)
-        if "git add" in body and "git status --short" in body:
-            return body
-    raise AssertionError("step 6f staging ```bash block not found")
-
-
-def _add_pathspecs(line: str) -> list[str]:
-    """Pathspec tokens of a `git add` line — flags, redirections and `|| true` dropped."""
-    stripped = line.strip()
-    # Drop shell redirections and boolean tails; they are not pathspecs.
-    stripped = re.sub(r"\s*2>/dev/null.*$", "", stripped)
-    stripped = re.sub(r"\s*(\|\||&&|;).*$", "", stripped)
-    tokens = stripped.split()
-    assert tokens[:2] == ["git", "add"], line
-    return [t for t in tokens[2:] if not t.startswith("-")]
-
-
-def test_6f_no_bundled_add_old_path_gone() -> None:
-    """Step 6c's `git mv` makes `tp-designs/{design-name}` unmatchable, and git aborts
-    the WHOLE invocation on the first non-matching pathspec — so bundling it with the
-    archived design.md silently suppressed the stamp's add. One add per line."""
-    text = _read()
-    assert BUNDLED_ADD not in text, (
-        "the bundled add is dead: after 6c's git mv the old path cannot match, and a "
-        "non-matching pathspec aborts the whole invocation, suppressing the design.md add"
-    )
-    assert ARCHIVED_DESIGN_ADD in text, (
-        "step 6f must stage the archived design.md on its own line "
-        f"({ARCHIVED_DESIGN_ADD})"
-    )
-    block = _step_6f_bash_block(text)
-    for line in block.splitlines():
-        if not line.strip().startswith("git add"):
-            continue
-        specs = _add_pathspecs(line)
-        assert len(specs) <= 1, (
-            f"step 6f `git add` line carries {len(specs)} pathspecs ({specs}); "
-            "one missing path would suppress every other add in the same command"
-        )

@@ -1,18 +1,19 @@
 ---
 name: tp-promote
-description: Promote a seed (seed.md) to a committed, floor-clearing design.md on the tp/<slug> branch, ready for a design-ready fleet pass. Reads the seed's Open questions, derives a single batched confirm block, collects one operator answer, drafts design.md, validates the floor, and launches /tp-run-full-design <slug> --skip-design (Mode B) in a fresh tmux window via the shared design-run launcher.
+description: Promote a seed (seed.md) to a committed, floor-clearing design.md on the tp/{slug} branch, then launches its design run. Reads the seed's Open questions, derives a single batched confirm block, collects one operator answer, drafts design.md, validates the floor, and launches /tp-run-full-design {slug} --skip-design (Mode B) in the shared design-run launcher's own tmux session, linked into this one.
 argument-hint: "{slug} [--force-takeover]"
+effort: high
 ---
 
 # /tp-promote \<slug\>
 
 Turn a rich `seed.md` into a committed, floor-clearing `design.md` on the
-`tp/<slug>` branch — the cold-start pre-step before a design-ready fleet pass.
+`tp/<slug>` branch — the cold-start pre-step before its design run.
 Exactly **one human touch**: a single batched confirm block derived from the
 seed's `## Open questions`. After the operator answers, this skill drafts
 `design.md`, validates the floor, commits, and launches
-`/tp-run-full-design <slug> --skip-design` as its own top-level session in a fresh
-tmux window (`skills/_shared/design-run-launch.md`) — never in this session.
+`/tp-run-full-design <slug> --skip-design` as its own top-level session in the launcher's own
+tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.md`) — never in this session.
 
 **No `--auto` mode** — the one batched confirm is the deliberate human gate.
 
@@ -116,14 +117,21 @@ tmux window (`skills/_shared/design-run-launch.md`) — never in this session.
    confirm using the same grammar above.
 
 7. **Draft `design.md`** from `seed.md` + operator answers. Stamp the Step 4b
-   class as the file's leading frontmatter block (`weight-class: <class>`) —
-   the seed-time declaration carries to the promoted design. Populate every
-   section that `validate_design_floor.py` marks REQUIRED:
+   class and the floor as the file's leading frontmatter block
+   (`weight-class: <class>` and `floor: 3`) — the seed-time declaration carries
+   to the promoted design. The `floor: 3` stamp makes
+   `## Consumer-repo behaviour` a required section (per
+   `skills/_shared/consumer-repo-rule.md`), and `## Forge behaviour` too when
+   the design names a forge surface and its class is above just-do-it. Populate every section that
+   `validate_design_floor.py` marks REQUIRED:
    - `## Problem` — what the design solves (from seed `## Problem` + answers)
    - `## Vision alignment` — how it fits the project vision
    - `## Scope` with `### In scope` (non-empty bullet list)
    - `## Behaviors` — concrete observable behaviors
    - `## Constraints` — hard limits and non-goals
+   - `## Consumer-repo behaviour` — what ships to a user's repo and what runs
+     there, and the behaviour when an optional piece (tmux, a bot account, the
+     local router, a non-pytest runner) is absent
    Optional but recommended: `## Dependencies`, `## Entities`, `## Open Questions`.
    Required above just-do-it (not floor-validated): `## State space` — the step-5
    map re-trimmed to the answered class, persisted per the protocol.
@@ -182,14 +190,17 @@ tmux window (`skills/_shared/design-run-launch.md`) — never in this session.
     python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> --skip-design
     ```
 
-    - **Exit 0**: report the printed window target (and its `tmux link-window`
-      hint). The run is Mode B — it skips the design step. This session is done.
+    - **Exit 0**: report the printed window target (the run has its own tmux session,
+      linked into this one). The run is Mode B — it skips the design step. This session is done.
+    - **Exit 2, "already live"** (a run is going in session `<slug>`): relay the printed
+      attach line (`tmux attach -t <slug>`) — there is no manual command; never start a second run.
     - **Exit 2** (no tmux, no worktree, …): relay the printed manual command to
       the operator verbatim as the fallback — it has the form
-      `TP_DESIGN_RUN=1 claude --model opus '/tp-run-full-design <slug> --skip-design'`
+      `TP_DESIGN_RUN=1 claude --model 'sonnet[1m]' '/tp-run-full-design <slug> --skip-design'`
       run from the worktree — and stop. Do not start the run in this session.
 
-    Alternatively the slug can be re-staged as `design-ready` in a fleet batch.
+    Only when the launch failed (exit 2, no run live) may the slug instead be staged as
+    `design-ready` in a fleet batch; a launched run is never staged again.
 
 ## Edge cases
 

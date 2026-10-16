@@ -25,7 +25,7 @@ def _good():
             "downgraded": 1, "notes": 2, "action": "fix", "fix_commit": "b" * 40,
             "terminal": None, "converged": False,
             "budget": {"iteration": 3, "round_cap": 6, "signal": None, "holding": []},
-            "summary": "fixed one"}
+            "finalizer_stop": None, "summary": "fixed one"}
 
 
 def _schema():
@@ -87,3 +87,40 @@ def test_tail_check_ok(tmp_path):
 def test_tail_check_failed(tmp_path, env):
     assert rs.tail_check(_round(tmp_path, env)) == {"terminal": "needs-human-attention",
                                                      "reason": "tail-failed"}
+
+
+@pytest.mark.parametrize("env", [None, "{not json", dict(_good(), action="merge")])
+def test_tail_check_cli_exits_2_on_a_missing_or_invalid_envelope(tmp_path, capsys, env):
+    rc = rs.main(["tail-check", "--round-dir", str(_round(tmp_path, env))])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert rc == 2, f"tail-check exited {rc}, not 2, on a missing or invalid envelope: {out}"
+    assert json.loads(out[-1]) == {"terminal": "needs-human-attention", "reason": "tail-failed"}
+    assert '"ok"' not in "".join(out)
+
+
+def test_tail_check_cli_exits_0_on_a_valid_envelope(tmp_path, capsys):
+    assert rs.main(["tail-check", "--round-dir", str(_round(tmp_path, _good()))]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
+
+
+# --- PR #188 r5: a newly fired budget terminal's finalizer_stop rides the envelope ---
+
+STOP = {"source": "pr-iterate", "signal": "round-cap", "target": "https://github.com/a/b/pull/1",
+        "head": "b" * 40, "detail": {"iteration": 6, "round_cap": 6, "signal": "round-cap",
+                                      "measured": 6, "limit": 6, "holding": ["round-cap"]}}
+
+
+def test_envelope_carries_a_newly_fired_finalizer_stop(tmp_path):
+    env = dict(_good(), action="noop", terminal="budget-exhausted", finalizer_stop=STOP)
+    assert rs.envelope_errors(env) == []
+    (tmp_path / "tail").mkdir()
+    (tmp_path / "tail" / "envelope.json").write_text(json.dumps(env), encoding="utf-8")
+    assert rs.tail_check(tmp_path) is None
+
+
+def test_finalizer_stop_is_required_and_needs_a_stop_key():
+    env = _good()
+    del env["finalizer_stop"]
+    assert "$: missing finalizer_stop" in rs.envelope_errors(env)
+    bad = dict(_good(), finalizer_stop={"source": "pr-iterate", "signal": "round-cap"})
+    assert "$.finalizer_stop: missing target" in rs.envelope_errors(bad)

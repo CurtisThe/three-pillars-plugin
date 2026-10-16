@@ -29,7 +29,11 @@ Exit codes:
       a usage / runtime error.
 
 stdlib-only (C1 invariant: no `import anthropic`, no `subprocess.run(["claude", ...])`).
-The only side effect on the PASS path is the `gh pr merge` subprocess.
+The only side effect on the PASS path is the `gh pr merge` subprocess; the CLI
+(`main`) also runs `gh pr view` (and possibly `git fetch`) after the gate PASSES and
+before the merge, to refuse a PR head that still holds unnumbered `<S>-new-<slug>` issue
+IDs (`unnumbered_refusal`, handed to `land()` as `pre_merge_check`; the HTML briefing's
+merge seam runs it too). Library `land()` alone never runs it.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ from merge_gate import (  # noqa: E402
 )
 from deterministic_gate import _load_repo_config  # noqa: E402
 from human_approval import _require_human_approval  # noqa: E402
+import placeholder_gate  # noqa: E402
 
 HOWTO = "skills/_shared/human-approval-howto.md"
 
@@ -78,6 +83,18 @@ def _print_roster(outcome) -> None:
         pass  # fail-open
 
 
+def _print_accept_line(outcome) -> None:
+    """Print the operator-accept line when the review_proof_on_head roster entry rode an accept; fail-open, PASS path only."""
+    try:
+        for e in getattr(outcome, "roster", ()) or ():
+            d = str(getattr(e, "detail", "") or "")
+            if getattr(e, "name", "") == "review_proof_on_head" and d.startswith("operator-accept"):
+                print(f"merge rides an operator-accept: {d}")
+                return
+    except Exception:
+        pass  # fail-open
+
+
 def _gh_pr_merge(pr_url: str) -> None:
     """Run the irreversible `gh pr merge` for pr_url. Raises CalledProcessError on failure."""
     subprocess.run(
@@ -93,6 +110,7 @@ def land(
     merge_fn=None,
     config=None,
     repo_root=None,
+    pre_merge_check=None,
 ) -> int:
     """Gate-then-land: enforce the merge gate, then run `gh pr merge` ONLY on PASS.
 
@@ -115,6 +133,11 @@ def land(
             resolution, no repo_root kwarg passed at all — preserves existing
             require_fn test-double call shapes and the `_load_repo_config()`
             zero-arg monkeypatch).
+        pre_merge_check: optional zero-arg callable run only AFTER the gate PASSED
+            and BEFORE `merge_fn`; a non-None return is a refusal line (printed,
+            exit 2, no merge). `main` passes the unnumbered-ID check here, so the
+            gate roster prints first. None (library default) runs no check and
+            never reads the checkout.
 
     Returns:
         0 if the gate PASSED and the merge was invoked; 2 if the gate REFUSED
@@ -200,12 +223,18 @@ def land(
 
     # Gate PASSED — print roster, then cross the irreversible boundary exactly once.
     _print_roster(outcome)
+    if pre_merge_check is not None:
+        refusal = pre_merge_check()
+        if refusal:
+            print(refusal)
+            return 2
     try:
         merge_fn(pr_url)
     except Exception as e:  # noqa: BLE001 — surface the merge failure as a refusal-class exit
         print(f"REFUSED — `gh pr merge` failed: {type(e).__name__}: {e}")
         return 2
 
+    _print_accept_line(outcome)
     print(f"Merged {pr_url} (gate PASSED).")
     return 0
 
@@ -255,6 +284,31 @@ def _parse_argv(argv: list[str]) -> "tuple[str | None, list[str], bool]":
     return repo, positionals, ok
 
 
+def unnumbered_refusal(pr_url: str, check_root, *, head_ids_fn=None) -> "str | None":
+    """The refusal line for a PR head that still holds unnumbered issue IDs, else None.
+
+    Shared by the CLI (`main`, which hands it to `land()` as `pre_merge_check`, so it runs
+    after the gate PASSES and before the merge, with the gate roster printed first) and the
+    HTML briefing's merge seam (`html_briefing/write_actions.land_merge`, before library
+    `land()`), so both refuse with the same message. Library `land()` alone never reads
+    the checkout. Reads the
+    PR head commit (`headRefOid`) via `placeholder_gate.head_unnumbered_ids` (or the
+    injected `head_ids_fn`). Fail-closed: no toplevel or an unreadable head refuses.
+    """
+    if check_root is None:
+        return "REFUSED — cannot resolve the repo toplevel to check for unnumbered issue IDs."
+    head_ids_fn = head_ids_fn or placeholder_gate.head_unnumbered_ids
+    try:
+        unnumbered = head_ids_fn(pr_url, check_root)
+    except Exception as e:  # noqa: BLE001 — fail closed: an unreadable PR head refuses
+        reason = " ".join(f"{type(e).__name__}: {e}".split())
+        return f"REFUSED — cannot check the PR head for unnumbered issue IDs: {reason}"
+    if unnumbered:
+        return (f"unnumbered issue IDs: run number_issues.py (or /tp-merge-from-main when the "
+                f"base already numbered them) — {', '.join(unnumbered)}")
+    return None
+
+
 def main(argv: list[str]) -> int:
     """Parse argv (exactly one positional <pr_url>, plus optional --repo <path>),
     gate-then-land, return exit code."""
@@ -269,6 +323,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     pr_url = positionals[0]
+    resolved = None
     if repo_arg is not None:
         resolved = _resolve_repo_toplevel(repo_arg)
         if resolved is None:
@@ -278,8 +333,17 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 2
-        return land(pr_url, repo_root=resolved)
-    return land(pr_url)
+    check_root = resolved if resolved is not None else _resolve_repo_toplevel(".")
+    if check_root is None:
+        print(unnumbered_refusal(pr_url, None))
+        return 2
+
+    def check():
+        return unnumbered_refusal(pr_url, check_root)
+
+    if resolved is not None:
+        return land(pr_url, repo_root=resolved, pre_merge_check=check)
+    return land(pr_url, pre_merge_check=check)
 
 
 if __name__ == "__main__":

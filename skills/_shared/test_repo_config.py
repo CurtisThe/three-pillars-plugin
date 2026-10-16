@@ -10,6 +10,11 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_repo_config = pytest.mark.skipif(
+    not (_DEV_ROOT / ".three-pillars/config.json").exists(),
+    reason="reads the dev repo's own .three-pillars/config.json (dev-repo only)")
+
 SCHEMA_PATH = Path(__file__).parent / "repo-config.schema.json"
 
 
@@ -185,6 +190,7 @@ def test_config_without_ci_still_validates(validator):
     validator.validate(cfg)
 
 
+@_needs_repo_config
 def test_this_repo_opts_out_of_github_ci(validator):
     # This repo runs CI locally — its committed config must opt out and stay schema-valid.
     repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"
@@ -222,6 +228,7 @@ def test_config_without_review_still_validates(validator):
     validator.validate(cfg)
 
 
+@_needs_repo_config
 def test_this_repo_opts_out_of_copilot(validator):
     # This account has no Copilot entitlement — its committed config must declare it so
     # the tp-pr-iterate loop converges on the /code-review arm instead of cap-exhausting.
@@ -309,6 +316,7 @@ def test_config_without_fleet_still_validates(validator):
     validator.validate(cfg)
 
 
+@_needs_repo_config
 def test_this_repo_declares_require_human_approval(validator):
     # This repo opts into the strict human-approval predicate explicitly.
     repo_cfg_path = Path(__file__).resolve().parents[2] / ".three-pillars" / "config.json"

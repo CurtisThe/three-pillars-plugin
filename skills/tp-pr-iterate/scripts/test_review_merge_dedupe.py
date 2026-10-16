@@ -457,7 +457,7 @@ def test_the_import_block_names_the_whole_dedupe_surface():
 def test_an_infinity_line_range_in_an_angle_reply_degrades_instead_of_raising():
     """`json.loads` accepts `Infinity`; `int(inf)` raises OverflowError, which
     used to escape `normalize_codereview` and crash `merge_codereview_angles`."""
-    text = '```json\n[{"file": "a.py", "line_range": [Infinity, 2], "summary": "x", "verdict": "minor"}]\n```'
+    text = '```json\n{"findings": [{"file": "a.py", "line_range": [Infinity, 2], "summary": "x", "verdict": "minor"}]}\n```'
     findings = review_merge.merge_codereview_angles([text])
     assert [f["line_range"] for f in findings] == [[0, 0]]
     assert review_merge._coerce_range([float("inf"), 2], None) == (0, 0)

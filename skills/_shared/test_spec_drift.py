@@ -23,6 +23,11 @@ from spec_drift import (  # noqa: E402
     scan_spec,
 )
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_docs = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs").exists(),
+    reason="reads the dev repo's three-pillars-docs/ (dev-repo only)")
+
 # ---------------------------------------------------------------------------
 # Fixture spec text helpers
 # ---------------------------------------------------------------------------
@@ -386,11 +391,13 @@ class TestSeededSpecsClean:
         spec = _parse_spec(text)
         return scan_spec(spec, self._REPO_ROOT, strict=False)
 
+    @_needs_dev_docs
     def test_seeded_pipeline_spec_scans_clean(self):
         issues = self._run_scan_spec("pipeline")
         errors = [i for i in issues if i.severity == "ERROR"]
         assert errors == [], f"pipeline spec has drift errors: {errors}"
 
+    @_needs_dev_docs
     def test_seeded_framework_spec_scans_clean(self):
         issues = self._run_scan_spec("framework")
         errors = [i for i in issues if i.severity == "ERROR"]

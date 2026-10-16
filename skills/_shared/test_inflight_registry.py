@@ -427,68 +427,29 @@ def test_main_cli(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Task 3.2 — /tp-inflight standalone skill prose-presence
+# /tp-inflight SKILL.md and collaboration.md wiring: parsed structures only
 # --------------------------------------------------------------------------- #
+# Neither doc's prose is asserted here. The behaviour they describe is pinned
+# above (test_collision_verdict, test_build_registry_failopen, test_main_cli);
+# the docs' references are checked by skill_refs (invariant 46), run in-suite.
 
 
 _SKILLS_DIR = _MODULE.parent.parent  # skills/
 _TP_INFLIGHT_SKILL = _SKILLS_DIR / "tp-inflight" / "SKILL.md"
-
-
-def test_tp_inflight_skill_prose():
-    assert _TP_INFLIGHT_SKILL.exists(), "skills/tp-inflight/SKILL.md must exist"
-    text = _TP_INFLIGHT_SKILL.read_text(encoding="utf-8")
-
-    # Frontmatter: name + description
-    assert "name: tp-inflight" in text
-    assert "description:" in text
-
-    # Documents the fail-open first-step fetch of tp/* refs
-    assert "git fetch" in text
-    assert "refs/heads/tp/*" in text
-    assert "|| true" in text
-
-    # Invokes the shared helper
-    assert "inflight_registry.py" in text
-
-
-# --------------------------------------------------------------------------- #
-# Task 4.1 — collaboration.md preflight wiring prose-presence
-# --------------------------------------------------------------------------- #
-
-
 _COLLABORATION = _MODULE.parent / "collaboration.md"
 
 
-def test_collaboration_wiring_prose():
+def test_tp_inflight_skill_frontmatter_passes_schema():
+    skill_frontmatter = pytest.importorskip("skill_frontmatter")
+    assert _TP_INFLIGHT_SKILL.exists(), "skills/tp-inflight/SKILL.md must exist"
+    assert skill_frontmatter.check(_TP_INFLIGHT_SKILL) == []
+
+
+def test_skill_and_collaboration_references_resolve(tmp_path):
+    """Every path, `/tp-*` skill and `python3` invocation the two docs name exists and parses
+    with its script's own argparse: the `inflight_registry.py` and `--json` citations in the
+    SKILL.md, and the helper and `format_table` citations in collaboration.md."""
+    skill_refs = pytest.importorskip("skill_refs")
     assert _COLLABORATION.exists()
-    text = _COLLABORATION.read_text(encoding="utf-8")
-    low = text.lower()
-
-    # Names the helper
-    assert "inflight_registry" in text
-
-    # Remote same-name tp/{name} collision check
-    assert "collision" in low
-    assert "tp/{design-name}" in text or "tp/{name}" in text
-
-    # Refuse unless --force-takeover
-    assert "--force-takeover" in text
-    assert "refuse" in low
-
-    # Situational-awareness registry print
-    assert "situational-awareness" in low or "situational awareness" in low
-    assert "format_table" in text or "registry" in low
-
-    # self-verdict non-blocking notice
-    assert "self" in low
-    assert "non-blocking" in low or "does not refuse" in low or "do not refuse" in low
-
-    # States it augments, not replaces, the existing local lock check
-    assert "augment" in low
-    assert "replace" in low
-
-    # Freshness dependency: step 5 relies on step 2's unscoped git fetch
-    assert "step 2" in low
-    assert "fetch" in low
-    assert "unscoped" in low
+    files = [_TP_INFLIGHT_SKILL, _COLLABORATION]
+    assert skill_refs.check(_SKILLS_DIR.parent, files, cache_dir=tmp_path).issues == []

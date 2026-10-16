@@ -259,16 +259,25 @@ def verdict(cases: list | None, targets, cwd) -> tuple[str, str]:
     return next((j for j in judged if j[0] != "pass"), ("pass", ""))
 
 
-def run_judged(run, target: str, cwd):
+def run_judged(run, target: str, cwd, *, failed_out: list | None = None):
     """``run(extra_args, [target])`` in ``cwd`` with `report_args` for a fresh report in
     a temp dir (removed after) → ``(run's result, verdict(parse(report), [target],
     cwd))``. Exactly one declared target per run, everywhere: pytest aborts a whole
     session over one target (a node not found, a module skipped at collection), so a
     shared run would let one target mask another. The caller combines its targets'
-    verdicts, the most severe winning."""
+    verdicts, the most severe winning. When ``failed_out`` is given, the resolved node
+    ids (`resolve`/`_node`) of every failed case are appended to it; a foreign failure
+    (no resolved id) is skipped. The return value is unchanged either way, so existing
+    callers are unaffected."""
     if not isinstance(target, str):
         raise TypeError("run_judged judges exactly one declared target per run")
     with tempfile.TemporaryDirectory(prefix="tp-junit-") as tmp:
         report = os.path.join(tmp, "report.xml")
         result = run(report_args(report), [target])
-        return result, verdict(parse(report), [target], cwd)
+        cases = parse(report)
+        if failed_out is not None and cases is not None:
+            nodes, why = resolve(cases, [target], cwd)
+            if nodes is not None:
+                failed_out.extend(node for node, outcome in nodes
+                                  if outcome == "failed" and node)
+        return result, verdict(cases, [target], cwd)

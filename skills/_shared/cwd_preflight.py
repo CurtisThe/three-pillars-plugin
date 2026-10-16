@@ -6,8 +6,9 @@ is about to operate in the wrong checkout. Exit 3 with a cd-fix message so the
 user can correct before any stray write occurs.
 
 This is the ERGONOMIC early-refuse: fail-open on any ambiguity (git error,
-unreadable worktree state). The commit-time guard (framework-check invariant #28)
-is the fail-closed backstop.
+unreadable worktree state). The commit guard (`commit_guard.py`), only when
+installed, is the fail-closed backstop; in the three-pillars dev repo this is
+framework-check invariant #29.
 
 Design refs:
   - three-pillars-docs/completed-tp-designs/worktree-write-guard/detailed-design.md

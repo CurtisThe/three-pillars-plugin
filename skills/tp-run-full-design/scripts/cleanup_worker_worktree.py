@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from portable_path import find_anchor, portable_path
+
 _LOG_PREFIX = "[tp-run-full-design/tier-3.5] worktree-cleanup-locked"
 _ORPHAN_BRANCH_PREFIX = "worktree-agent-"
 _SWEEP_LOG_PREFIX = "[tp-run-full-design/tier-3.5] worktree-agent-branch-deleted"
@@ -154,7 +156,9 @@ def cleanup_worker_worktree(
       ``--force -f`` removes a locked or nested worktree outright, so no separate
       unlock + retry step is needed.
     - When the worktree was locked AND ``decisions_log`` is not None, appends a
-      single audit line to that log (OQ5 cleanup audit convention).
+      single audit line to that log (OQ5 cleanup audit convention). The log is
+      committed, so the line names the worktree in its portable form
+      (``portable_path``), never the absolute host path.
     - Path-generic: works for any tier worktree the orchestrator creates.
     """
     if not worktree_path.exists():
@@ -170,7 +174,8 @@ def cleanup_worker_worktree(
 
     if was_locked and decisions_log is not None:
         with open(decisions_log, "a", encoding="utf-8") as fh:
-            fh.write(f"{_LOG_PREFIX} {worktree_path}\n")
+            shown = portable_path(worktree_path, find_anchor(Path(decisions_log).parent))
+            fh.write(f"{_LOG_PREFIX} {shown}\n")
 
     # Option A trigger (design.md Behaviors / plan Mechanism-refinement note):
     # the just-removed worktree has dropped out of `git worktree list`, so its

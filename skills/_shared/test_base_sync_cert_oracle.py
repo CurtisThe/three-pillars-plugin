@@ -18,7 +18,11 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "fixtures"))
 
-from base_sync_oracle import _oracle_code_dir, oracle_independent  # noqa: E402
+from base_sync_oracle import (  # noqa: E402
+    _is_genuinely_outside_any_repo,
+    _oracle_code_dir,
+    oracle_independent,
+)
 from base_sync_repo import build_scenario, break_remote  # noqa: E402
 from base_sync_topologies import (  # noqa: E402
     add_design_worktree,
@@ -160,13 +164,16 @@ def test_fetch_seam_raising_refuses_with_stale_base_reason(tmp_path):
 
 def test_oracle_code_dir_resolves_to_this_modules_directory():
     # Sanity check against the actual installed environment (no injection): the module's
-    # own physical directory, and that directory's git toplevel resolves for real.
+    # own physical directory. In a checkout its git toplevel resolves for real; in a plugin
+    # install git finds no repository in any parent, the external install the oracle accepts.
     code_dir = _oracle_code_dir()
     assert (code_dir / "base_sync_oracle.py").is_file()
     r = subprocess.run(["git", "-C", str(code_dir), "rev-parse", "--show-toplevel"],
-                       capture_output=True, text=True, check=True)
-    assert r.returncode == 0
-    assert r.stdout.strip()
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        assert r.stdout.strip()
+    else:
+        assert _is_genuinely_outside_any_repo(r.returncode, r.stderr), r.stderr
 
 
 def test_happy_path_resolved_identity_accepts_pending_later_tasks(tmp_path):

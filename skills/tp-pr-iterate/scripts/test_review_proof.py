@@ -110,9 +110,10 @@ def test_default_proof_root_returns_path_with_suffix(tmp_path):
 
 
 def test_default_proof_root_fallback_when_not_git_repo(tmp_path, monkeypatch):
-    """Falls back to start dir when not a git repo."""
-    # Stub find_project_root to return None
-    monkeypatch.setattr(review_proof, "find_project_root", lambda _: None)
+    """Falls back to start dir when not a git repo (via the proof_root delegate)."""
+    import proof_root
+    monkeypatch.delenv(proof_root.ENV_VAR, raising=False)
+    monkeypatch.setattr(proof_root, "_default_run_git", lambda _args: (128, "", "not a repo"))
     root = review_proof.default_proof_root(start=tmp_path)
     assert root == tmp_path / ".three-pillars" / "review-proof"
 

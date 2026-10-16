@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import resolvers  # noqa: E402
 from classify import Hunk, classify_hunk  # noqa: E402
 from resolve_totality import CannotPlace  # noqa: E402
+from test_keep_both_line_shapes import _real_git_defers  # noqa: E402
 from test_merge_driver import git  # noqa: E402
 from test_resolve_three_way import _merge  # noqa: E402
 
@@ -96,9 +97,7 @@ def test_h_an_nbsp_only_line_is_not_blank_so_the_rule_under_it_is_a_setext_headi
     ours = base + "\n### [tp-run-full-design/tier-1] design decision\n**Decided**: b\n\u00a0\n---\n"
     theirs = base + "\n### [tp-worker] master decision\n**Decided**: c\n"
     assert deferred_hunk_reasons(base=base, ours=ours, theirs=theirs) == SEMANTIC
-    repo, report = _merge(tmp_path, DECISIONS, base, ours, theirs)
-    assert DECISIONS not in report.auto_resolved, report.to_json()
-    assert git(repo, "ls-files", "-u", "--", DECISIONS).stdout.strip(), "must stay unmerged"
+    _real_git_defers(tmp_path, DECISIONS, base, ours, theirs)   # lane off; the lane pinned beside
     for blank in ("", " \t", "\r"):                    # a CommonMark blank line: a thematic break
         h = Hunk(ours=["### [tp-plan] ours", "**Decided**: b", blank, "---"], base=[],
                  theirs=["### [tp-plan] theirs"], post_context="")

@@ -44,16 +44,32 @@ _ORACLE_GIT_ERROR_REFUSE = "oracle code provenance indeterminate (git error) —
 # any repository -- and must fail closed, never waved through as external-install.
 _NOT_A_REPO_MARKER = "not a git repository (or any of the parent directories)"
 
+# The same confirmed-absence signal in git's filesystem-boundary phrasing: discovery stops
+# at a mount point when GIT_DISCOVERY_ACROSS_FILESYSTEM is unset, and git reports the
+# search having covered every parent up to that boundary (rc 128, stderr
+# "fatal: not a git repository (or any parent up to mount point /)\nStopping at filesystem
+# boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set)."). The mount path is variable, so the
+# qualifier is matched as "not a git repository (or any parent up to mount point" -- the
+# opening paren (and its "any parent" wording) excludes the bare "not a git repository"
+# prefix that the dangling-gitfile error shares, while the variable path after "point" keeps
+# the match valid for any boundary.
+_NOT_A_REPO_MOUNT_MARKER = "not a git repository (or any parent up to mount point"
+
 
 def _is_genuinely_outside_any_repo(rc: int, stderr: str) -> bool:
-    """True ONLY for git's own precise "not a repo anywhere in the parent chain" signal (see
-    `_NOT_A_REPO_MARKER` above). Any other rc/stderr combination -- a different rc, rc 128
-    with a different message (dubious ownership, dangling gitdir, permission denied), or
+    """True ONLY for git's own precise "not a repo anywhere in the parent chain" signal: rc
+    128 with EITHER parenthesised "searched every parent, found nothing" qualifier -- the
+    `_NOT_A_REPO_MARKER` ("(or any of the parent directories)") or the
+    `_NOT_A_REPO_MOUNT_MARKER` ("not a git repository (or any parent up to mount point",
+    the filesystem-boundary phrasing -- the trailing path is variable). Any other
+    rc/stderr combination -- a different rc, rc 128 with a different
+    message (dubious ownership, unsafe repository, dangling gitdir, permission denied), or
     empty/malformed stderr -- returns False, so the caller fails closed instead of accepting
     an indeterminate git error as external-install."""
     if rc != 128:
         return False
-    return _NOT_A_REPO_MARKER in (stderr or "").lower()
+    stderr_lc = (stderr or "").lower()
+    return _NOT_A_REPO_MARKER in stderr_lc or _NOT_A_REPO_MOUNT_MARKER in stderr_lc
 
 
 def _real_run_git_raw(args: list) -> tuple:

@@ -58,8 +58,18 @@ The ordering matters: picking a test runner, layout, and coverage tool before th
 6. **On confirmation, configure**:
    - Install dependencies (e.g., `npm install -D vitest`, `pip install pytest`).
    - Create config files if needed (e.g., `vitest.config.ts`, `pytest.ini`).
+   - Configure the runner to emit machine-readable results so later pipeline steps can read them: for pytest, `--junitxml=...` through `addopts` in the config file; for other runners, the machine-readable equivalent recorded in the repo's `test.command` (step 6b).
    - Create a starter test file that demonstrates the project's test pattern. The starter should exercise a real piece of the system, not `1 + 1`. Prefer testing something mentioned in `architecture.md` (e.g., a key component's happy path) so the test itself demonstrates the vision-architecture-test chain.
+   - Offer property testing alongside the starter test: a Hypothesis property paired with a concrete example (Python) or the stack's equivalent. **Offer, never install** — ask, and only add the dependency if the user confirms. Never install a test library silently.
+   - Scaffold the per-repo fragility rules file `.three-pillars/fragility-rules.json` with the empty form `{"schema_version": 1, "rules": []}` (create the directory if missing).
    - Add or update test scripts in package manifest if applicable.
+
+6b. **Record the test setup in the repo config** through the shipped writer CLI `repo_config_load.py set` (which validates against the schema and writes atomically):
+   - `python3 "$TP_ROOT"/skills/_shared/repo_config_load.py set test.command '"npm test"'` — the canonical command step 9 verifies, as a JSON string.
+   - `python3 "$TP_ROOT"/skills/_shared/repo_config_load.py set test.runner '"pytest"'` for a pytest suite, or `set test.runner '"other"'` for any non-pytest runner (the schema allows exactly `pytest` and `other`).
+   - Non-pytest runners are recorded with `runner: "other"`; downstream Targets verification then reports `unverified (non-pytest runner)` for them rather than crashing.
+   - For a non-pytest runner, say that the 3-run condition for changed tests reports `unverified` until the `test-runner-adapter` design lands; the setup still records the runner so the pipeline degrades to that signal rather than crashing.
+   - The `--exec` lanes run the recorded command through the shell, but per-node Targets verification (local implement, the Tier 3.5 re-run) runs a pytest `test.command` as one argv with no shell. Only a plain argv is accepted there: words of `[A-Za-z0-9_./:=,@+%-]` or quoted strings with no backslash, `$`, backtick, quote or newline inside, separated by spaces or tabs. Anything else (`&&`, `;`, `|`, a redirect, a glob, `$`, `~`, a backtick, a `#`, a backslash, a `NAME=` prefix) is refused as `runner-needs-shell` naming the first offending character, and the same rule applies to an operator's `--test-cmd` override. Record a plain argv for a pytest suite (e.g. `python3 -m pytest -q tests`).
 
 7. **Configure Claude Code permissions**:
    - Check `.claude/settings.json` for existing `Bash(...)` permissions.
@@ -81,12 +91,20 @@ The ordering matters: picking a test runner, layout, and coverage tool before th
 
 9. **Verify**: Run the test suite once to confirm everything works.
 
-10. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage — include only those actually created or modified in steps 6–8 (run `git status --short` first and cross-check):
+9b. **Wire up the test hygiene artifacts**:
+   - Link the project's test README to the fragility guidance: add a link from the project's test README (create a tests/README.md if none exists) to `$TP_ROOT/skills/_shared/test-fragility.md`, so test authors see the never-fragile-test rules where they write tests.
+   - **Offer** (never install) a pre-commit hook that runs `python3 "$TP_ROOT"/skills/_shared/fragility_lint.py check --base HEAD --cached`, so it lints what is staged, not unstaged edits. Present the hook command, explain what it does, and only wire it into the repo's pre-commit hook if the user confirms — consistent with the "don't silently install tools" rule.
+   - **Offer (e)** — a repo hook that already runs the tests before every commit refuses the `Red:` commit of the red-then-green protocol. Run `python3 "$TP_ROOT"/skills/_shared/hook_detect.py --root .` and make the offer per `skills/_shared/consumer-offers.md` §Offer (e): test-running pre-commit hook — never wire it without the user's confirmed answer.
+
+10. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage — include only those actually created or modified in steps 6–9b (run `git status --short` first and cross-check):
     - Test config files (e.g., `vitest.config.ts`, `pytest.ini`, `jest.config.js`, whatever was created)
     - Starter test file (path reported by step 6)
     - Package manifest and lockfile if test deps were added (e.g., `package.json`, `package-lock.json`, `pyproject.toml`, `poetry.lock`)
     - `.claude/settings.json` (if step 7 modified it)
     - `.gitignore` (if step 8 modified it)
+    - `.three-pillars/config.json` (if step 6b recorded `test.command` / `test.runner` — the committed repo config, per `skills/_shared/repo-config.md`)
+    - `.three-pillars/fragility-rules.json` (if step 6 scaffolded it)
+    - The test README (if step 9b created or modified it)
     Do NOT stage `node_modules/`, `__pycache__/`, `.venv/`, or other build artifacts — those should already be gitignored.
 
     Commit message: `Setup: test infrastructure`.

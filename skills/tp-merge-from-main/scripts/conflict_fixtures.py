@@ -154,6 +154,54 @@ DECISIONS_NESTED = diff3_empty_base(
 )
 
 
+# ---- keyed-heading-insertion ------------------------------------------------------------------
+
+# The live `known_issues.md` shape: both sides filed an issue entry at one point, ours a numbered
+# `### M48:` and theirs a placeholder `### M-new-reset:` (so no sort applies and ours comes first),
+# and the next line is the following level-3 heading the class requires after the region.
+KEYED_HEADING = diff3_empty_base(
+    "### M48: ours issue\nbody ours\n",
+    "### M-new-reset: theirs issue\nbody theirs\n",
+    pre="## Medium\n",
+) + "\n### L1: next entry\nbody\n"
+
+
+# ---- last-updated-preamble -------------------------------------------------------------------
+
+# The live preamble shape: both branches bumped the one-line `*Last updated:*` date under the title,
+# date only, each from the base's older date, with a blank line and a section heading after it.
+LAST_UPDATED_PREAMBLE = diff3(
+    "*Last updated: 2026-06-02*", "*Last updated: 2026-06-01*", "*Last updated: 2026-06-03*",
+    pre="# Roadmap",
+) + "\n\n## Current State\n"
+
+
+# ---- keyed-row-insertion ----------------------------------------------------------------------
+
+# The `product_roadmap_archive.md` shape once each branch moves its own Design Inventory row before
+# merging (design-complete-final-doc-state, Behavior 6): both append one slug-keyed row to the end
+# of one archive table, an empty-base region that ends the file.
+KEYED_ROW_INSERTION = diff3_empty_base(
+    "| b-design | What for b. | Done (completion PR) |",
+    "| `a-design` | What for a. | Done — PR #12 |",
+    pre="### Active\n\n| Design | What | Status |\n|---|---|---|\n| prior | A prior row. | Done — PR #9 |",
+) + "\n"
+
+
+# ---- shaped-line-merge --------------------------------------------------------------------------
+
+# The #219 shape: a slug-keyed table whose row theirs moved on (`Planned` -> `Done`) while each side
+# appended a row of its own. The table header and delimiter sit above the region as clean context,
+# so the hunk holds rows only; the merge is theirs' edited row, theirs' new row, then ours'.
+_SLUG_ROW = "| `ci-settle-statuscontext` | settle the status context | Planned |"
+SHAPED_LINE_MERGE = diff3(
+    _SLUG_ROW + "\n| `ours-new` | ours row | Planned |",
+    _SLUG_ROW,
+    _SLUG_ROW.replace("Planned", "Done") + "\n| `theirs-new` | theirs row | Planned |",
+    pre="| Slug | Note | Status |\n| --- | --- | --- |",
+)
+
+
 # ---- S-H1: coincidental conflict-syntax prose ahead of a genuine region ----------------------
 #
 # NOT a member of `ALL_FIXTURES` — it is not a class fixture but a malformed-input repro, shared
@@ -189,4 +237,8 @@ ALL_FIXTURES = [
     ("decisions-observed", DECISIONS_OBSERVED),
     ("decisions-collision", DECISIONS_COLLISION),
     ("decisions-nested", DECISIONS_NESTED),
+    ("keyed-heading-insertion", KEYED_HEADING),
+    ("last-updated-preamble", LAST_UPDATED_PREAMBLE),
+    ("keyed-row-insertion", KEYED_ROW_INSERTION),
+    ("shaped-line-merge", SHAPED_LINE_MERGE),
 ]

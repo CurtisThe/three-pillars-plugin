@@ -2,6 +2,7 @@
 name: tp-design-audit
 description: "Design Audit — multi-angle review of a detailed design against the actual codebase before implementation."
 argument-hint: "{design-name} [--auto] [--force-takeover]"
+effort: high
 ---
 
 # Design Audit
@@ -41,7 +42,7 @@ MISALIGNMENT findings are presented alongside CRITICAL/MEDIUM/MINOR categories i
 Apply the Check mode of `skills/_shared/state-space-protocol.md` to design.md's `## State space` section (or, if absent, to Scope/Constraints): was a better locus or alternative dismissed without evidence? Each such dismissal is a MEDIUM finding (not MISALIGNMENT, which is reserved for vision conflicts) and joins Step 6's compile list. It questions design.md's own framing, so it is never auto-applied to detailed-design.md or plan.md: record it for the operator (in `--auto`, self-assess it Medium so the batch escalates — only a human revises design.md). Under `--auto`, run this check only when `## State space` exists — skip the Scope/Constraints fallback.
 
 ### 2. Interface verification (launch parallel agents)
-For EVERY interface defined in the detailed design (data structures, interfaces, function/method signatures), launch exploration agents (pinned `model="opus"` — audits always run on Opus) to verify against the actual codebase:
+For EVERY interface defined in the detailed design (data structures, interfaces, function/method signatures), launch exploration agents (`Agent(subagent_type="general-purpose", model="opus")` — audits always run on Opus) to verify against the actual codebase:
 
 - **Modified modules**: For each file listed as "modify", read the current file and verify:
   - Do the functions/methods the design assumes exist actually exist? Correct signatures?
@@ -58,7 +59,7 @@ For EVERY interface defined in the detailed design (data structures, interfaces,
   - Verify types are compatible across the serialization boundary
   - Check for schema mismatches where the same concept has different field structures
 
-### 3. Architecture feasibility (launch parallel agents, pinned `model="opus"`)
+### 3. Architecture feasibility (launch parallel agents, `Agent(subagent_type="general-purpose", model="opus")`)
 
 - **Resource constraints**: If the design involves constrained resources (memory, GPU, connections, rate limits), verify budgets and lifecycle management. Can proposed components coexist within resource limits?
 
@@ -78,6 +79,12 @@ For each feedback loop or orchestration flow:
 - What happens with 0 items, 1 item, or empty collections?
 - What happens on resume from each possible pause point?
 - Are convergence/termination conditions clearly specified?
+
+### 5b. Consumer-repo enforcement
+Per `skills/_shared/consumer-repo-rule.md`, ask of **every enforcement the design relies on**: "Does this run in a user's repo? Name the shipped file that runs it." A dev-only answer — naming a file the ship manifest excludes, or a dev-repo-only script — is a finding. So is no answer at all. These findings join Step 6's compile list as MEDIUM (a claimed enforcement that does not hold for a user's repo). Per `skills/_shared/forge-parity-rule.md`, also ask it of every forge surface the design relies on (GitHub behaviour, Gitea behaviour, a visible degraded path, via `forge.py`): a silent Gitea no-op or a github.com-only path is MEDIUM.
+
+### 5c. Allowlist source check
+Per `skills/_shared/test-fragility.md`'s blocklist fix and input-domain question, ask of **every heuristic or check the design relies on**: "What is the allowlist, and which single source of truth does it come from?" An allowlist derived from the system's own registry is fine; a hand-copied list, or a regex over free text with no written justification for reading prose instead of building the input, is a finding. These join Step 6's compile list as MEDIUM.
 
 ### 6. Compile findings
 
@@ -99,6 +106,8 @@ Misalignment findings are resolved differently from the others: the user decides
 - Missing intermediate steps
 - State persistence gaps
 - Capability assumptions that don't hold
+- Consumer-repo enforcement gaps found in Step 5b (dev-only or unanswered)
+- Allowlist source gaps found in Step 5c (hand-copied list, or an unjustified regex over free text)
 
 **MINOR** — Should be addressed but won't block:
 - Shared constants needed
@@ -113,7 +122,7 @@ if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TO
 CERT="$(python3 "$RS" certify.py)" || exit 1
 ```
 The findings (saved to a scratch file) are always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <findings.md>` prints the `verdict` to report with them; with claims, steps 1–3:
-1. Dispatch `Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")` with `S`, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S`, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
 2. Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/design-audit.json`. Exit ≠ 0: step 3 uses `--unverified records-handoff` in place of `--records`. Stage both files with the audit's commit.
 3. Run the caller's certification over the findings and report the printed `verdict` with them:
 ```bash
@@ -138,7 +147,7 @@ After discussing findings with the user:
 - **Validate `{design-name}`** per `skills/_shared/validate-name.md`.
 - **Respect the lock** per `skills/_shared/collaboration.md` — audit fixes land in detailed-design.md and plan.md, which must not be edited by a non-owner.
 - ALWAYS verify against actual code, never trust design descriptions of current behavior
-- Launch parallel exploration agents for independent verification tasks, each pinned `model="opus"` (audits always run on Opus)
+- Launch parallel exploration agents for independent verification tasks, each `Agent(subagent_type="general-purpose", model="opus")` (audits always run on Opus)
 - Read files fully — don't skim. Interface mismatches hide in parameter lists
 - For EVERY "modify" entry: read the current file and diff against what the design assumes
 - Check BOTH directions of every data flow: producer output matches consumer input

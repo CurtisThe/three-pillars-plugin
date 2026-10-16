@@ -50,7 +50,14 @@ def _git(args, cwd):
 
 
 def _make_committed_config(repo_root: Path, config_dict: dict) -> None:
-    """Write, stage, and commit .three-pillars/config.json in repo_root."""
+    """Write, stage, and commit .three-pillars/config.json in repo_root.
+
+    Every committed config carries `schema_version: 1` (the schema's one fatal
+    required key) so the pruning loader's fatal `schema_version` rule never
+    flips these provenance tests — callers pass the schema-relevant keys only.
+    """
+    config_dict = dict(config_dict)
+    config_dict.setdefault("schema_version", 1)
     cfgdir = repo_root / ".three-pillars"
     cfgdir.mkdir(parents=True, exist_ok=True)
     cfgfile = cfgdir / "config.json"

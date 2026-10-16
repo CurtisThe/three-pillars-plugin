@@ -13,6 +13,11 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_repo_config = pytest.mark.skipif(
+    not (_DEV_ROOT / ".three-pillars/config.json").exists(),
+    reason="reads the dev repo's own .three-pillars/config.json (dev-repo only)")
+
 SCHEMA_PATH = Path(__file__).parent / "repo-config.schema.json"
 
 
@@ -117,6 +122,7 @@ def test_github_description_names_username_vs_credential_split(schema):
 # --- Task 5.1: this-repo dogfood invariants ---------------------------------
 
 
+@_needs_repo_config
 def test_this_repo_github_block_is_automation_membered(validator):
     """UNCONDITIONAL — this repo must dogfood the pr-author bot account:
     github.pr_author_account non-null AND its lowercase form is present in
@@ -135,6 +141,7 @@ def test_this_repo_github_block_is_automation_membered(validator):
     )
 
 
+@_needs_repo_config
 def test_downstream_clone_github_block_generic_guard(validator):
     """Generic guard for downstream clones (not this-repo-specific): if a
     `github` block exists in the committed config, its account is

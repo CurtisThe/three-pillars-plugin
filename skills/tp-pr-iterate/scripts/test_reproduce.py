@@ -152,16 +152,30 @@ def test_outcome_minor_findings_not_run(tmp_path):
     assert out == [note] and downgrades == [] and runner.calls == []
 
 
-def test_outcome_test_reproducer_written_to_scratch(tmp_path):
-    runner = _Runner(rc=1)
+def test_outcome_test_reproducer_written_to_scratch_and_run_from_the_tree(tmp_path):
+    """The audit copy lands in `scratch_dir`; pytest runs a transient copy inside the
+    reviewed tree (`SCRATCH_PARTS`) that exists during the run and is gone after."""
+    seen = {}
+
+    class _Recorder(_Runner):
+        def __call__(self, argv, **kw):
+            seen["exists"] = Path(argv[-1]).is_file()
+            seen["text"] = Path(argv[-1]).read_text(encoding="utf-8")
+            return super().__call__(argv, **kw)
+
+    runner = _Recorder(rc=1)
     findings = [_finding(verdict="minor", blocking=False), _test_finding()]
+    (tmp_path / "wt").mkdir()
     _run(findings, runner, tmp_path)
-    script = tmp_path / "scratch" / "repro_1.py"
-    assert script.read_text(encoding="utf-8") == TEST_SRC
+    assert (tmp_path / "scratch" / "repro_1.py").read_text(encoding="utf-8") == TEST_SRC
     argv, kw = runner.calls[0]
-    assert argv[1:] == ["-m", "pytest", "-q", "-p", "no:cacheprovider", str(script)]
-    assert argv[0] == reproduce.PYTHON
+    assert argv[:-1] == [reproduce.PYTHON, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    script = Path(argv[-1])
+    assert script.name == "repro_1.py"
+    assert script.parent.parent == (tmp_path / "wt").resolve().joinpath(*reproduce.SCRATCH_PARTS)
+    assert seen == {"exists": True, "text": TEST_SRC}
     assert Path(kw["cwd"]) == tmp_path / "wt"
+    assert not (tmp_path / "wt" / ".three-pillars").exists()
 
 
 def test_outcome_input_not_mutated(tmp_path):

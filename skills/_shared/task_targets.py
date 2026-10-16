@@ -38,13 +38,25 @@ _SEGMENT_RE = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _IDENT_RE = re.compile(r"[A-Za-z_]\w*\Z")
 
 
+def path_errors(path: str, *, any_ext: bool = False) -> list[str]:
+    """Why ``path`` is not a repo-relative POSIX path (empty → well-formed).
+
+    The one path-segment rule: segments of ``[A-Za-z0-9_.-]``, never ``.`` / ``..``, no
+    leading ``/``. A **Targets** path must also end ``.py``; ``any_ext=True`` lifts that
+    (the **Entry point** field names prose files such as a ``SKILL.md``).
+    """
+    if (not any_ext and not path.endswith(".py")) or not all(
+            _SEGMENT_RE.match(s) and s not in (".", "..") for s in path.split("/")):
+        kind = "repo-relative" if any_ext else "repo-relative .py"
+        return [f"bad path {path!r} (a {kind} path)"]
+    return []
+
+
 def _item_errors(content: str) -> list[str]:
     """Why one backticked item is not ``path(::name)*`` (empty → well-formed)."""
     path, *names = content.split("::")
-    segments = path.split("/")
-    if not path.endswith(".py") or not all(
-            _SEGMENT_RE.match(s) and s not in (".", "..") for s in segments):
-        return [f"bad path {path!r} (a repo-relative .py path)"]
+    if errors := path_errors(path):
+        return errors
     return [f"bad node {n!r} in {content!r} (a Python identifier)"
             for n in names if not _IDENT_RE.match(n)]
 

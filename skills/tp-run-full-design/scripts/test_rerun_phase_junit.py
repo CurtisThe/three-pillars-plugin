@@ -23,9 +23,15 @@ PY = f"{shlex.quote(sys.executable)} -m pytest"
 PASSING = "def test_ok():\n    assert True\n"
 RED = "def test_red():\n    assert False, 'MARKER-RED'\n"
 XDIST_INI = {"pytest.ini": "[pytest]\naddopts = -n 2\n"}
-# A wrapper runner (a script, `tox -e`, `make`-like): no token is `pytest`.
-WRAPPED = f"sh -c {shlex.quote(f'exec {PY} \"$@\"')} sh"
+# A wrapper runner (a script, `tox -e`, `make`-like): no token is `pytest`. It is a script
+# file, since an override outside the argv-safe language is refused (PR #170 r4).
+WRAPPED = f'exec {PY} "$@"\n'
 LIAR = "def pytest_sessionfinish(session, exitstatus):\n    session.exitstatus = 0\n"
+
+
+def _wrap(tmp_path, body):
+    (tmp_path / "wrap.sh").write_text(body, encoding="utf-8")
+    return f"sh {tmp_path / 'wrap.sh'}"
 
 
 def _rerun(repo, sha, base, test_cmd=PY):
@@ -44,8 +50,9 @@ def _xdist_repo(tmp_path, files):
     return repo, base, commit(repo, files)
 
 
-@pytest.mark.parametrize("runner", [PY, WRAPPED], ids=["pytest", "wrapper"])
-def test_a_absent_node_under_xdist_is_unverified(tmp_path, runner):
+@pytest.mark.parametrize("wrapper", [None, WRAPPED], ids=["pytest", "wrapper"])
+def test_a_absent_node_under_xdist_is_unverified(tmp_path, wrapper):
+    runner = _wrap(tmp_path, wrapper) if wrapper else PY
     repo, base, sha = _xdist_repo(tmp_path, {PLAN: plan({1: [
         task("1.1", "`tests/test_a.py::test_ok`", status="Done"),
         task("1.2", "`tests/test_a.py::test_never_written`", status="Done")]})})
@@ -90,14 +97,14 @@ def test_d_candidate_conftest_never_passes(tmp_path):
     assert (result["status"], result["case"]) == ("failed", "f")
 
 
-_DROP = f"sh -c {shlex.quote(f'exec {PY} \"$1\"')} sh"  # runs the target, drops the flags
-_GARBAGE = "sh -c " + shlex.quote(
-    f'{PY} "$@"; rc=$?; for a; do case "$a" in --junitxml=*) '
-    'echo "<testsuites><testcase" > "${a#--junitxml=}";; esac; done; exit $rc') + " sh"
+_DROP = f'exec {PY} "$1"\n'  # runs the target, drops the flags
+_GARBAGE = (f'{PY} "$@"; rc=$?; for a; do case "$a" in --junitxml=*) '
+            'echo "<testsuites><testcase" > "${a#--junitxml=}";; esac; done; exit $rc\n')
 
 
-@pytest.mark.parametrize("runner", [_DROP, _GARBAGE], ids=["no-report", "garbage"])
-def test_e_no_or_garbage_report_is_unverified(tmp_path, runner):
+@pytest.mark.parametrize("wrapper", [_DROP, _GARBAGE], ids=["no-report", "garbage"])
+def test_e_no_or_garbage_report_is_unverified(tmp_path, wrapper):
+    runner = _wrap(tmp_path, wrapper)
     repo, base = make_repo(tmp_path)
     sha = commit(repo, {PLAN: plan({1: [task("1.1", "`tests/test_a.py::test_ok`",
                                               status="Done")]}),

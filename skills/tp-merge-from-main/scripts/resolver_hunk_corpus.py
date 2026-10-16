@@ -79,3 +79,8 @@ def generated_hunks(n: int = 700):
         text = ("<<<<<<< ours\n" + _block(ours) + "\n" + base_section
                 + "=======\n" + _block(theirs) + "\n>>>>>>> theirs")
         yield f"hunk:{k}", ((pre + "\n") if pre else "") + text
+    # After the seeded loop, so no seeded draw moves: the one `last-updated-preamble` hunk the
+    # vocabularies above cannot produce (each side is exactly one date-only `*Last updated:*` line).
+    yield "fixed:last-updated", ("# Title\n<<<<<<< ours\n*Last updated: 2026-07-05*\n"
+                                 "||||||| base\n*Last updated: 2026-07-04*\n=======\n"
+                                 "*Last updated: 2026-07-06*\n>>>>>>> theirs")

@@ -52,15 +52,30 @@ def test_property_attack_fixture_is_indeterminate_never_fail_or_pass(
 
     s, head_oid, anchor = build_attack_case(case_name, tmp_path, monkeypatch)
     comments = [_c(_digest_for(anchor))]
-    r = proof_predicate.pred_review_proof_on_head(
-        PR, head_oid,
-        comments_fn=lambda _u, c=comments: c,
-        self_login_fn=lambda: AUTHOR,
-        config=CARRY_CONFIG,
-        repo_root=str(s.repo_dir),
-        derive_base_ref_fn=lambda _u, b=s.base_ref: b,
-    )
+
+    def _run(config):
+        return proof_predicate.pred_review_proof_on_head(
+            PR, head_oid,
+            comments_fn=lambda _u, c=comments: c,
+            self_login_fn=lambda: AUTHOR,
+            config=config,
+            repo_root=str(s.repo_dir),
+            derive_base_ref_fn=lambda _u, b=s.base_ref: b,
+        )
+
+    r = _run(CARRY_CONFIG)
     assert r.verdict != GateVerdict.FAIL, f"{case_name}: got FAIL"
+    if case_name == "attack2_hand_resolution":
+        # RECLASSIFIED for the proof by review-convergence Task 10.1 (the same default-ON
+        # living-doc hand-resolution carry the approval side already uses): under the default
+        # config the proof carries -> PASS; under a literal-False config it still refuses.
+        assert r.verdict == GateVerdict.PASS, (
+            f"{case_name}: expected PASS (default-ON living-doc hand-res carry), "
+            f"got {r.verdict}: {r.detail}"
+        )
+        strict = {**CARRY_CONFIG, "review": {**CARRY_CONFIG["review"],
+                                             "living_doc_handres_preserves_approval": False}}
+        r = _run(strict)
     assert r.verdict == GateVerdict.INDETERMINATE, (
         f"{case_name}: expected INDETERMINATE (a tampered/uncertified chain must never "
         f"carry proof), got {r.verdict}: {r.detail}"

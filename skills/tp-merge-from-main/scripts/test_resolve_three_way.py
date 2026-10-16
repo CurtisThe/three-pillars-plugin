@@ -154,13 +154,23 @@ def test_f4b_the_new_number_is_free_in_the_whole_file(tmp_path):
 
 
 def test_f4c_two_different_new_ids_do_not_collide_and_are_never_renumbered_across_letters():
+    """Flipped from a DEFER pin (`generic-prose`, text returned verbatim). Two different new IDs are
+    disjoint keys, which `keyed-heading-insertion` keeps whole, both entries verbatim, behind the
+    zero-drop verifier; only a same-ID pair is a collision now. What it still guards is that
+    nothing is renumbered: the old merge turned theirs' `L41` into `M23` and its body `M23 closed`."""
     text = ("<<<<<<< ours\n### M22: ours issue\nbody\n||||||| base\n=======\n"
             "### L41: theirs issue\nL41 closed\n>>>>>>> theirs")
     status, lines, results = resolve_file(text)
-    assert results[0].label == "generic-prose" and status == DEFER
-    assert "\n".join(lines) == text, "pre-fix theirs became M23 and its body `M23 closed`"
+    assert results[0].label == "keyed-heading-insertion" and status == RESOLVED
+    out = "\n".join(lines)
+    assert out == "### L41: theirs issue\nL41 closed\n### M22: ours issue\nbody", out
+    assert "M23" not in out
     same_letter = text.replace("M22", "L40")
-    assert classify_file(same_letter).segments[0].label == "generic-prose"
+    status, lines, results = resolve_file(same_letter)
+    assert results[0].label == "keyed-heading-insertion" and status == RESOLVED
+    out = "\n".join(lines)
+    assert out == "### L40: ours issue\nbody\n### L41: theirs issue\nL41 closed", out
+    assert "L42" not in out
 
 
 def test_f4_a_reference_outside_the_region_or_a_taken_next_id_refuses(ungated_renumber):
@@ -260,9 +270,10 @@ def test_f5_the_licence_itself_now_reports_the_old_collapse():
 
 # ---- F10: exact cross-side multiplicity for the verbatim classes --------------------------------
 
+# `log-entry-insertion` left this list in PR #206: identical whole entries both blocks open or
+# close with are emitted ONCE now (its narrowed licence); a shared body line is still exact, see
+# `test_log_entry_shared_rollover.py`.
 @pytest.mark.parametrize("label,side,renumbered,output", [
-    ("log-entry-insertion", ["- **2026-07-04** — entry", "  body"], None,
-     ["- **2026-07-04** — entry", "  body"]),
     ("decision-entry-insertion", ["### [tp-plan] clip", "**Decided**: yes"], None,
      ["### [tp-plan] clip", "**Decided**: yes"]),
     ("id-renumber-collision", ["### L4: Bar", "body"], {"L4": "L5"}, ["### L4: Bar", "body"]),

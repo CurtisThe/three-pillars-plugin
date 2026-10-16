@@ -8,7 +8,9 @@ design: local-implement-and-review (Behavior 5, design-audit-3 #1 #2 #4)
 1. the dispatcher HEAD, the guard ref and both trees' ``dirty_outside`` match the
    ``open`` snapshots, else exit 2 (env-error, never auto-undone, carries ``recover``);
 2. the attempt was not pushed (``pushed``: via ``refs/remotes``);
-3. exactly one commit on the attempt branch (``no commit`` / ``N commits``), except on
+3. the red/green pair (``targets_frozen.check_pair``): the first commit is the red and no
+   later commit touches a Targets file (a red-only or implementation-only task is one
+   commit; ``no commit`` / ``N commits`` / the pair reason, ``red_sha`` stored), except on
    ``opus``: zero commits, a clean tree, named nodes green at base → PASS ``pre_exists``;
 4. the attempt's porcelain is empty, untracked included (``uncommitted changes``); then
    its ignored files are deleted (``git clean -ffdX``, each logged ``ignored-removed``
@@ -24,13 +26,20 @@ design: local-implement-and-review (Behavior 5, design-audit-3 #1 #2 #4)
    judged per node by its ``--junitxml`` report (`junit_verdict`), never the exit code:
    ``red test``, ``red test (file-missing)``, or ``unverified test (<why>)`` (no or a
    malformed report, no rootdir it fits, a skip, an absent node or a file with no
-   tests: the repo's config may deselect them); a runner that cannot start (rc 126/127)
-   is exit 2 ``runner-unavailable``. A row without runnable Targets (missing, malformed or ``none``)
-   is FAIL ``no oracle`` below ``opus`` and PASS ``unverified`` on ``opus``.
+   tests: the repo's config may deselect them); a runner that cannot start (rc 126/127, or
+   no report and ``No module named <m>``: ``task_scope.runner_broken``) is exit 2 ``runner-unavailable``. A row without runnable Targets (missing, malformed or ``none``)
+   is PASS ``unverified`` on ``opus``; below ``opus`` it is FAIL ``no oracle`` (with
+   ``needs_review: true`` once step 7 passes), unless ``--review-reply`` holds an Opus diff
+   review (``no_oracle_review``): ``accept`` → PASS ``unverified`` with ``accepted_by:
+   "review"`` and an ``accepted-by-review`` note (never a test pass); ``reject`` or an
+   unparseable reply → FAIL ``review-rejected: <why>``; a row with an oracle ignores it; when
+   `resolve_runner` refused (``unverified (non-pytest runner)``, ``runner-needs-shell: …``,
+   ``no-runner`` …) either names its reason verbatim;
+7. the diff passes ``fragility_lint``: ``fragile: <rule> at <path>:<line>``; unjudged is logged.
 
-Then red-at-base is logged (``task_verify_red_base``). ``land`` merges a checked attempt
-into the dispatcher and discards it. The CLI (``open``/``check``/``land``/``discard``/
-``sweep``) prints JSON; attempt lifecycle lives in ``task_attempts``. Stdlib only.
+Then red-at-base is logged, at ``red_sha`` when set (``task_verify_red_base``). ``land`` merges a
+checked attempt's pair into the dispatcher and discards it. The CLI (``open``/``check``/``land``/
+``discard``/``sweep``) prints JSON; attempt lifecycle lives in ``task_attempts``. Stdlib only.
 """
 from __future__ import annotations
 
@@ -48,10 +57,17 @@ if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
 import junit_verdict  # noqa: E402 — in-repo, stdlib-only sibling
+import ladder_files  # noqa: E402 — in-repo, stdlib-only sibling (G4 side-file sweep)
+import landed_regression  # noqa: E402 — in-repo, stdlib-only sibling
+import local_implement_config  # noqa: E402 — in-repo, stdlib-only sibling
+import no_oracle_review  # noqa: E402 — in-repo, stdlib-only sibling (step 6, no oracle)
+import registry_edit  # noqa: E402 — in-repo, stdlib-only sibling
+import targets_frozen  # noqa: E402 — in-repo, stdlib-only sibling (the pair rule)
 import task_attempts  # noqa: E402 — in-repo, stdlib-only sibling
 import task_scope  # noqa: E402 — in-repo, stdlib-only sibling
 import task_scratch_sweep  # noqa: E402 — in-repo, stdlib-only sibling
 import task_verify_gate  # noqa: E402 — in-repo, stdlib-only sibling
+import task_verify_lint_step  # noqa: E402 — in-repo, stdlib-only sibling (step 7)
 import task_verify_red_base  # noqa: E402 — in-repo, stdlib-only sibling
 from task_verify_load import CliError, load_attempt, task_row  # noqa: E402,F401 — CLI
 
@@ -124,12 +140,13 @@ def _step_pushed(adir: str, attempt: dict) -> None:
                 raise _Fail("pushed")
 
 
-def _step_commits(adir: str, base: str) -> None:
-    count = int(_out(adir, "rev-list", "--count", f"{base}..HEAD") or 0)
-    if count == 0:
+def _step_commits(adir: str, base: str, row: dict, res: dict) -> None:
+    """Step 3: the pair rule; stores ``res["red_sha"]`` (None: nothing to freeze)."""
+    if _out(adir, "rev-list", "--count", f"{base}..HEAD") == "0":
         raise _Fail("no commit")
-    if count != 1:
-        raise _Fail(f"{count} commits")
+    res["red_sha"], reason = targets_frozen.check_pair(adir, base, row)
+    if reason:
+        raise _Fail(reason)
 
 
 _CACHE_NAMES = {"__pycache__", ".pytest_cache"}
@@ -178,7 +195,16 @@ def _scrub_ignored(attempt: dict) -> list[str]:
             if not _CACHE_NAMES & set(Path(p).parts) and not p.endswith((".pyc", ".pyo"))]
 
 
-def _step_scope(changed: list[str], row: dict, design_dir_rel: str, rung: str) -> list[str]:
+def _registry_files(adir: str) -> list[str]:
+    """``local_implement.registry_files`` of the attempt repo; ``[]`` when unset/unreadable."""
+    try:
+        return list((local_implement_config.load(adir) or {}).get("registry_files") or [])
+    except ValueError:
+        return []
+
+
+def _step_scope(changed: list[str], row: dict, design_dir_rel: str, rung: str,
+                adir: str = "", base: str = "") -> list[str]:
     """Step 5 → the ``unlisted-logged`` notes (the lenient policy), or raises."""
     lenient = rung == "opus" or bool(row.get("unparsed_files"))
     # The worker writes the resolved test files too; plans list only the implementation.
@@ -189,9 +215,13 @@ def _step_scope(changed: list[str], row: dict, design_dir_rel: str, rung: str) -
         if cls == "design-dir":
             raise _Fail(f"design-dir touched: {path}")
         if cls == "unlisted":
-            if not lenient:
+            if adir and registry_edit.is_mechanical_registry_edit(
+                    adir, base, path, _registry_files(adir)):
+                logged.append(f"registry-edit-logged: {path}")
+            elif not lenient:
                 raise _Fail(f"unlisted file: {path}")
-            logged.append(f"unlisted-logged: {path}")
+            else:
+                logged.append(f"unlisted-logged: {path}")
     return logged
 
 
@@ -219,26 +249,36 @@ def _step_tests(adir: str, row: dict, runner: str, timeout: int, res: dict) -> N
             argv = task_scope.runner_argv(runner, [*targets, *extra])
             res["commands"].append(argv)
             return run(argv, adir, timeout)
-        (rc, tail), (kind, why) = junit_verdict.run_judged(go, target, adir)
+        failed = []
+        (rc, tail), (kind, why) = junit_verdict.run_judged(go, target, adir, failed_out=failed)
         res["test_output_tail"] = tail
         if rc is None:
             raise _Fail("red test (timeout)")
-        if rc in task_scope.RUNNER_BROKEN_RCS:  # the runner never started: not the task's
-            raise _EnvError(f"runner-unavailable (rc {rc})")
+        broken = task_scope.runner_broken(rc, tail, why)
+        if broken:  # the runner never started: not the task's
+            raise _EnvError(f"runner-unavailable ({broken})")
         if kind != "pass":  # red, missing, or no / a malformed report, a skip: never a pass
+            res["failing_tests"] = failed
+            res["failing_targets"] = [target]
             raise _Fail({"red": "red test", "missing": f"red test ({why})"}.get(
                 kind, f"unverified test ({why})"))
 
 
 def check(attempt: dict, row: dict, runner: str | None, *, rung: str,
-          timeout: int = 600) -> dict:
+          timeout: int = 600, runner_why: str | None = None, landed=None,
+          review: str | None = None) -> dict:
     """The verdict for one attempt → ``{task_id, verdict, reason, test_output_tail,
-    changed_files, red_at_base, attempt_branch, unverified, logged, commands}``; it is
-    recorded with the checked sha, which ``land`` requires (``task_verify_gate``)."""
+    changed_files, red_at_base, red_sha, attempt_branch, unverified, logged, commands}``;
+    it is recorded with the checked sha, which ``land`` requires (``task_verify_gate``).
+    ``runner_why`` is `resolve_runner`'s reason when ``runner`` is None; ``landed`` (rows,
+    None = off) re-runs overlapping landed Targets (``landed_regression``). ``review`` is the
+    text of an Opus diff-review reply (``no_oracle_review``), read only for a cheap rung's row
+    with no runnable oracle; a row that has one never takes it."""
     if rung not in RUNGS:
         raise ValueError(f"unknown rung {rung!r}; expected one of {RUNGS}")
     return task_verify_gate.checked(attempt, rung,
-                                    lambda: _verdict(attempt, row, runner, rung, timeout))
+                                    lambda: _verdict(attempt, row, runner, rung, timeout,
+                                                     runner_why, landed, review))
 
 
 def _pre_exists(attempt: dict, base: str, row: dict, runner, rung: str, timeout: int,
@@ -263,31 +303,52 @@ def _pre_exists(attempt: dict, base: str, row: dict, runner, rung: str, timeout:
     return True
 
 
-def _verdict(attempt: dict, row: dict, runner: str | None, rung: str, timeout: int) -> dict:
+def _verdict(attempt: dict, row: dict, runner: str | None, rung: str, timeout: int,
+             runner_why: str | None = None, landed=None, review: str | None = None) -> dict:
     adir, base = str(attempt["attempt_dir"]), str(attempt["base_sha"])
     res = {"task_id": attempt.get("task_id"), "verdict": "FAIL", "reason": "",
            "test_output_tail": "", "changed_files": [], "red_at_base": None,
            "attempt_branch": attempt.get("branch"), "unverified": False, "logged": [],
-           "commands": [], "exit": 1, "pre_exists": False}
+           "commands": [], "exit": 1, "pre_exists": False, "red_sha": None,
+           "needs_review": False, "accepted_by": None}
+    no_oracle = None  # a cheap rung's reviewable `no oracle`
+    refused = runner_why if runner is None else None  # resolve_runner's reason, verbatim
     try:
         _step_env(attempt)
         _step_pushed(adir, attempt)
         if _pre_exists(attempt, base, row, runner, rung, timeout, res):
             return res
-        _step_commits(adir, base)
+        _step_commits(adir, base, row, res)
         if _out(adir, "status", "--porcelain", "-uall"):  # step 4
             raise _Fail("uncommitted changes")
         scrubbed = _scrub_ignored(attempt)
         _materialize_head(adir)
         res["changed_files"] = _changed(adir, base)
         res["logged"] = scrubbed + _step_scope(res["changed_files"], row,
-                                               str(attempt.get("design_dir_rel") or ""), rung)
+                                               str(attempt.get("design_dir_rel") or ""), rung,
+                                               adir, base)
         if runnable(row, runner):
             _step_tests(adir, row, str(runner), timeout, res)
-        elif rung != "opus":  # the cheap tier runs only behind a mechanical oracle
-            raise _Fail("no oracle (a cheap rung needs a runnable Test)")
+            if landed:  # own Targets first, then overlapping landed ones
+                landed_regression.run_landed(attempt, row, landed, str(runner), timeout,
+                                             res, run=run, fail=_Fail)
+        elif rung != "opus":  # a cheap rung runs behind an oracle, or an Opus diff review
+            kind, why = no_oracle_review.decide(review, refused)
+            if kind == no_oracle_review.REJECT:  # a failed attempt; the reason feeds the next rung
+                raise _Fail(why)
+            if kind == no_oracle_review.ACCEPT:  # never a test pass: PASS-unverified, by review
+                res.update(unverified=True, accepted_by="review")
+                res["logged"] += [f"accepted-by-review: {why}"]
+            else:
+                no_oracle = why  # fail closed after step 7; the dispatcher may review
         else:
             res["unverified"] = True  # the ladder hears PASS-unverified
+            res["logged"] += [refused] if refused else []
+        if reason := task_verify_lint_step.run(adir, base, res["logged"]):  # step 7
+            raise _Fail(reason)
+        if no_oracle:  # reviewable: the diff passed every mechanical step
+            res["needs_review"] = True
+            raise _Fail(no_oracle)
     except _EnvError as exc:
         res.update(verdict="env-error", reason=exc.reason, exit=2,
                    recover=recover_command(attempt))
@@ -297,13 +358,15 @@ def _verdict(attempt: dict, row: dict, runner: str | None, rung: str, timeout: i
         return res
     res.update(verdict="PASS", reason="; ".join(res["logged"]), exit=0, red_at_base="n/a")
     if not res["unverified"]:  # logged evidence, never gating
-        res.update(task_verify_red_base.logged(attempt, row, str(runner), timeout, run=run))
+        res.update(task_verify_red_base.logged(attempt, row, str(runner), timeout, run=run,
+                                               red_sha=res["red_sha"]))
     return res
 
 
-def _land_into(owner: str, attempt: dict, sha: str) -> str:
-    """Merge the attempt into the dispatcher → the method; raises ``_EnvError``."""
-    base, head = str(attempt["base_sha"]), _out(owner, "rev-parse", "HEAD")
+def _land_into(owner: str, attempt: dict, sha: str, head: str) -> str:
+    """Merge ``base..sha`` into the dispatcher at ``head`` (``pre_land_head``) → the
+    method; raises ``_EnvError``. A conflict mid-range aborts and resets to ``head``."""
+    base = str(attempt["base_sha"])
     if head == base:
         res = task_attempts._git(owner, "merge", "--ff-only", "-q", sha, check=False)
         if res.returncode:
@@ -312,20 +375,23 @@ def _land_into(owner: str, attempt: dict, sha: str) -> str:
     if task_attempts._git(owner, "merge-base", "--is-ancestor", base, head,
                           check=False).returncode:
         raise _EnvError("dispatcher diverged")
-    res = task_attempts._git(owner, "cherry-pick", sha, check=False)
+    res = task_attempts._git(owner, "cherry-pick", f"{base}..{sha}", check=False)
     if res.returncode:
         task_attempts._git(owner, "cherry-pick", "--abort", check=False)
+        task_attempts._git(owner, "reset", "--keep", "-q", head, check=False)
         raise _EnvError("land-conflict")
     return "cherry-pick"
 
 
 def land(attempt: dict) -> dict:
-    """Land a checked attempt's one commit in the dispatcher, then ``discard`` it.
+    """Land a checked attempt's commits (the red, then the green) in the dispatcher, in
+    order, then ``discard`` it.
 
-    The record goes ``landing`` with ``commit_sha`` first (so ``sweep`` reports a crash
-    after the land). ``merge --ff-only`` when the dispatcher HEAD is still ``base_sha``,
-    else ``cherry-pick`` (HEAD moved only by this batch's disjoint landings). A conflict
-    aborts → exit 2 ``land-conflict``; the attempt is kept for the ``recover`` command.
+    The record goes ``landing`` with ``commit_sha`` and ``pre_land_head`` (the dispatcher
+    HEAD) first, so ``sweep`` reports a crash after the land. ``merge --ff-only`` when the
+    dispatcher HEAD is still ``base_sha``, else one ``cherry-pick base..sha`` (HEAD moved
+    only by this batch's disjoint landings). A conflict aborts and resets to
+    ``pre_land_head`` → exit 2 ``land-conflict``; the attempt is kept for ``recover``.
     → ``{attempt_id, task_id, exit, method, sha, reason}``.
     """
     owner = str(attempt["owner"]["dispatcher_root"])
@@ -340,13 +406,15 @@ def land(attempt: dict) -> dict:
         out.update(method="none", sha=_out(owner, "rev-parse", "HEAD"))
         task_attempts.discard(attempt, root=owner)
         return out
-    rec = {**attempt, "status": "landing", "commit_sha": sha}
+    pre = _out(owner, "rev-parse", "HEAD")
+    rec = {**attempt, "status": "landing", "commit_sha": sha, "pre_land_head": pre}
     task_attempts._write_record(rec)
     try:
-        out["method"] = _land_into(owner, attempt, sha)
+        out["method"] = _land_into(owner, attempt, sha, pre)
     except _EnvError as exc:
-        rec.pop("commit_sha")
-        task_attempts._write_record({**rec, "status": "open"})
+        task_attempts._write_record({k: v for k, v in rec.items()
+                                     if k not in ("commit_sha", "pre_land_head")}
+                                    | {"status": "open"})
         out.update(exit=2, reason=exc.reason, recover=recover_command(attempt))
         return out
     out["sha"] = _out(owner, "rev-parse", "HEAD")
@@ -355,6 +423,14 @@ def land(attempt: dict) -> dict:
 
 
 # --- CLI (loaders in task_verify_load) -----------------------------------------------
+
+def _read_review(path: str | None) -> str | None:
+    """The review reply file's text; ``None`` when absent or unreadable (fail closed)."""
+    try:
+        return Path(path).read_text(encoding="utf-8") if path else None
+    except (OSError, UnicodeDecodeError):
+        return None
+
 
 def _cmd(args) -> tuple[int, dict]:
     root = args.root
@@ -367,16 +443,19 @@ def _cmd(args) -> tuple[int, dict]:
     if args.cmd == "sweep":  # attempts, then the re-run / red-at-base scratch
         slug = task_attempts.slug_of(args.design_dir)
         return 0, {**task_attempts.sweep(root, slug),
-                   "scratch": task_scratch_sweep.sweep(root, slug)}
+                   "scratch": task_scratch_sweep.sweep(root, slug),
+                   "ladder": ladder_files.sweep(root, slug)}  # after the attempts: G4
     attempt = load_attempt(root, args.attempt)
     if args.cmd == "discard":
         return 0, task_attempts.discard(attempt)
     if args.cmd == "land":
         out = land(attempt)
         return out["exit"], out
-    runner, _why = task_scope.resolve_runner(attempt["attempt_dir"], args.test_cmd)
-    res = check(attempt, task_row(attempt, args.plan, args.phase, root), runner,
-                rung=args.rung)
+    runner, why = task_scope.resolve_runner(attempt["attempt_dir"], args.test_cmd)
+    row = task_row(attempt, args.plan, args.phase, root)
+    landed = landed_regression.for_attempt(attempt, args.plan, args.phase, root)
+    res = check(attempt, row, runner, rung=args.rung, runner_why=why, landed=landed,
+                review=_read_review(args.review_reply))
     return res["exit"], res
 
 
@@ -398,6 +477,7 @@ def _parser() -> argparse.ArgumentParser:
             sp.add_argument("--phase", type=int, required=True)
             sp.add_argument("--rung", required=True, choices=RUNGS)
             sp.add_argument("--test-cmd")
+            sp.add_argument("--review-reply", help="Opus diff-review reply file (no-oracle row)")
     return parser
 
 

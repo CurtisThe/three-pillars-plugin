@@ -41,13 +41,22 @@ PR_URL = f"https://github.com/{OWNER}/{REPO}/pull/{PR_NUMBER}"
 SELF_LOGIN = "framework-bot"
 REVIEWER_LOGIN = "human-reviewer"
 
+# Now schema-valid on its own: `require_review_proof: False` is a real schema key,
+# so the config no longer rides the invalid-config path (its absence degrades to
+# the strict default), and `schema_version: 1` is required — from Task 1.4 a config
+# without it is fatal and the whole config is ignored.
 CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {
         "approval_survives_safe_base_sync": True,
         "expects_copilot": False,
         "require_review_proof": False,
     },
     "ci": {"expects_github_checks": False},
+    # These live-gate fixtures test the approval carry, not fragility: the fixture has
+    # no changed-tests run record for its head, so opt the fragility_clear predicate out
+    # (like require_review_proof above).
+    "fragility": {"merge_predicate": False},
 }
 
 
@@ -181,7 +190,7 @@ class EmbeddedFixture:
         return env
 
     def gate_cli_argv(self, *, code_root, repo_root) -> list:
-        """The documented step-6.7 invocation: python3 <code_root>/skills/tp-merge-from-main/
+        """The documented step-7a invocation: python3 <code_root>/skills/tp-merge-from-main/
         scripts/gate_cli.py --repo <repo_root> <pr_url>."""
         return [
             sys.executable,

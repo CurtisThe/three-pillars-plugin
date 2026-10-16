@@ -43,7 +43,17 @@
           "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
           "category": {"type": "string", "minLength": 1},
           "description": {"type": "string", "minLength": 1},
-          "suggested_fix": {"type": "string"}
+          "suggested_fix": {"type": "string"},
+          "origin": {
+            "description": "Optional. See skills/_shared/finding_fields.py ORIGINS.",
+            "type": "string",
+            "enum": ["original", "regression", "unclassified"]
+          },
+          "fragility_class": {
+            "description": "Optional. See skills/_shared/finding_fields.py FRAGILITY_CLASSES.",
+            "type": "string",
+            "enum": ["open-ended", "change-detector", "blocklist", "none", "unclassified"]
+          }
         }
       }
     },

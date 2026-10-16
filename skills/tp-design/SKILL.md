@@ -32,14 +32,18 @@ Create or revise the high-level design for a TDD project through conversation wi
    - **Key entities and relationships** — the nouns of the system.
    - **Core behaviors** — the verbs. What does the system do?
    - **Constraints** — performance, compatibility, dependencies, resource limits, plus any principles from the vision that constrain the solution space.
+   - **Consumer-repo behaviour** — what ships and runs in a user's repo (per `skills/_shared/consumer-repo-rule.md`): which files land on the user's disk, what actually runs there, and what happens when an optional piece (tmux, a bot account, the local router, a non-pytest runner) is absent.
+   - **Forge behaviour** — for a design that names a forge surface (a PR create / read / comment / label / merge, a review loop, a merge gate, CI status, branch protection, a `gh` / `tea` call): what it does on GitHub, what it does on Gitea, and the visible degraded path when a forge cannot do it (the forge-parity rule).
+   - **Input domain** — per `skills/_shared/test-fragility.md`'s input-domain question, for every check or validator the design implies: is its input domain closed (an enum, a schema, a registry bounds it) or open (prose or otherwise unbounded)? An open domain needs a written justification for reading it, and an answer to whether the system can build the input itself rather than parsing it.
    - **Open questions** — things the user isn't sure about yet.
    Ask clarifying questions. Push back on vague requirements. Suggest trade-offs. When two approaches are technically viable, use the vision's principles as tie-breakers.
    **State-space map first:** for any class above just-do-it, build the map per the Build mode of `skills/_shared/state-space-protocol.md` before asking questions (self-resolve, loci, dimensions, flip test), and ask only the derived questions, in its format.
-7. **Write `three-pillars-docs/tp-designs/{design-name}/design.md`** with this structure. Stamp the step-5b class as the file's leading frontmatter block (`weight-class: {class}` — via `python3 "$TP_ROOT"/skills/_shared/weight_class.py` `write_class` or written directly):
+7. **Write `three-pillars-docs/tp-designs/{design-name}/design.md`** with this structure. Stamp the step-5b class and the floor as the file's leading frontmatter block (`weight-class: {class}` via `python3 "$TP_ROOT"/skills/_shared/weight_class.py` `write_class` or written directly; write `floor: 3` directly (`write_class` writes only weight-class)). The `floor: 3` stamp makes the `## Consumer-repo behaviour` section required by the floor validator, and also `## Forge behaviour` whenever the design names a forge surface (a PR create / read / comment / label / merge, a review loop, a merge gate, CI status, branch protection, or a `gh` / `tea` call) and its class is above just-do-it:
 
 ```markdown
 ---
 weight-class: <class from step 5b>
+floor: 3
 ---
 # <Design Name>
 
@@ -66,6 +70,12 @@ What the system does — the key operations, flows, or pipelines.
 
 ## Constraints
 Non-functional requirements, dependencies, compatibility needs.
+
+## Consumer-repo behaviour
+What ships to a user's repo and what runs there — per `skills/_shared/consumer-repo-rule.md`. Name the shipped files that carry the enforcement, and state the behaviour when an optional piece (tmux, a bot account, the local router, a non-pytest runner) is absent.
+
+## Forge behaviour
+What a PR-facing feature does on GitHub and on Gitea, and the visible degraded path when a forge or backend cannot do it (the forge-parity rule). Name the GitHub behaviour, the Gitea behaviour, and what the user sees when one side degrades; omit the section only when the design names no forge surface.
 
 ## Open Questions
 Unresolved items to address during detailed design.

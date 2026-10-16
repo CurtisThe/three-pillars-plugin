@@ -228,7 +228,7 @@ def test_a_clean_no_hunk_merge_verifies_rather_than_blocking():
 
     _status, merged, mechanical = resolve_conflict_bytes_detail(
         base=_CLEAN_BASE, ours=_CLEAN_OURS, theirs=_CLEAN_THEIRS)
-    r = verify(_CLEAN_OURS, _CLEAN_THEIRS, merged, mechanical_applied=mechanical)
+    r = verify(_CLEAN_OURS, _CLEAN_THEIRS, merged, base=None, mechanical_applied=mechanical)
     assert r.verdict != UNVERIFIABLE
     assert r.verdict == VERIFIED and r.pre_atoms == 0
 

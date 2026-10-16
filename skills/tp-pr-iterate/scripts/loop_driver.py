@@ -19,6 +19,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# The label wrappers reach `label_manager` (tp-pr-fix) and the identity core (_shared).
+_SKILLS = Path(__file__).resolve().parent.parent.parent
+for _d in (_SKILLS / "tp-pr-fix" / "scripts", _SKILLS / "_shared"):
+    if str(_d) not in sys.path:
+        sys.path.append(str(_d))
+import automation_identity as _ai  # noqa: E402
+
 _IDLE_TIMEOUT_DEFAULT_SEC = 1800  # 30 minutes
 _LOOP_COMMIT_PREFIX = "[tp-pr-fix iter-"
 _NEEDS_HUMAN_LABEL = "tp:needs-human-attention"
@@ -180,34 +187,25 @@ def _idle_timeout_sec(config: dict | None) -> int:
     return int(guards.get("idle_timeout_sec", _IDLE_TIMEOUT_DEFAULT_SEC))
 
 
-def _ensure_pr_label(pr_url: str, label: str) -> None:
-    """Cross-skill wrapper around `label_manager.ensure_pr_label`."""
-    import sys
-    from pathlib import Path
+def _ensure_pr_label(pr_url: str, label: str, config=_ai.DISCOVER) -> None:
+    """Cross-skill wrapper around `label_manager.ensure_pr_label`.
 
-    pr_fix_scripts = (
-        Path(__file__).resolve().parent.parent.parent / "tp-pr-fix" / "scripts"
-    )
-    if str(pr_fix_scripts) not in sys.path:
-        sys.path.insert(0, str(pr_fix_scripts))
+    `config` is the round's identity config: the write runs as the bot it names (default:
+    discover the repo config; `None`: ambient). An unavailable bot raises `BotAuthUnavailable`.
+    """
     from label_manager import ensure_pr_label  # noqa: E402
 
-    ensure_pr_label(pr_url, label)
+    ensure_pr_label(pr_url, label, config=config)
 
 
-def _remove_pr_label(pr_url: str, label: str) -> None:
-    """Cross-skill wrapper around `label_manager.remove_pr_label` (never raises)."""
-    import sys
-    from pathlib import Path
+def _remove_pr_label(pr_url: str, label: str, config=_ai.DISCOVER) -> None:
+    """Cross-skill wrapper around `label_manager.remove_pr_label` (never raises).
 
-    pr_fix_scripts = (
-        Path(__file__).resolve().parent.parent.parent / "tp-pr-fix" / "scripts"
-    )
-    if str(pr_fix_scripts) not in sys.path:
-        sys.path.insert(0, str(pr_fix_scripts))
+    `config` is the round's identity config, forwarded as in `_ensure_pr_label`.
+    """
     from label_manager import remove_pr_label  # noqa: E402
 
-    remove_pr_label(pr_url, label)
+    remove_pr_label(pr_url, label, config=config)
 
 
 def _span(r) -> tuple[int, int] | None:
@@ -796,7 +794,8 @@ def run_round(
     - budget is the `round_budget.tick` detail (iterate-convergence-budget)
 
     `round_budget.tick` runs on EVERY round, BEFORE two-stable: a budget terminal
-    labels needs-human-attention and returns action "noop". tick owns the
+    returns action "noop": a held one labels needs-human-attention, a newly fired one
+    carries `finalizer_stop` (the finalizer labels on escalate). tick owns the
     `consecutive_codereview_structural_rounds` counter; this function records
     `budget_last_head/round/action` for the next tick.
 
@@ -825,9 +824,10 @@ def run_round(
             label_fn(pr_url, lbl)
         else:
             try:
-                _ensure_pr_label(pr_url, lbl)
-            except Exception:
-                pass  # fail-open for label application
+                _ensure_pr_label(pr_url, lbl, config=config)
+            except Exception as exc:  # fail-open for label application
+                if isinstance(exc, _ai.BotAuthUnavailable):
+                    print(f"label {lbl}: bot auth unavailable, not applied")
 
     # Label HYGIENE at the terminals (round-2 finding): the attention/ready
     # labels are STICKY (nothing else removes them) and both are applied on
@@ -840,9 +840,10 @@ def run_round(
             unlabel_fn(pr_url, lbl)
         else:
             try:
-                _remove_pr_label(pr_url, lbl)
-            except Exception:
-                pass  # fail-open — hygiene must never break the round
+                _remove_pr_label(pr_url, lbl, config=config)
+            except Exception as exc:  # fail-open — hygiene must never break the round
+                if isinstance(exc, _ai.BotAuthUnavailable):
+                    print(f"label {lbl}: bot auth unavailable, not removed")
 
     # --- Write the findings cache BEFORE the terminal check ---
     state = {
@@ -862,6 +863,7 @@ def run_round(
 
     # --- Budget (round_budget.tick) — before two-stable, so a clean round over
     # budget still stops. tick owns the codereview k-counter. ---
+    held = state.get("termination_reason") if _rb.is_budget_terminal(state) else None
     state, budget_terminal, budget = _rb.tick(
         state, head_sha=head_sha, pr_url=pr_url, tally=tally, review_base=review_base,
         config=config, now=now, ordinal=ordinal, numstat_fn=numstat_fn,
@@ -878,9 +880,14 @@ def run_round(
 
     if budget_terminal is not None:
         state = _transition(state, now, budget_terminal, f"[budget] {budget['signal']}")
-        _do_label(_NEEDS_HUMAN_LABEL)
+        res = _result(state, "noop", budget_terminal)
+        if held == budget["signal"]:  # held: label as before; newly fired: finalizer
+            _do_label(_NEEDS_HUMAN_LABEL)
+        else:
+            res["finalizer_stop"] = {"source": "pr-iterate", "signal": budget["signal"],
+                                     "target": pr_url, "head": head_sha, "detail": budget}
         _do_unlabel("tp:ready-for-human-merge")
-        return _result(state, "noop", budget_terminal)
+        return res
 
     # --- Two-stable terminal check ---
     # Preconditions:
@@ -932,6 +939,7 @@ def run_round(
                      "degraded_review_retries": 0}
             _do_label("tp:ready-for-human-merge")
             _do_unlabel(_NEEDS_HUMAN_LABEL)
+            _do_unlabel("tp:do-not-merge-yet")  # fix rounds' marker; two-stable re-reviewed them
             _append_readiness_terminal_line(
                 pr_url=pr_url,
                 head_oid=head_sha or "unknown",

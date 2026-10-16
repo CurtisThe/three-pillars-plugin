@@ -18,6 +18,13 @@ missing allowlist entry fails OPEN (under-checks — the safe direction).
 stdlib-only: re, pathlib, dataclasses. Reuses citation_frozen + invariant_map.
 
 design: invariant-citation-coherence
+
+Ships because verify_learn.py / citation_liveness.py import it (e.g.
+find_number_cites_in_line, a plain regex helper with no framework-check.sh
+dependency), but scan_number_cites/scan_count_cites are a framework-dev
+helper (dev-repo only); no-op in user repos — their only caller,
+citation_liveness.run_citation_checks, is itself reached only from the
+dev-only invariant_check.py.
 """
 
 from __future__ import annotations

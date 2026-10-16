@@ -22,6 +22,8 @@ for _dir in (Path(__file__).resolve().parent, HERE.parent / "_shared"):
     if str(_dir) not in sys.path:
         sys.path.insert(0, str(_dir))
 
+import skill_text  # noqa: E402
+
 # The never-grow pins of test_tier7_budget_docs.py; never raised.
 from test_tier7_budget_docs import GRANDFATHERED_CHARS as PIN_CHARS  # noqa: E402
 from test_tier7_budget_docs import GRANDFATHERED_LINES as PIN_LINES  # noqa: E402
@@ -37,6 +39,8 @@ PICKUP_RULE_TOKENS = {"version", "slug", "branch", "dir", "task_metadata", "task
 
 
 def _text(path: Path) -> str:
+    if path == SKILL_MD:
+        return skill_text.read_skill_text("tp-run-full-design")
     return path.read_text(encoding="utf-8")
 
 
@@ -50,6 +54,15 @@ def _section(text: str, heading: str, level: str) -> str:
 BULLET = re.compile(r"^[-*+][ \t]+(\S.*)$", re.MULTILINE)
 ORDERED = re.compile(r"^(\d+)[.)][ \t]+\S", re.MULTILINE)
 
+# A CommonMark fence opener: three-or-more backticks or tildes, a `json` tag, no info-text
+# after the tag. The closer is the same character, at least as long, tag-less.
+FENCE_OPEN = re.compile(r"^([ \t]*)(`{3,}|~{3,})[ \t]*json[ \t]*$")
+INT_PLACEHOLDER = re.compile(r"<integer>|<int>")
+
+
+def _fence_closer(run: str) -> re.Pattern:
+    return re.compile(rf"^[ \t]*{run[0]}{{{len(run)},}}[ \t]*$")
+
 
 def _bullet_keys(body: str) -> set[str]:
     """The backticked names the top-level bullets cite."""
@@ -61,16 +74,22 @@ def _ordered(body: str) -> list[str]:
 
 
 def _json_examples(body: str) -> list[dict]:
-    """Every fenced ```json example in `body`, parsed. The fence may sit indented in a list
-    item. The worker example's bare `<int>` placeholders are not JSON, so each reads as 0."""
-    blocks, lines = [], None
+    """Every fenced JSON example in `body`, parsed. The fence is matched CommonMark-style
+    (three-or-more backticks or tildes, `json` tag, same character and at least as long a
+    closer), so tilde fences, a space before the tag, four backticks, and an indented fence
+    in a list item all read; an untagged fence is not an example. The `<int>`/`<integer>`
+    placeholders are not JSON, so each reads as 0."""
+    blocks, lines, closer = [], None, None
     for line in body.splitlines():
-        if lines is None and line.strip() == "```json":
-            lines = []
-        elif lines is not None and line.strip() == "```":
-            blocks.append(json.loads("\n".join(lines).replace("<int>", "0")))
-            lines = None
-        elif lines is not None:
+        if lines is None:
+            m = FENCE_OPEN.match(line)
+            if m:
+                lines, closer = [], _fence_closer(m.group(2))
+        elif closer.match(line):
+            text = "\n".join(lines)
+            blocks.append(json.loads(INT_PLACEHOLDER.sub("0", text)))
+            lines, closer = None, None
+        else:
             lines.append(line)
     return blocks
 
@@ -150,8 +169,8 @@ UNSPENT_LINES, UNSPENT_CHARS = 0, 0
 def test_skill_md_headroom():
     """P1: the headroom under the never-grow pins still covers the unspent wiring budget."""
     text = _text(SKILL_MD)
-    assert len(text.splitlines()) + UNSPENT_LINES <= PIN_LINES
-    assert len(text) + UNSPENT_CHARS <= PIN_CHARS
+    assert len(text.splitlines()) + UNSPENT_LINES <= PIN_LINES, "SKILL.md over its line pin"
+    assert len(text) + UNSPENT_CHARS <= PIN_CHARS, "SKILL.md over its char pin"
 
 
 def test_list_counts_do_not_depend_on_the_list_marker():
@@ -186,3 +205,64 @@ def test_json_examples_are_read_as_json_not_spelling(heading, check):
     for wrong in (2, "1", True, "tp-run-full-design/candidate/v2"):
         with pytest.raises(AssertionError):
             check(_respelled(body, lambda ex: json.dumps({**ex, key: wrong})))
+
+
+def _respell_fence(body: str, opener: str, closer: str) -> str:
+    """The example's fence in `body` respelled to `opener`/`closer`, body text unchanged.
+
+    Locates the original closer (same character as the original opener, tag-less) so the
+    swap works whether the respelling is within a fence character (tilde) or across one."""
+    m = re.search(FENCE_OPEN.pattern, body, re.MULTILINE)
+    assert m, "no json fence found"
+    char, length = m.group(2)[0], len(m.group(2))
+    closer_re = re.compile(rf"^[ \t]*{char}{{{length},}}[ \t]*$", re.MULTILINE)
+    cm = closer_re.search(body, m.end())
+    assert cm, "no closing fence found"
+    return body[:m.start()] + opener + body[m.end():cm.start()] + closer + body[cm.end():]
+
+
+def _example(body: str) -> dict:
+    [example] = _json_examples(body)
+    return example
+
+
+def test_tilde_fence_is_read():
+    """#162: a tilde fence is a CommonMark fence and the reader reads it."""
+    body = _section(_text(CONTRACTS), "## Pickup contract v1", "##")
+    respelled = _respell_fence(body, "~~~json", "~~~")
+    assert respelled != body
+    _assert_pickup_example(respelled)
+
+
+def test_space_before_json_tag_is_read():
+    """#162: `json` separated from the fence by a space is still the info tag."""
+    body = _section(_text(CONTRACTS), "## Pickup contract v1", "##")
+    respelled = body.replace("```json", "``` json", 1)
+    assert respelled != body
+    assert _example(respelled)["version"] == 1
+
+
+def test_four_backtick_fence_is_read():
+    """#162: a four-backtick fence reads, and the closer must match at four backticks."""
+    body = _section(_text(CONTRACTS), "## Pickup contract v1", "##")
+    respelled = _respell_fence(body, "````json", "````")
+    assert respelled != body
+    assert _example(respelled)["version"] == 1
+
+
+def test_integer_placeholder_reads_as_int():
+    """#162: a `<integer>` placeholder stands in for the JSON value, like the `<int>` ones
+    — each reads as the int 0, so the example parses instead of raising."""
+    body = _section(_text(CONTRACTS), "## Pickup contract v1", "##")
+    respelled = body.replace('"version": 1', '"version": <integer>', 1)
+    assert respelled != body
+    example = _example(respelled)
+    assert example["version"] == 0 and type(example["version"]) is int, example
+
+
+def test_untagged_fence_is_not_a_json_example():
+    """#162: only fenced JSON examples read; an untagged fence is prose, not a contract."""
+    body = _section(_text(CONTRACTS), "## Pickup contract v1", "##")
+    respelled = body.replace("```json", "```", 1)
+    assert respelled != body
+    assert _json_examples(respelled) == []

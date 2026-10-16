@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import task_eligibility as te  # noqa: E402
 from task_scope import _git_env as clean_git_env  # noqa: E402 — git_env is dev-only
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_docs = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs").exists(),
+    reason="reads the dev repo's three-pillars-docs/ (dev-repo only)")
+
 RED = "Calling `f()` returns 2, not 1."
 
 
@@ -79,16 +84,24 @@ def test_rule_fixtures():
     assert r["new_test"] is False and r["has_refactor"] is True
     assert (rows["1.2"]["tier"], rows["1.2"]["excluded"]) == ("opus", True)
     assert rows["1.2"]["reasons"] == ["excluded:Blocked"]
-    # No valid Targets (missing, malformed, or `none`): not runnable, so opus.
+    # No valid Targets (missing, malformed, or `none`): no oracle, so local (an Opus diff
+    # review accepts the attempt).
     for tid, reason in (("1.3", "targets-missing"), ("1.4", "targets-malformed"),
                         ("1.5", "targets-none")):
         assert (rows[tid]["tier"], rows[tid]["reasons"]) == (
-            "opus", [f"test-not-runnable:{reason}"]), tid
+            "local", [f"test-not-runnable:{reason}"]), tid
         assert rows[tid]["test_paths"] == []
-    assert (rows["1.11"]["tier"], rows["1.11"]["reasons"]) == ("opus", ["target-missing"])
+    assert (rows["1.11"]["tier"], rows["1.11"]["reasons"]) == ("local", ["target-missing"])
     assert (rows["1.6"]["tier"], rows["1.6"]["reasons"]) == ("local", [])
-    assert (rows["1.8"]["tier"], rows["1.8"]["reasons"]) == ("sonnet", ["too-many-files"])
-    assert rows["1.9"]["tier"] == "opus" and rows["1.9"]["reasons"] == ["unparsed-file"]
+    assert (rows["1.8"]["tier"], rows["1.8"]["reasons"]) == ("local", ["too-many-files"])
+    # Unparsed File spans: the Targets still run, so the row stays local (scope is logged).
+    assert rows["1.9"]["tier"] == "local" and rows["1.9"]["reasons"] == ["unparsed-file"]
+    assert rows["1.9"]["start_rung"] == "local-xhigh"
+    # A recorded reason starts local at xhigh; a clean row at medium; no oracle at xhigh.
+    assert (rows["1.11"]["start_rung"], rows["1.8"]["start_rung"]) == ("local-xhigh",) * 2
+    assert rows["1.6"]["start_rung"] == "local-medium"
+    for tid in ("1.3", "1.4", "1.5"):
+        assert rows[tid]["start_rung"] == "local-xhigh", tid
     assert rows["1.9"]["unparsed_files"]
     # A declared-new file at the repo root is runnable once created.
     assert (rows["1.10"]["tier"], rows["1.10"]["new_test"]) == ("local", True)
@@ -97,9 +110,10 @@ def test_rule_fixtures():
     assert rows["1.6"]["has_refactor"] is False
     # max_files is the knob: 4 files are local when the cap is 4.
     assert _by_id(_classify(plan, max_files=4))["1.8"]["tier"] == "local"
-    # No runner → every non-excluded row is opus with `no-runner` first.
+    # No runner → every non-excluded row is local (no oracle) with `no-runner` first.
     no_runner = _by_id(_classify(plan, runner_ok=False))
-    assert no_runner["1.1"]["tier"] == "opus" and no_runner["1.1"]["reasons"] == ["no-runner"]
+    assert no_runner["1.1"]["tier"] == "local" and no_runner["1.1"]["reasons"] == ["no-runner"]
+    assert no_runner["1.1"]["start_rung"] == "local-xhigh"
     assert no_runner["1.3"]["reasons"][0] == "no-runner"
     assert no_runner["1.2"]["reasons"] == ["excluded:Blocked"]
 
@@ -196,7 +210,7 @@ def test_every_declared_file_must_exist_in_any_order(order):
         _task("1.2", "one missing", files="`pkg/b.py`", targets=both))))
     assert rows["1.1"]["test_paths"] == ["pkg/test_a.py", "tests/test_b.py"]
     assert rows["1.1"]["tier"] == "local"
-    assert rows["1.2"]["tier"] == "opus" and "target-missing" in rows["1.2"]["reasons"]
+    assert rows["1.2"]["tier"] == "local" and "target-missing" in rows["1.2"]["reasons"]
 
 
 # --- Task 3.4: CLI and corpus rows ---------------------------------------------------
@@ -240,11 +254,11 @@ def test_cli_emits_json(tmp_path):
     assert rows["1.3"]["reasons"] == ["target-missing"]
     assert rows["1.1"]["collides_with"] == ["1.2"]
     capped = _by_id(json.loads(_run_cli(root, "--max-files", "0").stdout))
-    assert capped["1.1"]["tier"] == "sonnet"
+    assert capped["1.1"]["tier"] == "local" and "too-many-files" in capped["1.1"]["reasons"]
     # `runner_ok` is `resolve_runner`: without a pytest config there is no runner.
     (root / "pytest.ini").unlink()
     rows = _by_id(json.loads(_run_cli(root).stdout))
-    assert rows["1.1"]["tier"] == "opus" and rows["1.1"]["reasons"][0] == "no-runner"
+    assert rows["1.1"]["tier"] == "local" and rows["1.1"]["reasons"][0] == "no-runner"
     missing = subprocess.run([sys.executable, str(SCRIPT), str(root / "nope.md"), "--phase", "1",
                               "--root", str(root)], capture_output=True, text=True)
     assert missing.returncode == 2 and "nope.md" in missing.stderr
@@ -260,7 +274,7 @@ def test_cli_reads_max_files_from_config(tmp_path):
     cfg = root / ".three-pillars" / "config.json"
     cfg.parent.mkdir()
     cfg.write_text('{"local_implement": {"max_files": 1}}', encoding="utf-8")
-    assert _by_id(json.loads(_run_cli(root).stdout))["1.1"]["tier"] == "sonnet"
+    assert _by_id(json.loads(_run_cli(root).stdout))["1.1"]["reasons"] == ["too-many-files"]
     assert te.configured_max_files(root) == 1
     assert _by_id(json.loads(_run_cli(root, "--max-files", "2").stdout))["1.1"]["tier"] == "local"
     cfg.write_text('{"local_implement": {"max_files": "x"}}', encoding="utf-8")
@@ -268,16 +282,17 @@ def test_cli_reads_max_files_from_config(tmp_path):
     assert bad.returncode == 2 and "max_files" in bad.stderr
 
 
+@_needs_dev_docs
 def test_corpus_rows_invariants():
-    """Archived plans predate the Targets field: a row reaches a cheap rung only with a
-    canonical, runnable Targets field, and a non-canonical one is always opus."""
+    """Archived plans predate the Targets field: every dispatchable row, a non-canonical
+    (no-oracle) one included, is local (an Opus diff review accepts the no-oracle ones), and
+    only an excluded row is opus."""
     rows = te.corpus_rows(_CORPUS)
     assert len({r["design"] for r in rows}) >= 50 and len(rows) >= 500
     tiers = {r["tier"] for r in rows}
-    assert tiers <= {"local", "sonnet", "opus"}
+    assert tiers <= {"local", "opus"}
     for r in rows:
-        if r["tier"] != "opus":
-            assert r["test"]["canonical"] and r["test"]["kind"] != "not-runnable"
-        if not r["test"]["canonical"] or r["unparsed_files"]:
-            assert r["tier"] == "opus", (r["design"], r["task_id"])
+        assert (r["tier"] == "opus") == r["excluded"], (r["design"], r["task_id"])
+        if r["test"]["kind"] == "not-runnable" and not r["excluded"]:
+            assert r["start_rung"] in ("local-xhigh", "local-medium")
     print({t: sum(1 for r in rows if r["tier"] == t) for t in sorted(tiers)})

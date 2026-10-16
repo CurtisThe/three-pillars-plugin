@@ -59,7 +59,7 @@ def test_residual_current_focus_status_revert_certifies(tmp_path):
     h0 = _whole_file_conflict(s := build_scenario(tmp_path), path,
                               base=doc("Seed"), origin=doc("Done"), design=doc("Blocked"))
     human = doc("Seed")   # a semantic status revert — NOT a verify atom (accepted residual)
-    assert _verify.verify(doc("Blocked"), doc("Done"), human, mechanical_applied=False).ok is True
+    assert _verify.verify(doc("Blocked"), doc("Done"), human, base=None, mechanical_applied=False).ok is True
     h1 = force_merge_commit(s, {path: human})
 
     lc = certify_link_carry(str(s.repo_dir), h0, h1, base_ref=s.base_ref)
@@ -83,7 +83,7 @@ def test_residual_same_row_status_cell_change_certifies(tmp_path):
     h0 = _whole_file_conflict(s := build_scenario(tmp_path), path,
                               base=doc("Seed"), origin=doc("Done"), design=doc("InProgress"))
     human = doc("Reverted")   # the D12 name-cell survives; the status-cell edit is invisible
-    assert _verify.verify(doc("InProgress"), doc("Done"), human, mechanical_applied=False).ok is True
+    assert _verify.verify(doc("InProgress"), doc("Done"), human, base=None, mechanical_applied=False).ok is True
     h1 = force_merge_commit(s, {path: human})
 
     lc = certify_link_carry(str(s.repo_dir), h0, h1, base_ref=s.base_ref)
@@ -106,7 +106,7 @@ def test_residual_parenthetical_resolved_heading_certifies(tmp_path):
                               base=doc("OPEN"), origin=doc("OPEN — retriage"),
                               design=doc("investigating"))
     human = doc("RESOLVED 2026-07-09")   # a status transition on a NON-atom parenthetical heading
-    assert _verify.verify(doc("investigating"), doc("OPEN — retriage"), human, mechanical_applied=False).ok is True
+    assert _verify.verify(doc("investigating"), doc("OPEN — retriage"), human, base=None, mechanical_applied=False).ok is True
     h1 = force_merge_commit(s, {path: human})
 
     lc = certify_link_carry(str(s.repo_dir), h0, h1, base_ref=s.base_ref)

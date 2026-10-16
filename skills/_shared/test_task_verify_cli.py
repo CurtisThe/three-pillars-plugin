@@ -3,8 +3,9 @@
 design: local-implement-and-review (Behavior 5)
 
 Every subcommand prints JSON; ``check`` exits 0 PASS / 1 FAIL / 2 env-error and
-``land`` exits 2 on an env-error, each exit-2 JSON carrying ``recover``. The script
-runs as a subprocess against real tmp repos only (M23).
+``land`` exits 2 on an env-error, each exit-2 JSON carrying ``recover``. Each attempt
+commits the red/green pair (``commit_pair``). The script runs as a subprocess against
+real tmp repos only (M23).
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from attempt_fixture import IDENTITY, DD, commit, make_seat, write
+from attempt_fixture import IDENTITY, DD, commit, commit_pair, make_seat, write
 from task_scope import _git_env as clean_git_env  # shipped scrub; git_env is dev-only
 
 SCRIPT = str(Path(__file__).resolve().parent / "task_verify.py")
@@ -60,7 +61,8 @@ def test_cli_round_trip(tmp_path):
     wt = _dispatcher(tmp_path)
     rc, att = cli(wt, "open", "--task", "1.1", "--design-dir", DD)
     assert rc == 0 and att["status"] == "open" and att["attempt_id"].startswith("demo/1.1-")
-    tip = commit(Path(att["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": GREEN})
+    _red, tip = commit_pair(Path(att["attempt_dir"]), {"skills/test_a.py": GREEN},
+                            {"skills/a.py": "A = 2\n"})
     rc, res = _check(wt, att["attempt_id"])
     assert (rc, res["verdict"], res["unverified"]) == (0, "PASS", False), res["reason"]
     assert res["red_at_base"] == "meaningful"
@@ -73,7 +75,8 @@ def test_cli_round_trip(tmp_path):
     assert not Path(other["attempt_dir"]).exists()
     rc, out = cli(wt, "sweep", "--design-dir", DD)
     assert rc == 0 and out == {"discarded": [], "landed": [], "log": [],
-                               "scratch": {"worktrees": [], "branches": []}}
+                               "scratch": {"worktrees": [], "branches": []},
+                               "ladder": {"removed": [], "kept_orphans": []}}
 
 
 def test_cli_exit_codes(tmp_path):
@@ -82,9 +85,10 @@ def test_cli_exit_codes(tmp_path):
     _rc, two = cli(wt, "open", "--task", "1.2", "--design-dir", DD)
     rc, res = _check(wt, one["attempt_id"])
     assert (rc, res["verdict"], res["reason"]) == (1, "FAIL", "no commit")
-    commit(Path(one["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": GREEN})
-    commit(Path(two["attempt_dir"]), {"skills/a.py": "A = 3\n",
-                                      "skills/test_a.py": GREEN.replace("== 2", "== 3")})
+    commit_pair(Path(one["attempt_dir"]), {"skills/test_a.py": GREEN},
+                {"skills/a.py": "A = 2\n"})
+    commit_pair(Path(two["attempt_dir"]), {"skills/test_a.py": GREEN.replace("== 2", "== 3")},
+                {"skills/a.py": "A = 3\n"})
     assert _check(wt, one["attempt_id"])[0] == 0
 
     write(wt, "skills/stray.py")

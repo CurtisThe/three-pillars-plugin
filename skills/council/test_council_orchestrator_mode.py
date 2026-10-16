@@ -1,107 +1,89 @@
-"""Grep-anchor invariant tests over skills/council/SKILL.md for ORCHESTRATOR MODE.
+"""Structured checks over skills/council/SKILL.md for ORCHESTRATOR MODE.
 
-The /council --orchestrator mode is a top-level `## ORCHESTRATOR MODE` section
-(a peer of `## Coordinator Execution Sequence`), guarded by a branch at the top
-of STEP 0. These tests pin the load-bearing prose:
-  - standalone /council is byte-identical when --orchestrator is absent
-  - STEP 0 routes --orchestrator to the ORCHESTRATOR MODE section
-  - orchestrator-only flag tokens appear ONLY in the ORCHESTRATOR MODE section
-    (F9 section-slice)
-  - the inline-not-dispatched invariant literal (F7)
-
-PA7: this test lives DIRECTLY in skills/council/ (not a scripts/ subdir), so the
-module-level path anchor is .parent (one level), not .parent.parent.
+/council --orchestrator is a per-round dispatcher. The contract is read from the
+parsed code spans (skill_spans) and the shipped round-bundle schema, never from
+the prose wording:
+  - the `/council --orchestrator ...` CLI span carries the documented flags
+  - orchestrator-only flags appear in no span before that CLI span (standalone
+    /council is unchanged without the flag), bar the STEP-0 routing span
+  - the round-bundle schema it names is a shipped schema file
+  - members are dispatched by `council-{name}` agent ref (a top-level fan-out)
 """
 
 from __future__ import annotations
 
-import functools
+import sys
 from pathlib import Path
 
-SKILL_MD = Path(__file__).resolve().parent / "SKILL.md"
+import pytest
+
+_HERE = Path(__file__).resolve().parent
+SKILL_MD = _HERE / "SKILL.md"
+_SHARED = str(_HERE.parent / "_shared")
+if _SHARED not in sys.path:
+    sys.path.insert(0, _SHARED)
+SCHEMAS = _HERE.parent / "tp-run-full-design" / "schemas"
+
+ORCH_ONLY = ("--round", "--artifacts", "--round1", "--code-input")
 
 
-@functools.lru_cache(maxsize=1)
-def _body() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
-
-
-# --------------------------------------------------------------------------- #
-# Task 3.1 — byte-identical standalone guard + STEP-0 branch
-# --------------------------------------------------------------------------- #
-def test_standalone_byte_identical():
-    body = _body()
-    assert "standalone `/council` is byte-identical when `--orchestrator` is absent" in body, (
-        "the byte-identical standalone literal must appear"
-    )
-
-
-def test_step0_branch():
-    body = _body()
-    assert "\n## ORCHESTRATOR MODE" in body, "a top-level ## ORCHESTRATOR MODE section must exist"
-    # STEP 0 carries a branch routing --orchestrator to ## ORCHESTRATOR MODE.
-    step0 = body.split("### STEP 0", 1)[1].split("\n### ", 1)[0]
-    assert "if --orchestrator" in step0, (
-        "STEP 0 must carry an `if --orchestrator` routing branch"
-    )
-    assert "## ORCHESTRATOR MODE" in step0, (
-        "the STEP-0 branch must jump to ## ORCHESTRATOR MODE"
-    )
-    # The existing --quick / --duo / FULL parse order is unchanged: the
-    # --orchestrator branch is placed without disturbing them.
-    assert "--quick" in step0 and "--duo" in step0, (
-        "the --quick/--duo/FULL parse order must remain in STEP 0"
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Task 3.2 — section-slice isolation (F9, PA3)
-# --------------------------------------------------------------------------- #
-def test_orchestrator_literals_section_isolated():
-    body = _body()
-    # 1. Split at the section header.
-    assert "\n## ORCHESTRATOR MODE" in body
-    standalone_prose, orchestrator_section = body.split("\n## ORCHESTRATOR MODE", 1)
-    orchestrator_section = "## ORCHESTRATOR MODE" + orchestrator_section
-
-    # 2. Remove the single legitimate STEP-0 branch line mentioning --orchestrator.
-    removed = [ln for ln in standalone_prose.splitlines() if "if --orchestrator" in ln]
-    standalone_remainder = "\n".join(
-        ln for ln in standalone_prose.splitlines() if "if --orchestrator" not in ln
-    )
-
-    # 3. None of the orchestrator-only tokens may appear in the remainder.
-    orchestrator_only_tokens = [
-        "--orchestrator",
-        "--round",
-        "--artifacts",
-        "--round1",
-        "council-round-bundle.v1",
+def _spans() -> list[tuple[int, list[str]]]:
+    skill_spans = pytest.importorskip("skill_spans")
+    return [
+        (line, skill_spans.tokens_of(span, shell))
+        for line, span, shell in skill_spans.code_spans(SKILL_MD.read_text(encoding="utf-8"))
     ]
-    for tok in orchestrator_only_tokens:
-        assert tok not in standalone_remainder, (
-            f"orchestrator-only token {tok!r} leaked into standalone prose"
-        )
-        # And it MUST appear somewhere in the orchestrator section.
-        assert tok in orchestrator_section, (
-            f"orchestrator-only token {tok!r} must appear in the ORCHESTRATOR MODE section"
-        )
-
-    # 4. Exactly one STEP-0 branch line was removed (carve-out guard).
-    assert len(removed) == 1, (
-        f"exactly one standalone `if --orchestrator` line expected, found {len(removed)}"
-    )
 
 
-# --------------------------------------------------------------------------- #
-# Task 3.3 — inline-dispatch invariant literal (F7)
-# --------------------------------------------------------------------------- #
-def test_inline_invariant_literal():
-    body = _body()
-    section = body.split("\n## ORCHESTRATOR MODE", 1)[1]
-    assert "inline in its own context" in section, (
-        "the ORCHESTRATOR MODE section must pin the inline-in-own-context invariant"
-    )
-    assert "does NOT dispatch `/council` as a subagent" in section, (
-        "F7 — the orchestrator does NOT dispatch /council as a subagent"
-    )
+def _cli() -> tuple[int, list[str]]:
+    for line, toks in _spans():
+        if toks[:2] == ["/council", "--orchestrator"] and "--round" in toks:
+            return line, toks
+    raise AssertionError("no `/council --orchestrator --round ...` CLI span")
+
+
+def test_cli_carries_orchestrator_flags():
+    _, toks = _cli()
+    for flag in ("--orchestrator", "--round", "--members", "--artifacts", "--round1"):
+        assert any(flag in t for t in toks), f"CLI span must carry {flag}"
+
+
+def test_step0_routes_orchestrator_and_keeps_parse_order():
+    cli_line, _ = _cli()
+    before = [(ln, t) for ln, t in _spans() if ln < cli_line]
+    tokens = {tok for _, t in before for tok in t}
+    # tp-allow-fragile: --orchestrator/--quick/--duo are CLI flag names (the interface)
+    assert {"--orchestrator", "--quick", "--duo"} <= tokens
+    assert any(t[:2] == ["if", "--orchestrator"] for _, t in before), "STEP-0 branch span"
+
+
+def test_orchestrator_only_flags_absent_before_cli():
+    cli_line, _ = _cli()
+    for line, toks in _spans():
+        if line < cli_line:
+            leaked = [f for f in ORCH_ONLY if f in toks]
+            assert not leaked, f"line {line}: orchestrator-only {leaked} before the CLI"
+
+
+def test_round_bundle_schema_is_shipped():
+    cli_line, _ = _cli()
+    named = [
+        tok for ln, t in _spans() if ln > cli_line for tok in t
+        if tok.startswith("council-round-bundle.v")
+    ]
+    assert named, "the round-bundle schema must be named in a code span"
+    for tok in named:
+        assert (SCHEMAS / f"{tok}.json").is_file(), f"{tok} is not a shipped schema"
+
+
+def test_members_dispatched_by_agent_ref():
+    cli_line, _ = _cli()
+    assert any(
+        ln > cli_line and t == ["council-{name}"] for ln, t in _spans()
+    ), "members must be dispatched as top-level `council-{name}` agents"
+
+
+def test_skill_refs_clean():
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(_HERE.parents[1], [SKILL_MD])
+    assert not report.issues

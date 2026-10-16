@@ -81,48 +81,57 @@ def test_committed_config_read_from_cwd_repo(tmp_path, monkeypatch):
     sys.path.insert(0, str(Path(__file__).parent))
     from deterministic_gate import _load_repo_config
 
-    project_config = {"ci": {"expects_github_checks": False}, "custom_key": "from_project"}
+    project_config = {
+        "schema_version": 1,
+        "ci": {"expects_github_checks": False},
+        "review": {"automation_identities": ["from_project"]},
+    }
     project = tmp_path / "consumer_project"
     _init_repo_with_config(project, project_config)
 
     monkeypatch.chdir(project)
     result = _load_repo_config()
-    assert result.get("custom_key") == "from_project"
+    assert result.get("review", {}).get("automation_identities") == ["from_project"]
     assert result["ci"]["expects_github_checks"] is False
 
 
 def test_uncommitted_edit_invisible(tmp_path, monkeypatch):
     """W4 regression pin: uncommitted edits to config.json are invisible.
 
-    The committed config carries a distinctive marker key
-    ('committed_marker_w4_pin') absent from the working-tree edit, so the
-    assertion independently distinguishes the project-HEAD read from any
-    fallback to the framework-HEAD or working-tree.
+    The committed config carries a distinctive marker
+    (review.automation_identities=['committed_marker_w4_pin']) absent from the
+    working-tree edit, so the assertion independently distinguishes the
+    project-HEAD read from any fallback to the framework-HEAD or working-tree.
     """
     import sys
     sys.path.insert(0, str(Path(__file__).parent))
     from deterministic_gate import _load_repo_config
 
-    # Distinctive marker key absent from the working-tree version
+    # Distinctive marker (schema-valid) absent from the working-tree version
     project_config = {
+        "schema_version": 1,
         "ci": {"expects_github_checks": False},
-        "committed_marker_w4_pin": "committed",
+        "review": {"automation_identities": ["committed_marker_w4_pin"]},
     }
     project = tmp_path / "consumer_project"
     _init_repo_with_config(project, project_config)
 
     # Modify working tree without committing — replaces the committed config
     cfg_file = project / ".three-pillars" / "config.json"
-    modified = {"ci": {"expects_github_checks": True}, "sneaky_edit": True}
+    modified = {
+        "schema_version": 1,
+        "ci": {"expects_github_checks": True},
+        "review": {"automation_identities": ["sneaky_edit"]},
+    }
     cfg_file.write_text(json.dumps(modified))
 
     monkeypatch.chdir(project)
     result = _load_repo_config()
     # Must see the committed version, not the working-tree edit
-    assert result.get("sneaky_edit") is None, (
+    assert result.get("review", {}).get("automation_identities") != ["sneaky_edit"], (
         "Working-tree edit must not be visible (HEAD read only)"
     )
-    assert result.get("committed_marker_w4_pin") == "committed", (
+    assert result.get("review", {}).get("automation_identities") == ["committed_marker_w4_pin"], (
         "Committed marker key must be present — confirms project-HEAD was read"
     )
     assert result["ci"]["expects_github_checks"] is False, (
@@ -163,6 +172,7 @@ _HERMETIC_RUNNERS_BASE = {
 }
 
 _RELAXED_CONFIG = {
+    "schema_version": 1,
     "ci": {"expects_github_checks": False},
     "review": {"expects_copilot": False, "require_human_approval": False},
 }

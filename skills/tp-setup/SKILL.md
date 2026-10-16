@@ -38,29 +38,20 @@ Do not decide on a testing framework in this skill. Test infrastructure decision
 
    Ask questions one section at a time. Don't write anything until the user has answered all five.
 
-4. **Write `three-pillars-docs/vision.md`** with this structure:
+4. **Scaffold `three-pillars-docs/vision.md`, then fill it in**:
+   ```bash
+   python3 "$TP_ROOT"/skills/_shared/living_doc_scaffold.py --doc vision
+   ```
+   This writes the condensed template (sections: Problem, Users, Principles,
+   Non-goals, Success signals, History) and its cold archive sibling — an
+   idempotent no-op when the doc already exists, so it never overwrites
+   operator work. Then replace the placeholders with what the conversation
+   produced, keeping the condensed shape: **one bullet per item**, a `## History`
+   section with one line per update, and the template's one-line pointer
+   `> History and evidence live in vision_archive.md.` left in place — the live
+   doc is an index of what is true now; the archive is the record.
 
-```markdown
-# Vision
-
-## Problem
-What pain this project eliminates, and for whom. 2-4 sentences.
-
-## Users
-Concrete description of who this is for, and who it's not for.
-
-## Principles
-- **{principle}** — what it means, and when it applies as a tie-breaker.
-- ...
-
-## Non-goals
-- What this project will explicitly never become. Each entry with a sentence on why.
-
-## Success signals
-- Qualitative signs the vision is being realized. Not metrics.
-```
-
-Present the draft to the user for review before writing. Keep the whole file under 100 lines — dense, not verbose. A vision that tries to say everything says nothing.
+Present the draft to the user for review before writing. Keep the whole file dense, not verbose — it stays under `vision.md`'s soft cap (see `skills/_shared/living-doc-format.md` §Condensed shape and caps). A vision that tries to say everything says nothing.
 
 5. **Offer to update CLAUDE.md**. If the project's CLAUDE.md describes the project docs without listing `vision.md`, offer to add it so future sessions pick up the pillar. Don't edit without confirmation.
 

@@ -6,7 +6,8 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "round", "head_reviewed", "head_after", "tally", "downgraded", "notes",
-               "action", "fix_commit", "terminal", "converged", "budget", "summary"],
+               "action", "fix_commit", "terminal", "converged", "budget", "finalizer_stop",
+               "summary"],
   "properties": {
     "schema": {"const": "tp-pr-iterate/round-tail/v1"},
     "round": {"type": "integer", "minimum": 1},
@@ -37,9 +38,19 @@
       "required": ["iteration", "round_cap", "signal", "holding"],
       "properties": {
         "iteration": {"type": "integer", "minimum": 0},
-        "round_cap": {"type": "integer", "minimum": 1},
+        "round_cap": {"type": "integer", "minimum": 0},
         "signal": {"type": ["string", "null"]},
         "holding": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "finalizer_stop": {
+      "description": "Copied verbatim from the run_round / converge output's finalizer_stop (a newly fired budget terminal); null when absent. The orchestrator passes it to finalizer_cli.py prepare --stop before any label.",
+      "type": ["object", "null"],
+      "required": ["source", "signal", "target"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "signal": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1}
       }
     },
     "summary": {"type": "string", "maxLength": 400}

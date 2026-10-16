@@ -2,6 +2,7 @@
 name: council-musashi
 description: "Council member. Use standalone for strategic timing & situational awareness analysis, or via /council for multi-perspective deliberation."
 model: opus
+effort: high
 color: crimson
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

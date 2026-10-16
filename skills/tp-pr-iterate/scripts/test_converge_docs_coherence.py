@@ -8,7 +8,12 @@ ordering-affirmation, never phrase-removal.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 # scripts/ -> tp-pr-iterate/ -> skills/
 SKILLS = Path(__file__).resolve().parent.parent.parent
@@ -18,6 +23,8 @@ TP_RUN_FULL_DESIGN_SKILL = SKILLS / "tp-run-full-design" / "SKILL.md"
 
 
 def _read(p: Path) -> str:
+    if p == TP_RUN_FULL_DESIGN_SKILL:
+        return skill_text.read_skill_text("tp-run-full-design")
     return p.read_text(encoding="utf-8")
 
 

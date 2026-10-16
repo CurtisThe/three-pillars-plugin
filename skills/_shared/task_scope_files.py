@@ -100,12 +100,16 @@ def classify_path(path: str, listed, design_dir_rel: str) -> str:
 
     A listed entry ending in ``/`` covers its contents. ``design-dir`` wins over
     ``listed``: a File or Targets entry naming a design-dir path does not make it the
-    worker's (the dispatcher owns every design-dir write). Callers own the policy: the
-    Tier 3.5 re-run allows ``design-dir`` changes, a single task attempt does not.
+    worker's (the dispatcher owns every design-dir write). The exception is the worker
+    work dirs ``<design-dir>/ledgers/`` and ``<design-dir>/staging/``: they are not
+    ``design-dir``, so they are allowed only when the task's File/Targets list names
+    them, else ``unlisted``. Callers own the policy: the Tier 3.5 re-run allows
+    ``design-dir`` changes, a single task attempt does not.
     """
     p = norm_path(path)
     d = norm_path(design_dir_rel or "").strip("/")
-    if d and (p == d or p.startswith(d + "/")):
+    if d and (p == d or p.startswith(d + "/")) and not p.startswith(
+            (d + "/ledgers/", d + "/staging/")):
         return "design-dir"
     for entry in listed:
         e = norm_path(entry)

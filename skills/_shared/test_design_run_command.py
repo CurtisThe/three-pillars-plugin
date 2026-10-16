@@ -30,8 +30,10 @@ def test_resolve_config_dir_unset_warns():
 
 
 def test_env_prefix_quotes():
-    assert drc.env_prefix("/p/my prof") == "TP_DESIGN_RUN=1 CLAUDE_CONFIG_DIR='/p/my prof' "
-    assert drc.env_prefix(None) == "TP_DESIGN_RUN=1 "
+    assert drc.env_prefix("/p/my prof") == (
+        "env -u CLAUDE_CODE_EFFORT_LEVEL TP_DESIGN_RUN=1 CLAUDE_CONFIG_DIR='/p/my prof' "
+    )
+    assert drc.env_prefix(None) == "env -u CLAUDE_CODE_EFFORT_LEVEL TP_DESIGN_RUN=1 "
 
 
 def test_slash_command():
@@ -49,9 +51,10 @@ def test_slash_command_bad_slug(bad):
 
 
 def test_window_command():
-    assert drc.window_command("foo", "/w t/foo", config_dir="/p") == (
-        "cd '/w t/foo' && TP_DESIGN_RUN=1 CLAUDE_CONFIG_DIR=/p "
-        "claude --model opus '/tp-run-full-design foo'; exec bash"
+    assert drc.window_command("foo", "/w t/foo", config_dir="/p", model="opus") == (
+        "cd '/w t/foo' && env -u CLAUDE_CODE_EFFORT_LEVEL TP_DESIGN_RUN=1 "
+        "CLAUDE_CONFIG_DIR=/p "
+        "claude --model opus --effort high --name foo '/tp-run-full-design foo'; exec bash"
     )
 
 
@@ -63,15 +66,70 @@ def test_slash_command_local_appends_flag():
 
 
 def test_window_command_forwards_local():
-    cmd = drc.window_command("foo", "/w/foo", config_dir="/p", local=True)
-    assert cmd.endswith("claude --model opus '/tp-run-full-design foo --local'; exec bash")
+    cmd = drc.window_command("foo", "/w/foo", config_dir="/p", model="opus", local=True)
+    assert cmd.endswith(
+        "claude --model opus --effort high --name foo '/tp-run-full-design foo --local'; exec bash")
     assert "--local" not in drc.window_command("foo", "/w/foo", config_dir="/p")
+
+
+def test_slash_command_cheap_tier():
+    assert drc.slash_command("foo", cheap_tier="on") == "/tp-run-full-design foo --cheap-tier"
+    assert drc.slash_command("foo", cheap_tier="ab") == (
+        "/tp-run-full-design foo --cheap-tier=ab")
+    assert drc.slash_command("foo", cheap_tier=None) == "/tp-run-full-design foo"
+    # placement follows --local
+    assert drc.slash_command("foo", mode="build", skip_design=True, local=True,
+                             cheap_tier="ab") == (
+        "/tp-run-full-design foo --mode build --skip-design --local --cheap-tier=ab")
+
+
+@pytest.mark.parametrize("bad", ["off", "true", "AB", "", True])
+def test_slash_command_cheap_tier_refused(bad):
+    with pytest.raises(ValueError):
+        drc.slash_command("foo", cheap_tier=bad)
+
+
+def test_window_command_forwards_cheap_tier():
+    cmd = drc.window_command("foo", "/w/foo", config_dir="/p", model="opus",
+                             local=True, cheap_tier="on")
+    assert cmd.endswith("'/tp-run-full-design foo --local --cheap-tier'; exec bash")
+    assert "--cheap-tier" not in drc.window_command("foo", "/w/foo", config_dir="/p")
 
 
 @pytest.mark.parametrize("model", ["fable", "FABLE", "claude-fable-1"])
 def test_window_command_rejects_fable(model):
     with pytest.raises(ValueError):
         drc.window_command("foo", "/w/foo", model=model)
+
+
+@pytest.mark.parametrize("model,configured", [
+    ("fable", None),
+    ("claude-fable-x", None),
+    ("fable", "opus"),
+    ("claude-fable-x", "opus"),
+    ("fable", "FABLE"),          # configured must equal the exact model string
+    ("inherit", None),
+    ("INHERIT", "opus"),
+    ("", None),
+    ("", "opus"),
+])
+def test_require_model_refused(model, configured):
+    with pytest.raises(ValueError):
+        drc._require_model(model, configured=configured)
+
+
+def test_require_model_allows_configured_fable():
+    assert drc._require_model("fable", configured="fable") == "fable"
+
+
+def test_require_model_allows_plain():
+    assert drc._require_model("opus", configured=None) == "opus"
+    assert drc._require_model("sonnet", configured="sonnet") == "sonnet"
+
+
+def test_window_command_fable_when_configured():
+    cmd = drc.window_command("foo", "/w/foo", model="fable", configured="fable")
+    assert "--model fable" in cmd
 
 
 def test_claude_json_path():
@@ -180,3 +238,11 @@ def test_pretrust_concurrent_writers_keep_all_entries(tmp_path):
     assert [p.wait() for p in procs] == [0] * len(wts)
     data = json.loads((cfg / ".claude.json").read_text(encoding="utf-8"))
     assert sorted(data["projects"]) == sorted(wts)
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"local": True}, {"mode": "build", "skip_design": True}])
+def test_window_survives_claude_exit(kwargs):
+    # design: no-kill-by-name (Task 1.8). `claude` runs inside a shell, so a killed
+    # session leaves a live pane ("Resume this session with …"), not a closed window.
+    cmd = drc.window_command("foo", "/w/foo", config_dir="/p", **kwargs)
+    assert cmd.endswith("; exec bash")

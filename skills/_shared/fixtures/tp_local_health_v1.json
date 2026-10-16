@@ -1,0 +1,6 @@
+{
+  "service": "tp-local-router",
+  "schema": 1,
+  "pid": 1234, "uptime_s": 42, "local_model": "qwen3-coder:30b", "fallback_model": "qwen3:32b",
+  "ollama": {"state": "up", "age_s": 3.1}
+}

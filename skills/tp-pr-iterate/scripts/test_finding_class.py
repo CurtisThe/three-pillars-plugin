@@ -145,10 +145,14 @@ _SENTINEL = {"source": "no-angles", "file": "<review-output:no-angles>",
              "line_range": [0, 0], "summary": "x", "verdict": "structural"}
 
 
+_NO_FRAG = {"open-ended": 0, "change-detector": 0, "blocklist": 0}
+
+
 def test_tally_sentinels_count_only_as_degraded():
     t = finding_class.tally([_SENTINEL, dict(_SENTINEL, source="angle-1",
                                              file="<review-output:angle-1>")])
-    assert t == {"P": 0, "X": 0, "T": 0, "C": 0, "blocking": 0, "degraded": 2}
+    assert t == {"P": 0, "X": 0, "T": 0, "C": 0, "blocking": 0, "degraded": 2,
+                 "frag": _NO_FRAG, "regression": 0, "reproduced": 0}
 
 
 def test_tally_per_class_counts_and_blocking():
@@ -160,7 +164,8 @@ def test_tally_per_class_counts_and_blocking():
         _SENTINEL,
     ]
     assert finding_class.tally(findings) == {
-        "P": 1, "X": 0, "T": 2, "C": 1, "blocking": 1, "degraded": 1}
+        "P": 1, "X": 0, "T": 2, "C": 1, "blocking": 1, "degraded": 1,
+        "frag": _NO_FRAG, "regression": 0, "reproduced": 0}
 
 
 def test_tally_legacy_structural_counts_blocking_without_class():
@@ -171,20 +176,24 @@ def test_tally_legacy_structural_counts_blocking_without_class():
 
 def test_tally_empty():
     assert finding_class.tally([]) == {
-        "P": 0, "X": 0, "T": 0, "C": 0, "blocking": 0, "degraded": 0}
+        "P": 0, "X": 0, "T": 0, "C": 0, "blocking": 0, "degraded": 0,
+        "frag": _NO_FRAG, "regression": 0, "reproduced": 0}
 
 
 def test_class_line_exact():
-    t = {"P": 1, "X": 0, "T": 2, "C": 0, "blocking": 1, "degraded": 0}
+    t = {"P": 1, "X": 0, "T": 2, "C": 0, "blocking": 1, "degraded": 0,
+         "frag": _NO_FRAG, "regression": 0}
     assert finding_class.class_line(3, "abc1234deadbeef", t) == (
-        "[tp-pr-iterate] round 3 head=abc1234 P1 X0 T2 C0 blocking=1")
+        "[tp-pr-iterate] round 3 head=abc1234 P1 X0 T2 C0 blocking=1 "
+        "frag=open-ended:0,change-detector:0,blocklist:0 regression=0")
 
 
 def test_note_line_format():
     f = {"file": "scripts/x.py", "line_range": [42, 50], "class": "T",
          "summary": "tighten the assert"}
     assert finding_class.note_line(2, f) == (
-        "[tp-pr-iterate/note] round 2 T scripts/x.py:42 — tighten the assert")
+        "[tp-pr-iterate/note] round 2 T origin=unclassified frag=unclassified "
+        "scripts/x.py:42 — tighten the assert")
 
 
 def test_note_line_truncates_summary_to_160():
@@ -197,4 +206,6 @@ def test_note_line_single_line_and_defaults():
     f = {"file": "a.py", "summary": "one\ntwo"}
     line = finding_class.note_line(4, f)
     assert "\n" not in line
-    assert line == "[tp-pr-iterate/note] round 4 C a.py:0 — one two"
+    assert line == (
+        "[tp-pr-iterate/note] round 4 C origin=unclassified frag=unclassified "
+        "a.py:0 — one two")

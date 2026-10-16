@@ -27,7 +27,7 @@ def _reply(code, summary):
          "reproducer": {"kind": "command",
                         "argv": [sys.executable, "-c", f"import sys; sys.exit({code})"],
                         "expect": {"exit": 0}}}
-    return FENCE + "json\n" + json.dumps([f]) + "\n" + FENCE + "\n"
+    return FENCE + "json\n" + json.dumps({"findings": [f]}) + "\n" + FENCE + "\n"
 
 
 def _run(tmp_path, codes):
@@ -57,8 +57,8 @@ def test_legacy_twin_does_not_swallow_reproduced_blocking_twin(tmp_path):
     # `legacy-no-reproducer` while the demonstrated defect is dropped.
     legacy = {"file": "src/a.py", "line_range": [10, 12],
               "summary": "unguarded path leaks a wrong result on empty input here"}
-    tagged = json.loads(_reply(1, "wrong result").split("\n")[1])[0]
-    replies = [FENCE + "json\n" + json.dumps([f]) + "\n" + FENCE + "\n"
+    tagged = json.loads(_reply(1, "wrong result").split("\n")[1])["findings"][0]
+    replies = [FENCE + "json\n" + json.dumps({"findings": [f]}) + "\n" + FENCE + "\n"
                for f in (legacy, tagged)]
     merged = merge_codereview_angles(replies)
     assert len(merged) == 1

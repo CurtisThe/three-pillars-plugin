@@ -18,14 +18,14 @@ PROSE_RESOLVED = "A synthesized human resolution."
 
 def test_zero_atoms_with_mechanical_applied_is_unverifiable():
     # The design's no-op regression: mechanically resolved + zero atoms is NEVER a pass.
-    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, mechanical_applied=True)
+    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, base=None, mechanical_applied=True)
     assert r.verdict == UNVERIFIABLE
     assert r.ok is False
 
 
 def test_zero_atoms_without_mechanical_applied_is_verified():
     # Behavior 2 — a deferred / hand-resolved prose-only file is not blocked by the verifier.
-    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, mechanical_applied=False)
+    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, base=None, mechanical_applied=False)
     assert r.verdict == VERIFIED
     assert r.ok is True
     assert r.dropped == []
@@ -35,10 +35,10 @@ def test_verified_and_drops_detected_verdicts():
     ours = "### L4: keep me"
     theirs = "### L4: also keep\n### L5: and me"
     good = verify(ours, theirs, "### L4: keep me\n### L5: also keep\n### L6: and me",
-                  mechanical_applied=True)
+                  base=None, mechanical_applied=True)
     assert good.verdict == VERIFIED and good.ok and good.dropped == []
 
-    bad = verify(ours, theirs, "### L4: also keep\n### L5: and me", mechanical_applied=True)
+    bad = verify(ours, theirs, "### L4: also keep\n### L5: and me", base=None, mechanical_applied=True)
     assert bad.verdict == DROPS_DETECTED
     assert bad.ok is False
     assert any("keep me" in sig for _kind, sig in bad.dropped)
@@ -47,20 +47,20 @@ def test_verified_and_drops_detected_verdicts():
 def test_drops_detected_wins_over_unverifiable_only_when_atoms_exist():
     # DROPS_DETECTED requires atoms; with atoms present, mechanical_applied cannot make it
     # UNVERIFIABLE — UNVERIFIABLE is strictly the zero-atom verdict.
-    r = verify("### L4: a", "", "", mechanical_applied=True)
+    r = verify("### L4: a", "", "", base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED and r.pre_atoms == 1
 
 
 def test_result_carries_atom_counts():
     ours = "### L4: keep me\n\nprose line"
     theirs = "### L5: and me"
-    r = verify(ours, theirs, "### L4: keep me\n### L5: and me", mechanical_applied=True)
+    r = verify(ours, theirs, "### L4: keep me\n### L5: and me", base=None, mechanical_applied=True)
     assert r.pre_atoms == 2
     assert r.post_atoms == 2
     assert r.ours_lines == 2          # blank line not counted
     assert r.theirs_lines == 1
 
-    empty = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, mechanical_applied=True)
+    empty = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, base=None, mechanical_applied=True)
     assert empty.pre_atoms == 0 and empty.post_atoms == 0
     assert empty.ours_lines == 1 and empty.theirs_lines == 1
 
@@ -68,7 +68,7 @@ def test_result_carries_atom_counts():
 def test_mechanical_applied_is_keyword_only_with_no_default():
     # Fail-loud device: an unmigrated 3-positional call must raise, never silently default.
     try:
-        verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED)
+        verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, base=None)
     except TypeError:
         pass
     else:
@@ -76,7 +76,7 @@ def test_mechanical_applied_is_keyword_only_with_no_default():
 
 
 def test_result_is_frozen():
-    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, mechanical_applied=False)
+    r = verify(PROSE_OURS, PROSE_THEIRS, PROSE_RESOLVED, base=None, mechanical_applied=False)
     try:
         r.verdict = UNVERIFIABLE          # type: ignore[misc]
     except Exception:

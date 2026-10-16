@@ -26,8 +26,15 @@ def labels(text):
 
 
 def test_preamble():
+    # a date-only triple is the mechanical `last-updated-preamble` now (`keyed_classes`)...
     t = _diff3("*Last updated: 2026-05-17*", "*Last updated: 2026-05-15*", "*Last updated: 2026-05-16*")
+    assert labels(t) == ["last-updated-preamble"]
+    assert "last-updated-preamble" in MECHANICAL
+    # ...a richer region (an extra prose line on one side) is still the semantic `preamble`
+    t = _diff3("*Last updated: 2026-05-17*\nA second prose line.", "*Last updated: 2026-05-15*",
+               "*Last updated: 2026-05-16*")
     assert labels(t) == ["preamble"]
+    assert "preamble" in SEMANTIC
 
 
 def test_id_renumber_collision():
@@ -249,3 +256,21 @@ def test_parse_roundtrip_multiple_hunks():
     assert len(hunks) == 2
     # second hunk should carry the 'middle' pre-context line
     assert hunks[1].pre_context == "middle"
+
+
+def test_known_issues_low_file_shape_is_the_same_class_as_known_issues():
+    """skill-context-diet 2.2 (D5b): `known_issues_low.md` is the same living-doc class.
+
+    The low file holds one-line `### L<n>:` entries in newest-first order, so a base-sync
+    conflict there is byte-for-byte the shape `known_issues.md` produces (see
+    `conflict_fixtures`' live known_issues shape): two concurrent ID-heading insertions.
+    The classifier sees no path, only line shape, so the same class must answer here —
+    a class it already gives `known_issues.md`. Pinning the shape is what keeps the low
+    file inside the base-sync lane when it lands as a new living doc.
+    """
+    t = _diff3_empty_base("### L63: ours Low entry", "### L64: theirs Low entry",
+                          pre="## Low issues")
+    assert labels(t) == labels(_diff3_empty_base("### L63: ours entry", "### L64: theirs entry",
+                                                 pre="## Medium"))
+    assert labels(t) == ["keyed-heading-insertion"]
+    assert "keyed-heading-insertion" in AUTO_RESOLVE

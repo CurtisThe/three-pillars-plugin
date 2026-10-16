@@ -2,6 +2,7 @@
 name: tp-session-restore
 description: Restore session context from handoff.md in the design's directory at the start of a new conversation. Gives you continuity without re-explaining.
 argument-hint: "[design-name]"
+effort: high
 ---
 
 # Session Restore

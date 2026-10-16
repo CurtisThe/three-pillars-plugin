@@ -18,7 +18,7 @@ import review_merge  # noqa: E402
 import round_scratch as rs  # noqa: E402
 
 PR = "https://github.com/o/r/pull/42"
-CLEAN = "```json\n[]\n```"
+CLEAN = '{"findings": []}'
 
 
 def _prep(root, **kw):
@@ -56,6 +56,24 @@ def test_manifest_shape(tmp_path):
     assert e["role"] == "confirmer" and e["model"] == "opus" and e["tier"] == "claude"
     assert e["reply_path"] == str(r / e["name"] / "reply.md")
     assert e["reply_path"] in e["prompt"] and angles.REVIEW_BAR in e["prompt"]
+
+
+def test_manifest_dispatch_model_alias(tmp_path):
+    """M3: a `claude-<family>-…` id and a bare alias both dispatch as `opus`."""
+    angles_list = [{"name": "a", "role": "confirmer", "model": "claude-opus-4-1",
+                    "prompt": "p"},
+                   {"name": "b", "role": "confirmer", "model": "Opus", "prompt": "p"}]
+    r = _prep(tmp_path, angles=angles_list)
+    m = json.loads((r / "angles.json").read_text(encoding="utf-8"))
+    by_name = {e["name"]: e for e in m["angles"]}
+    assert by_name["a"]["dispatch_model"] == "opus"
+    assert by_name["b"]["dispatch_model"] == "opus"
+    assert "skipped" not in by_name["a"]
+    skipped = [{"name": "s", "role": "finder", "model": "qwen", "prompt": "p",
+                "skipped": "local backend absent"}]
+    m2 = json.loads((_prep(tmp_path / "s", angles=skipped) / "angles.json").read_text(encoding="utf-8"))
+    assert m2["angles"][0]["skipped"] == "local backend absent"
+    assert m2["angles"][0]["dispatch_model"] is None
 
 
 def test_next_round_after_tail(tmp_path):
@@ -118,6 +136,20 @@ def test_read_replies_clean(tmp_path):
     assert review_merge.merge_codereview_angles(rs.read_replies(r)) == []
 
 
+def test_skipped_local_finder_reads_clean(tmp_path):
+    """L125: a skipped local finder is never dispatched, so its missing reply reads as
+    clean in both readers, never as the sentinel that would block every round."""
+    import reproduce
+    loc = {"name": "loc", "role": "finder", "model": "qwen3-coder", "prompt": "p",
+           "skipped": "local backend absent"}
+    r = _prep(tmp_path, angles=[*angles.DEFAULT_ANGLES, loc])
+    for a in angles.DEFAULT_ANGLES:
+        (r / a["name"] / "reply.md").write_text(CLEAN, encoding="utf-8")
+    assert review_merge.merge_codereview_angles(rs.read_replies(r)) == []
+    entry = json.loads((r / "angles.json").read_text(encoding="utf-8"))["angles"][-1]
+    assert reproduce._read_reply(r, entry) == angles.SKIPPED_REPLY
+
+
 def test_clobbered_sibling_blocks(tmp_path):
     """Behavior 11: an angle deleting a sibling's dir yields a sentinel, not clean."""
     import shutil
@@ -174,6 +206,23 @@ def test_safe_remove_refusals(tmp_path, which):
     with pytest.raises(rs.RemoveRefused):
         rs.safe_remove(target, owner)
     assert target.exists()
+
+
+def test_instructions_present_from_status(tmp_path):
+    """8.3: the round prompt names the instructions file only when the repo has one."""
+    token = ".github/review-instructions.md"
+    with_repo = tmp_path / "repo"
+    (with_repo / ".github").mkdir(parents=True)
+    (with_repo / ".github" / "review-instructions.md").write_text("bar\n", encoding="utf-8")
+    r = _prep(tmp_path / "root-with", repo=str(with_repo))
+    m = json.loads((r / "angles.json").read_text(encoding="utf-8"))
+    assert all(token in e["prompt"] for e in m["angles"])
+    bare_repo = tmp_path / "repo-bare"
+    bare_repo.mkdir()
+    r2 = _prep(tmp_path / "root-bare", repo=str(bare_repo))
+    m2 = json.loads((r2 / "angles.json").read_text(encoding="utf-8"))
+    assert all(token not in e["prompt"] for e in m2["angles"])
+    assert all(angles.REVIEW_BAR in e["prompt"] for e in m2["angles"])
 
 
 def test_safe_remove_symlink_escape(tmp_path):

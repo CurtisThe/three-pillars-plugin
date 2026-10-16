@@ -2,6 +2,7 @@
 name: tp-plan-audit
 description: "Plan Audit — verify plan.md is consistent with design.md and detailed-design.md. Runs deterministic scripts then convenes an engineering council for judgment calls."
 argument-hint: "{design-name} [--spike] [--light] [--auto] [--force-takeover]"
+effort: high
 ---
 
 # Plan Audit
@@ -51,31 +52,35 @@ dev checkout, a project install, or a plugin cache):
 ```bash
 python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_plan.py "$DESIGN_DIR" [--spike|--light]
 ```
-Pass `--spike` or `--light` matching the flag given to the skill.
+Pass `--spike` or `--light` matching the flag given to the skill. Beside it, run the coupling and split-target precheck (design run-throughput Part C):
+```bash
+python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/plan_couplings.py "$DESIGN_DIR" --root .
+```
+Exit 1 → each of its JSON `findings[]` is an INCONSISTENT finding at medium confidence: a `(new)` file matching a `plan_audit.couplings` `when_new` glob whose task does not list the `requires_listed` path, or a task whose **File** would reach its file-size hard cap with no `**Split**` (or `**Growth**: +0` on a grandfathered file). Exit 2 (usage error) → report it and go on.
 
 Capture the full output. This checks:
 - Task field completeness (File, Test, Red, Green, Done when)
 - Module coverage (every detailed-design module has a plan task)
 - Interface coverage (every detailed-design interface mentioned in plan)
-- Phase alignment (plan phases vs detailed-design Implementation Order)
-- File existence (modified files exist, new file parent dirs exist)
-- **Targets** (the machine-read oracle, `skills/tp-plan/SKILL.md` §Targets field): malformed → ERROR; missing → a NOTE only (the task is non-canonical: not runnable, Opus-only, unverified in the Tier 3.5 re-run); a target that neither exists nor is marked `(new)` → WARN
+- Phase alignment (plan phases vs detailed-design Implementation Order, parsed by `skills/tp-plan-audit/scripts/design_phases.py`)
+- **File** (declared grammar parsed by `skills/tp-plan-audit/scripts/plan_files.py`): a `(modify)` of a path that doesn't exist and no earlier task creates → WARN
+- **Targets** (the machine-read oracle, `skills/tp-plan/SKILL.md` §Targets field): malformed → ERROR; missing → a NOTE only (the task is non-canonical: not runnable, starts on Strata and lands only on an Opus diff review, unverified in the Tier 3.5 re-run); a target that neither exists nor is marked `(new)` → WARN
 
-Save the script results — you will merge them with council findings in Step 5.
+Save both scripts' results — you will merge them with council findings in Step 5.
 
 ### Step 3: Council review — Round 1 (PARALLEL)
 
-Spawn three council member agents **in parallel**. Each agent reads the design files independently using their own tools.
+Spawn three council member agents **in parallel** (serial per `skills/council/strata-members.md` when `council_member` resolves `local`). Each agent reads the design files independently using their own tools.
 
 **CRITICAL**: Do NOT paste file contents into the agent prompts. Give them file paths — they read the files themselves. This preserves context isolation.
 
-**Map-check angle (every mode):** append to every member's prompt (standard, spike, light) the Check-mode angle of `skills/_shared/state-space-protocol.md`: "Read design.md's `## State space`. Was a better locus or alternative dismissed without evidence? File it as INCONSISTENT (never MISALIGNMENT); it is recorded for the operator, never applied to plan.md." With no `## State space`, interactive runs ask instead whether Scope/Constraints leave an unconsidered locus; `--auto` skips the angle.
+**Map-check angle (every mode):** append to every member's prompt (standard, spike, light) the Check-mode angle of `skills/_shared/state-space-protocol.md`: "Read design.md's `## State space`. Was a better locus or alternative dismissed without evidence? File it as INCONSISTENT (never MISALIGNMENT); it is recorded for the operator, never applied to plan.md." With no `## State space`, interactive runs ask instead whether Scope/Constraints leave an unconsidered locus; `--auto` skips the angle. Also append, per `skills/_shared/consumer-repo-rule.md`, the same audit question for every plan task that claims enforcement: "Does this run in a user's repo? Name the shipped file that runs it." A dev-only answer, or no answer, is INCONSISTENT. Per `skills/_shared/forge-parity-rule.md`, also ask it of every task that relies on a forge surface (GitHub behaviour, Gitea behaviour, a visible degraded path, via `forge.py`): a silent Gitea no-op or a github.com-only path is INCONSISTENT. Also append the change-detector question, per `skills/_shared/test-fragility.md`: "Is any task's test a change-detector — a pin on wording, a line number, or a hash? File it as INCOMPLETE, citing `test-fragility.md`."
 
-**In `--spike` mode**, use the spike-flavored prompts below. **In `--light` mode**, use the merged light-mode prompts below. **In standard mode**, use the standard prompts.
+Spawn every member by `agent_ref("council-<name>")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py council-<name>` (the plugin-namespaced reference). **In `--spike` mode**, use the spike-flavored prompts below. **In `--light` mode**, use the merged light-mode prompts below. **In standard mode**, use the standard prompts.
 
 #### Standard mode prompts
 
-**Agent 1** — `subagent_type: "council-torvalds"` (pragmatic engineering):
+**Agent 1** — `subagent_type: agent_ref("council-torvalds")` (pragmatic engineering):
 ```
 You are reviewing an implementation plan for buildability and engineering pragmatism.
 
@@ -95,7 +100,7 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
-**Agent 2** — `subagent_type: "council-ada"` (formal systems & interfaces):
+**Agent 2** — `subagent_type: agent_ref("council-ada")` (formal systems & interfaces):
 ```
 You are reviewing an implementation plan for formal consistency and interface correctness.
 
@@ -115,7 +120,7 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
-**Agent 3** — `subagent_type: "council-feynman"` (first-principles & testing):
+**Agent 3** — `subagent_type: agent_ref("council-feynman")` (first-principles & testing):
 ```
 You are reviewing an implementation plan from first principles — testing adequacy and logical soundness.
 
@@ -137,7 +142,7 @@ Limit: 400 words.
 
 #### Spike mode prompts (`--spike`)
 
-**Agent 1** — `subagent_type: "council-torvalds"` (pragmatic engineering):
+**Agent 1** — `subagent_type: agent_ref("council-torvalds")` (pragmatic engineering):
 ```
 You are reviewing a SPIKE experiment plan for feasibility and pragmatism. This is exploratory work, not production implementation.
 
@@ -156,7 +161,7 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
-**Agent 2** — `subagent_type: "council-ada"` (formal systems & interfaces):
+**Agent 2** — `subagent_type: agent_ref("council-ada")` (formal systems & interfaces):
 ```
 You are reviewing a SPIKE experiment plan for logical consistency and coverage.
 
@@ -175,7 +180,7 @@ For each finding, categorize as MISSING, INCONSISTENT, ORDERING, INCOMPLETE, or 
 Limit: 400 words.
 ```
 
-**Agent 3** — `subagent_type: "council-feynman"` (first-principles & testing):
+**Agent 3** — `subagent_type: agent_ref("council-feynman")` (first-principles & testing):
 ```
 You are reviewing a SPIKE experiment plan from first principles — does this actually test what it claims?
 

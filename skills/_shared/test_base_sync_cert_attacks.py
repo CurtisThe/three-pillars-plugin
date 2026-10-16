@@ -123,7 +123,7 @@ def test_attack2_hand_resolution_byte_inequality_yet_verify_clean(tmp_path, monk
         "- **2026-01-01** — base-side change\n"
         "- **2026-01-02** — design-side change\n"
     )
-    r = _verify.verify(ours_txt, theirs_txt, hand_resolved, mechanical_applied=True)
+    r = _verify.verify(ours_txt, theirs_txt, hand_resolved, base=None, mechanical_applied=True)
     assert r.ok is True, r.dropped
 
     tampered = force_merge_commit(s, {LIVING_DOC_PATH: hand_resolved})
@@ -165,6 +165,7 @@ def test_attack3_second_parent_off_base_refuses(tmp_path, monkeypatch):
 # ============================================================
 
 _CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {"approval_survives_safe_base_sync": True, "base_sync_carry_max_chain": 5},
 }
 
@@ -325,7 +326,7 @@ def test_unverifiable_fails_cond5():
         base=_BASE_TXT, ours=_OURS_TXT, theirs=_THEIRS_TXT)
     assert status == _R and mechanical is True
     # ...and the verifier finds NOTHING to check — the silent-pass class this design closes.
-    r = _verify.verify(_OURS_TXT, _THEIRS_TXT, merged, mechanical_applied=True)
+    r = _verify.verify(_OURS_TXT, _THEIRS_TXT, merged, base=None, mechanical_applied=True)
     assert r.verdict == _verify.UNVERIFIABLE and r.pre_atoms == 0
 
     blobs = {"1" * 40: _BASE_TXT, "2" * 40: _OURS_TXT, "3" * 40: _THEIRS_TXT}
@@ -339,22 +340,28 @@ def test_unverifiable_fails_cond5():
 
 
 def test_a_resolved_merge_the_verifier_finds_a_drop_in_fails_cond5_even_when_h1_matches():
-    """Round 25: cond 5's zero-drop conjunct, reached. The row merge resolves mechanically and takes
-    theirs' renamed Name cell for D1, so ours' `alpha` row atom is gone and `verify` reports
-    DROPS_DETECTED. h1's blob IS the merged bytes, so the byte-match conjunct after it would pass:
-    only the zero-drop conjunct can fail the link here."""
+    """Round 25: cond 5's zero-drop conjunct, reached. Theirs deletes the D1 row, away from the
+    one conflict hunk (both sides append a different row at the end), so the row merge resolves
+    mechanically and ours' `alpha` row atom is gone with no excuse: a one-side removal is never a
+    retitle, and no archive holds it. `verify` reports DROPS_DETECTED even with the merge base.
+    h1's blob IS the merged bytes, so the byte-match conjunct after it would pass: only the
+    zero-drop conjunct can fail the link here. (A one-side RENAME of D1 used to be this fixture;
+    the three-way check excuses it, see `test_verify_three_way_carry.py`.)"""
     import hashlib
 
     from auto_safe_resolution import RESOLVED as _R
     from auto_safe_resolution import resolve_conflict_bytes_detail
     from base_sync_cert import _cond5_resolve
 
-    base = "# Roadmap\n\n| ID | Design | Status |\n| --- | --- | --- |\n| D1 | alpha | Complete |\n"
+    head = "# Roadmap\n\n| ID | Design | Status |\n| --- | --- | --- |\n"
+    d1 = "| D1 | alpha | Complete |\n"
+    base = head + d1 + "| D4 | delta | Complete |\n"
     ours = base + "| D2 | beta | In progress |\n"
-    theirs = base.replace("| alpha |", "| alpha-renamed |") + "| D3 | gamma | In progress |\n"
+    theirs = base.replace(d1, "") + "| D3 | gamma | In progress |\n"
     status, merged, mechanical = resolve_conflict_bytes_detail(base=base, ours=ours, theirs=theirs)
     assert status == _R and mechanical is True
-    r = _verify.verify(ours, theirs, merged, mechanical_applied=True)
+    assert "alpha" not in merged and "gamma" in merged and "beta" in merged
+    r = _verify.verify(ours, theirs, merged, base=base, mechanical_applied=True)
     assert r.verdict == _verify.DROPS_DETECTED and r.dropped == [("row", "alpha")]
 
     data = merged.encode("utf-8")

@@ -146,9 +146,16 @@ The orchestration Claude session lives in the seat and stays on `{base}` by conv
 
 Individual designs and spikes are spun into per-design worktrees (`<repo>-wt/<name>/` on `tp/<name>`). The orchestrator never moves into a design worktree — it remains in the seat, which is why the seat's health is a precondition for any orchestrated fleet operation.
 
-Two protocol consequences: design worktrees are provisioned by the collaboration preflight's seat-aware branch-offer (`collaboration.md` §Preflight step 4) — never by an in-place `git checkout -b` on the seat; and the seat's own paper trail stays committable mid-fleet — the worktree-isolation guard passes a seat commit whose staged paths are exclusively under `three-pillars-docs/tp-designs/orchestration/**` (one staged path outside refuses as usual).
+Two protocol consequences: design worktrees are provisioned by the collaboration preflight's seat-aware branch-offer (`collaboration.md` §Preflight step 4) — never by an in-place `git checkout -b` on the seat; and the seat's own paper trail stays committable mid-fleet — the commit guard (`commit_guard.py`), only when installed, passes a seat commit whose staged paths are exclusively under `three-pillars-docs/tp-designs/orchestration/**` (one staged path outside refuses as usual).
 
 For the actor-identity half (who is the orchestration session, session handoffs), see the `orchestration` slot handoff in `three-pillars-docs/tp-designs/orchestration/`.
+
+---
+
+## Seat launch
+
+Launch or restart the seat so its main thread talks to Anthropic directly:
+`CLAUDE_LAUNCHER_ROLE=seat claude` (or `claude --seat`) — the launcher's seat role is a direct backend plus Remote Control, whatever the folder's routes row says. A plain `claude` in a `hybrid` folder puts the main thread behind the router instead; the first-run preflight (`skills/_shared/first-run.md`) warns with one `W:` line naming this launch. Without the Homelab launcher every session is already direct. Main threads stay direct either way — the local model runs only in the child sessions `skills/_shared/strata-spawn.md` spawns.
 
 ---
 

@@ -13,20 +13,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import pytest
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_architecture = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs/architecture.md").exists(),
+    reason="reads the dev repo's architecture.md (dev-repo only)")
 
 _BASE = Path(__file__).resolve().parents[2]
 
-LEARN_SKILL_MD = _BASE / "skills" / "tp-design-learn" / "SKILL.md"
 PROTOCOL_MD = _BASE / "skills" / "_shared" / "reconcile-protocol.md"
 ARCH_MD = _BASE / "three-pillars-docs" / "architecture.md"
-
-
-def _read_learn() -> str:
-    return LEARN_SKILL_MD.read_text(encoding="utf-8")
-
-
-def _read_protocol() -> str:
-    return PROTOCOL_MD.read_text(encoding="utf-8")
 
 
 def _read_arch() -> str:
@@ -42,78 +39,20 @@ def test_reconcile_protocol_doc_exists():
     assert PROTOCOL_MD.is_file(), f"reconcile-protocol.md not found at {PROTOCOL_MD}"
 
 
-def test_protocol_carries_amendment_template():
-    text = _read_protocol()
-    # Must have a dated amendment heading template
-    assert re.search(r"\[amendment YYYY-MM-DD\]", text, re.IGNORECASE), (
-        "reconcile-protocol.md must carry the dated amendment heading template"
-    )
-    # Must carry the required fields
-    for field in ("**Supersedes**", "**Change**", "**Commit**", "**Why**"):
-        assert field in text, f"Amendment template must include field: {field}"
+# The wording of reconcile-protocol.md and tp-design-learn/SKILL.md is not pinned
+# here. Every path, script and flag they name is covered by invariant 46
+# (`skill_refs`), run in-suite below.
 
 
-def test_protocol_states_append_only_and_class_independence():
-    text = _read_protocol()
-    # Append-only: original text preserved
-    assert re.search(r"never.{0,30}edit|original.{0,30}preserved|append.only", text, re.IGNORECASE), (
-        "reconcile-protocol.md must state the append-only rule"
-    )
-    # Class independence: light/just-do-it included
-    assert re.search(r"light|just.do.it", text, re.IGNORECASE), (
-        "reconcile-protocol.md must state that the obligation applies to light/just-do-it"
-    )
-
-
-# ------------------------------------------------------------------ #
-# Task 3.4 — tp-design-learn/SKILL.md wirings
-# ------------------------------------------------------------------ #
-
-
-def test_learn_step8_names_citation_liveness():
-    text = _read_learn()
-    assert "citation_liveness" in text or "citation_liveness.py" in text, (
-        "tp-design-learn step 8 must name citation_liveness.py"
-    )
-    assert "--remote" in text, (
-        "tp-design-learn step 8 must reference --remote flag for citation_liveness"
-    )
-    assert "--json" in text, (
-        "tp-design-learn step 8 must reference --json flag"
-    )
-
-
-def test_learn_step8_stays_advisory():
-    text = _read_learn()
-    # Step 8 block — find the extended step 8 text
-    step8_match = re.search(
-        r"^8\.\s+.*?(?=^9\.\s+|^##|\Z)", text, re.DOTALL | re.MULTILINE
-    )
-    assert step8_match, "Step 8 block not found in tp-design-learn SKILL.md"
-    block = step8_match.group(0)
-    # Pin specifically to the citation_liveness paragraph within step 8
-    # (not step 8 in general which also has verify_learn advisory text)
-    cite_para_match = re.search(
-        r"citation_liveness.*?(?=\n\n|\Z)", block, re.DOTALL
-    )
-    assert cite_para_match, (
-        "Step 8 must contain a citation_liveness paragraph"
-    )
-    cite_para = cite_para_match.group(0)
-    assert re.search(r"[Aa]dvisory|exits 0|fail.open", cite_para), (
-        "citation_liveness paragraph in step 8 must state it is advisory (exits 0, fail-open)"
-    )
-
-
-def test_learn_step9_names_reconcile_protocol():
-    text = _read_learn()
-    assert "reconcile-protocol" in text or "reconcile_protocol" in text, (
-        "tp-design-learn step 9 must reference reconcile-protocol.md"
-    )
-    # Should mention archived sibling and amendment
-    assert re.search(r"archived.{0,50}sibling|amendment", text, re.IGNORECASE), (
-        "tp-design-learn step 9 must reference the amendment obligation for archived siblings"
-    )
+@pytest.mark.parametrize("doc", [
+    "skills/tp-design-learn/SKILL.md",
+    "skills/_shared/reconcile-protocol.md",
+])
+def test_learn_docs_references_resolve(doc, tmp_path):
+    """Every reference in the learn skill and its protocol resolves through invariant 46."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(_BASE, [_BASE / doc], cache_dir=tmp_path)
+    assert report.issues == []
 
 
 # ------------------------------------------------------------------ #
@@ -121,14 +60,17 @@ def test_learn_step9_names_reconcile_protocol():
 # ------------------------------------------------------------------ #
 
 
+@_needs_architecture
 def test_architecture_has_reverse_walk_section():
     text = _read_arch()
+    # tp-allow-fragile: the heading is the citation anchor reconcile-protocol.md names (architecture.md §"Finding the spawning design"); a dev-repo living-doc read, outside the four prose-pin rules
     assert "## Finding the spawning design" in text, (
         "three-pillars-docs/architecture.md must have a "
         "'## Finding the spawning design' section"
     )
 
 
+@_needs_architecture
 def test_reverse_walk_section_names_git_log_follow():
     text = _read_arch()
     # Find the section

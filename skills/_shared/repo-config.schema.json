@@ -73,6 +73,14 @@
         "expects_github_checks": {
           "type": "boolean",
           "description": "Whether this repo expects GitHub-hosted check-runs on its PRs. Default (absent) is true — an empty statusCheckRollup is treated as 'CI not settled yet' (fail-closed). Set false when CI runs locally / off-GitHub (self-hosted-ci-runner): an empty rollup then counts as settled so the review loop converges instead of spinning to a cap. Only affects empty rollups; a non-empty rollup is evaluated normally regardless."
+        },
+        "gate_command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "The repo's local CI gate command. Null = offered and declined; an absent key = never offered. A non-empty string names the command the local gate runs (e.g. the pytest invocation)."
         }
       }
     },
@@ -103,6 +111,42 @@
           "minimum": 1,
           "maximum": 20,
           "description": "The maximum number of certified base-sync merges the carry's first-parent walk will cross while searching for a matching anchor (the approval's or proof digest's original head). Default (absent, out-of-range, or wrong-typed, including bool) is 5. Only consulted when approval_survives_safe_base_sync is true; a chain longer than this cap fails closed with a re-approve-on-current-head remediation, never an unsound PASS."
+        },
+        "strata_finder_segment": {
+          "description": "Segmenting of a large diff for Strata review finders (skills/tp-pr-iterate/scripts/finder_segments.py). A diff over max_lines changed lines or max_files files runs one Strata finder per segment, serially, at most max_segments segments per angle; the rest are skipped and the Opus check re-reads them. Defaults 600 / 10 / 4. `false` turns segmenting off. Inert off Strata.",
+          "type": ["object", "boolean"],
+          "additionalProperties": false,
+          "properties": {
+            "max_lines": {"type": "integer", "minimum": 1},
+            "max_files": {"type": "integer", "minimum": 1},
+            "max_segments": {"type": "integer", "minimum": 1}
+          }
+        },
+        "living_doc_handres_preserves_approval": {
+          "type": "boolean",
+          "description": "Whether the living-doc hand-resolution carry (living_doc_carry.certify_link_carry) may certify a base-sync link without byte-exact reproduction. Default (absent) is true — default-ON, and only consulted when approval_survives_safe_base_sync is true. False ONLY on the literal boolean `false` (living_doc_carry.carry_livingdoc_handres_enabled): the operator's opt-out back to the strict byte-exact carry. Read from the COMMITTED HEAD via the gate's _load_repo_config, so it must be declared here or the schema prune drops it and the opt-out is silently ignored."
+        },
+        "require_ci_local_stamp": {
+          "type": "boolean",
+          "description": "Whether the deterministic merge gate requires a current local CI stamp (a passing gate_command run recorded against the head) as a predicate. Default (absent) is false; set true to make a fresh local CI stamp a gate conjunct on consumer repos that run CI locally."
+        },
+        "require_review_proof": {
+          "type": "boolean",
+          "description": "Whether the merge gate requires a proof-of-review digest (the carried approval / proof-of-review digest) as a predicate. Default (absent) is false; a consumer repo that carries a proof-of-review digest sets this true so the gate folds the carry predicate in."
+        },
+        "proof_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where tp-pr-iterate writes its review-proof artifacts, overriding the default under the git dir (review_proof_root.resolve). Absolute, or relative to the repo root."
+        },
+        "instructions_declined": {
+          "type": "boolean",
+          "description": "True if the operator declined the review-instructions offer (e.g. the per-reviewer angle / instructions onboarding). Sticky — suppresses re-offering the instructions on subsequent runs."
+        },
+        "proof_dir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional /tp-pr-iterate proof-root override, RELATIVE to the worktree root (this file is committed, so an absolute value is refused with a notice and the default is used). Default: <absolute git-dir>/three-pillars/review-proof, outside the working tree. An absolute root comes only from the uncommitted TP_REVIEW_PROOF_DIR env var. Resolved by skills/tp-pr-iterate/scripts/proof_root.py."
         },
         "angles": {
           "type": "array",
@@ -138,7 +182,7 @@
             "round_cap": {
               "type": "integer",
               "minimum": 1,
-              "description": "Counted review rounds after which a round with blocking findings stops at budget-exhausted/round-cap (round_budget.tick). Default 6. Raise it and re-run to lift the terminal."
+              "description": "Counted review rounds after which a round with blocking findings stops at budget-exhausted/round-cap (round_budget.tick). Default 3 (2 under review-weight just-do-it). Raise it and re-run to lift the terminal."
             },
             "growth_multiplier": {
               "type": "number",
@@ -154,6 +198,11 @@
               "type": "integer",
               "minimum": 0,
               "description": "Minimum loop-added test lines before test_code_ratio can fire. Default 100."
+            },
+            "growth_floor_lines": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum three-dot diff total (added + deleted lines) before growth_multiplier and test_code_ratio are judged. Default 300."
             },
             "wall_clock_sec": {
               "type": "integer",
@@ -238,6 +287,29 @@
         }
       }
     },
+    "forge": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What this repo's origin is (forge-interface). Written once by skills/_shared/forge_config.py::record_kind on first-run detection, or by the operator when the origin is an ssh alias / custom-port Gitea that detection cannot classify (set web_base alone). Read by forge.resolve and by first-run conditions 3 and 7. No credential ever lands here — a Gitea token stays in the operator's tea config / env.",
+      "properties": {
+        "kind": {
+          "enum": ["github", "gitea", "other"],
+          "description": "The forge class. Recorded once — record_kind never overwrites it. `other` silences the `no web base` setup line."
+        },
+        "host": {
+          "type": ["string", "null"],
+          "description": "The origin host as parsed from the remote URL (an ssh alias stays the alias). Audit trail for the recorded kind; never used to classify."
+        },
+        "web_base": {
+          "type": ["string", "null"],
+          "description": "Instance base (scheme + host + port) for a forge detection cannot reach — the ssh-alias / custom-port Gitea setup. An operator-written value is MERGED into, never replaced. Highest-priority web-base source in forge.resolve."
+        },
+        "recorded_at": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC timestamp when the kind was recorded."
+        }
+      }
+    },
     "local_implement": {
       "type": "object",
       "additionalProperties": false,
@@ -258,12 +330,16 @@
           "type": "string",
           "minLength": 1,
           "default": "sonnet",
-          "description": "Model of the `sonnet` rung (tasks over max_files, and the first escalation)."
+          "description": "Model of the `sonnet` rung (the first escalation; a `--cheap-tier` run without `--local` starts there)."
         },
         "full_design": {
           "type": "boolean",
           "default": false,
           "description": "Also permit --local under /tp-run-full-design (requires enabled=true too)."
+        },
+        "default_run_flag": {
+          "enum": ["on", "off"],
+          "description": "\"on\" makes launch_design_run.py forward --local on every launch (when enabled and full_design are also true and the runaway-ceiling capability gate passes); --no-local removes it for one run. Unset = off."
         },
         "escalate": {
           "type": "boolean",
@@ -281,6 +357,206 @@
           "minimum": 1,
           "default": 3,
           "description": "A task listing more Files than this is classified `sonnet`, never `local`."
+        },
+        "attempt_wall_clock_s": {
+          "type": "integer",
+          "minimum": 60,
+          "default": 1200
+        },
+        "registry_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [],
+          "description": "Repo-relative registry paths a task may edit mechanically (1-3 added lines, no deletions) without failing `unlisted file`; the edit is logged instead."
+        },
+        "client_timeouts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["applied_at", "declined", "values"],
+          "description": "Record of the client-timeout settings the orphan reaper's first-run offer applied or declined (local_timeouts.py). `values` holds any subset of the four env keys; `{}` is the decline record.",
+          "properties": {
+            "applied_at": {"type": ["string", "null"]},
+            "declined": {"type": "boolean"},
+            "values": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS": {"type": "integer", "minimum": 1},
+                "CLAUDE_STREAM_IDLE_TIMEOUT_MS": {"type": "integer", "minimum": 1},
+                "API_TIMEOUT_MS": {"type": "integer", "minimum": 1},
+                "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": {"type": "integer", "minimum": 1}
+              }
+            }
+          }
+        }
+      }
+    },
+    "role_engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Deprecated (one-cheap-engine): the engine follows the run (Sonnet, or Strata under --local) and a set key only adds a deprecation note. Engine per routable role for the local-role-routing design (skills/_shared/role_engine.py). Four keys: `council_member`, `review_finder`, `context_scout`, `explainer`; each takes `local` or `opus`, and only `explainer: opus` still acts (Opus drafts every kind). An unset `context_scout` follows `review_finder`. Judgment roles (synthesizer, final check, auditors) have no key here and always run on Opus. Absent block = every role on the run's cheap engine.",
+      "properties": {
+        "council_member": {
+          "type": "string",
+          "enum": ["local", "opus"],
+          "description": "Engine for a council persona. Unset = `opus`."
+        },
+        "review_finder": {
+          "type": "string",
+          "enum": ["local", "opus"],
+          "description": "Engine for a PR-review finder angle. Unset = `opus`."
+        },
+        "context_scout": {
+          "type": "string",
+          "enum": ["local", "opus"],
+          "description": "Engine for the context scout. Unset = follows `review_finder` (a scout reads what a finder reads)."
+        },
+        "explainer": {
+          "type": "string",
+          "enum": ["local", "opus"],
+          "description": "Drafting engine for the explainer (skills/_shared/explainer/, resolved by explain_engine; the drafter is a cheap site under one-cheap-engine). Unset = the run's cheap engine drafts: Sonnet, or Strata under --local. `local` = deprecated and changes nothing: the drafter follows the run, Strata under --local and Sonnet when there is no backend, when the slot is busy or when the run is not --local. `opus` = Opus drafts every kind (the one value that still acts). The Opus check is fixed and has no key."
+        }
+      }
+    },
+    "explainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The explainer's switches (explainer-agent), read by skills/_shared/explainer/explain_config.py, which merges the block over its defaults and drops each bad entry with one warning. The drafting engine is `role_engines.explainer`, not this block. Absent block = every default (explainer on, artifact publishing on, no override).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "The off switch. Default `true`. `false` turns the explainer off: no brief, no explained ruling, and today's PR flow byte-identically."
+        },
+        "publish_artifact": {
+          "type": "boolean",
+          "description": "Default `true`: publish the HTML page as a private claude.ai artifact when the Artifact tool exists. `false` keeps the local HTML only."
+        },
+        "drafter_override": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-kind drafter pin; wins over `role_engines.explainer` for its kind. Only the two Opus-checked kinds take a key, and the only value is `opus`. Empty = no override.",
+          "properties": {
+            "pr-brief": {
+              "type": "string",
+              "enum": ["opus"],
+              "description": "Draft every pr-brief on Opus."
+            },
+            "human-escalation": {
+              "type": "string",
+              "enum": ["opus"],
+              "description": "Draft every human-escalation on Opus."
+            }
+          }
+        }
+      }
+    },
+    "strata_spawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Strata-routed spawn policy: the busy-slot policy (`strata_spawn.py`), the permission rules a child launch adds (`child_permissions.py`) and the child Bash-sandbox switch (`child_sandbox.py`). Absent block = `fallback`, no extra rules, sandbox `off`.",
+      "properties": {
+        "busy": {
+          "type": "string",
+          "enum": ["fallback", "wait"],
+          "description": "`fallback` (default): a busy slot spawns at once and the Sonnet-served reply is accepted. `wait`: poll the slot, never use Sonnet, halt at the overall ceiling."
+        },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Rules a child launch ADDS to its shipped lists (`child_permissions.py`). An entry that is not a rule string warns and is skipped; the shipped deny list can never be removed from here.",
+          "properties": {
+            "allow_extra": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Extra `--allowedTools` rules (`Tool` or `Tool(matcher)`) for this repo's children."
+            },
+            "deny_extra": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Extra `--disallowedTools` rules. Additions only — the shipped deny list stays whole."
+            }
+          }
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": ["off", "on"],
+          "description": "The child Bash sandbox (`child_sandbox.py`). `off` (default, shipped): no sandbox merge. `on`: a site-S1 child launch merges the sandbox block into the attempt worktree's local settings. `TP_CHILD_SANDBOX=on|off` overrides it for one run."
+        }
+      }
+    },
+    "plan_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plan-audit prechecks run before the Slot 6 reader (plan_couplings.py). Absent block = no couplings declared.",
+      "properties": {
+        "couplings": {
+          "type": "array",
+          "description": "File-coupling rules (plan_couplings.py check (a)): when a task creates a new file matching `when_new` (glob), it must also list `requires_listed` in its File field.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when_new", "requires_listed"],
+            "properties": {
+              "when_new": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Glob (fnmatch) for a newly-created file that triggers the coupling."
+              },
+              "requires_listed": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative path that must also appear in the same task's File list."
+              }
+            }
+          }
+        }
+      }
+    },
+    "merge_from_main": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "/tp-merge-from-main settings. Absent block = generated-file conflicts defer as before (no regenerate resolver).",
+      "properties": {
+        "generators": {
+          "type": "array",
+          "description": "Generated files the regenerate resolver may rebuild instead of deferring a conflict on them: each declares the file path and the argv that regenerates it.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "write"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative path of the generated file the generator owns."
+              },
+              "write": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "argv (run from the repo root, no shell) that regenerates the file in place."
+              },
+              "check": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional argv (run from the repo root, no shell) that exits 0 when the file is up to date."
+              }
+            }
+          }
+        }
+      }
+    },
+    "gitignore": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "First-run offer (c) state (consumer-offers.md): the .handoffs/ ignore rule. An absent key means not declined.",
+      "properties": {
+        "handoffs_declined": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if the operator declined the .handoffs/ ignore rule. Settles first-run condition 8 alongside a present rule; never re-asked."
         }
       }
     },
@@ -307,6 +583,253 @@
           "type": "boolean",
           "default": false,
           "description": "True if the operator explicitly declined immunization. Permanently suppresses the offer so first-run never re-asks."
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Test infrastructure recorded by /tp-test-setup: the command, the runner family, and when it was last captured. Absent = not yet configured.",
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The canonical test command for this repo (e.g. `pytest -q`). Null = not recorded yet. The --exec lanes run it through the shell; per-node Targets verification runs a pytest command as one argv with no shell and accepts only plain words or quoted strings with no backslash, $, backtick, quote or newline inside, refusing anything else (an operator, redirect, glob, $, ~, a backtick, #, a backslash, a NAME= prefix) as runner-needs-shell naming the first offending character."
+        },
+        "runner": {
+          "enum": [
+            "pytest",
+            "other"
+          ],
+          "description": "The test-runner family. `pytest` for the pytest suite; `other` for any non-pytest runner."
+        },
+        "recorded_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO-8601 UTC timestamp when the test setup was last recorded by /tp-test-setup. Null = not yet recorded."
+        }
+      }
+    },
+    "design_run_backend": {
+      "type": "string",
+      "enum": ["route", "direct"],
+      "default": "route",
+      "description": "Which backend a design-run window (launch_design_run.py) starts its orchestrator on. `route` (the default, today's behaviour): the Homelab launcher plans the window's backend from the folder's routes row, so the run can end up hybrid with its main thread routed to a local model. `direct`: the window command carries the launcher's seat role (`CLAUDE_LAUNCHER_ROLE=seat`), which makes the launch direct (backend `claude`, no router env) and adds Remote Control — the S4 proof gate: `--direct` is opt-in until one run proves its Strata children still reach the router (`router_checks.py --since`: Strata requests > 0 and about 0 checks per request), recorded in the design's `decisions.md`, and only then is this key set to `direct`. Without a Homelab launcher in the launching env (`CLAUDE_LAUNCHER_OWNED` unset) the seat role is inert, so the launcher prints one `W:` line and launches plain `claude`. NOT the model key: `models.design_run` is the `claude --model` argv; this key is the backend."
+    },
+    "design_run_mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Which MCP servers a design-run window (launch_design_run.py) loads. The window starts with `--strict-mcp-config --mcp-config '<json>'` carrying only the servers named in `allow`, so an unused server (claude.ai Notion is ~60 tools) does not widen every turn's cached prefix. An absent block, or an empty `allow`, loads none. Read by skills/_shared/design_run_mcp.py; a Claude Code build without `--strict-mcp-config` leaves the command unchanged with one readout line.",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": [],
+          "description": "MCP server names to load into a design run (looked up in the project `.mcp.json` and the profile's `.claude.json`). Default `[]` = load none. A name with no definition on disk is reported on the launch readout, never fatal."
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-role model selections. review/fix/classifier take a Q2 alias (dispatched via the Agent tool's call-time `model` parameter); design_run takes a `claude --model` argv (an alias or a full claude-* id). Shape-checked at validation to the alias enum here; the fuller shape (one of the four or ^claude-[a-z0-9.-]+$, either optionally suffixed exactly [1m], never inherit) is enforced by model_policy.validate_models. The cheap-tier slot keys (cheap_tier.SLOTS) each take one rung from their enum and are read by cheap_tier.load_slots, never by model_policy.",
+      "properties": {
+        "review": {
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku",
+            "fable"
+          ],
+          "description": "Model the review angle dispatches with. Exactly the Q2 alias set; no inherit (the Agent enum has no such value) and no full claude-* id."
+        },
+        "fix": {
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku",
+            "fable"
+          ],
+          "description": "Model the fix-comments dispatch uses. Exactly the Q2 alias set."
+        },
+        "classifier": {
+          "enum": [
+            "opus",
+            "sonnet",
+            "haiku",
+            "fable"
+          ],
+          "description": "Model the findings classifier dispatches with. Exactly the Q2 alias set."
+        },
+        "design_run": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A `claude --model` argv for a full design run: one of the four aliases or a full claude-* id, either optionally suffixed exactly [1m]; default opus[1m] (model_policy.DEFAULTS). Any non-empty string passes here; the alias-or-id[1m] shape (never inherit) is checked by model_policy.validate_models."
+        },
+        "task": {
+          "enum": [
+            "sonnet-xhigh",
+            "off"
+          ],
+          "description": "Cheap-tier task lever (a presence switch): with --cheap-tier and no --local, local-eligible plan tasks start on sonnet-xhigh under task_verify and the tier ladder. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "runbook": {
+          "enum": [
+            "code",
+            "off"
+          ],
+          "description": "Cheap-tier slot: the post-merge teardown run as plain code (no model), checked by the exit_code oracle on the post-state. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "base_sync_splice": {
+          "enum": [
+            "local-xhigh",
+            "sonnet-xhigh",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a base-sync splice proposal (never applied), checked by the zero_drop oracle. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "pr_fix_reproducer": {
+          "enum": [
+            "local-xhigh",
+            "sonnet-xhigh",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a tp-pr-fix reproducer fix in a scratch worktree, checked by the reproducer_fixed oracle. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "classifier_judge": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: the findings classifier judge, checked by the classifier_schema oracle. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "history_line": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a history-line draft, checked by the prose_shape oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "handoff": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a session handoff draft, checked by the prose_shape oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "docs_draft": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a living-docs draft, checked by the prose_shape oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "review_slice": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a tp-pr-iterate round's diff-slice prep, checked by the hunk_bytes oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "review_refs": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a tp-pr-iterate round's cross-reference prep, checked by the path_line oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "ci_log_triage": {
+          "enum": [
+            "local-medium",
+            "sonnet-medium",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a tp-pr-iterate round's CI-log triage, checked by the log_substring oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        },
+        "repro_scaffold": {
+          "enum": [
+            "local-xhigh",
+            "sonnet-xhigh",
+            "off"
+          ],
+          "description": "Cheap-tier slot: a tp-pr-iterate reproducer scaffold, checked by the observed_red oracle; a failed draft is dropped. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+        }
+      }
+    },
+    "cheap_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Repo-level cheap-tier run defaults, resolved by skills/_shared/cheap_tier_default.py (never by cheap_tier.load_slots) at launch_design_run.py, /tp-merge-from-main, /tp-post-merge and the fleet launch lines; /tp-pr-iterate and /tp-pr-fix stay explicit-only. Absent (the default) means on.",
+      "properties": {
+        "default_run_flag": {
+          "enum": ["on", "ab", "off"],
+          "description": "The --cheap-tier mode cheap_tier_default.py resolves when a run names none (on = the bare flag). Unset = on (the cheap tier is the default); \"off\" opts the repo out. An explicit --cheap-tier wins and --no-cheap-tier skips it for one run."
+        }
+      }
+    },
+    "commit_guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Commit-guard installation state: offered/applied/declined timestamps and booleans, the file-size cap opt-in, and the --no-verify deny-rule opt-in. Mirrors the worktree_immunization block shape.",
+      "properties": {
+        "offered_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO-8601 UTC timestamp when the commit-guard offer was last shown. Null if never offered."
+        },
+        "applied_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "ISO-8601 UTC timestamp when the commit guard was applied. Null if not yet applied."
+        },
+        "declined": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if the operator declined the commit guard. Permanently suppresses the offer so first-run never re-asks."
+        },
+        "file_size": {
+          "type": "boolean",
+          "description": "Whether the file-size cap predicate (framework-check.sh invariant #34 + the file-size-guard hook) is enabled for this repo."
+        },
+        "deny_no_verify": {
+          "type": "boolean",
+          "description": "Whether the permissions.deny rule blocking `git commit --no-verify` is installed for this repo."
+        }
+      }
+    },
+    "fragility": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Test-fragility lint settings (fragility_lint.py). Absent block = registry defaults.",
+      "properties": {
+        "merge_predicate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the merge gate folds the fragility_clear predicate (fragility_predicate.roster_block). True by default; only a literal false opts out, and the roster then shows fragility_clear as OMITTED (skipped (opt-out)) rather than dropping it."
+        },
+        "gating_rules": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Rule ids that gate (exit 1) in place of the registry's default gating set; an unknown id is a config error (exit 2)."
+        },
+        "strict": {
+          "type": "boolean",
+          "default": false,
+          "description": "Strict mode of the fragility gate, read by the commit-time gate and by the merge gate's fragility_clear predicate (an unverified changed-tests run then fails instead of passing with a note). False by default."
         }
       }
     }

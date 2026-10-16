@@ -66,6 +66,7 @@ See detailed-design.md §run_round CLI wrapper for the full stdin/stdout contrac
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -78,9 +79,10 @@ import loop_driver  # noqa: E402
 import review_proof  # noqa: E402 — its import puts skills/_shared on sys.path
 import review_merge  # noqa: E402
 import convergence_proof  # noqa: E402 — skills/_shared (on path via review_proof)
+import fragility_items  # noqa: E402 — skills/_shared (on path via review_proof)
 
-# The envelope / exit-code plumbing, split out by responsibility (CLAUDE.md
-# §File Size Limits). Imported by NAME so `run_round._emit` stays patchable and every
+# The envelope / exit-code plumbing, split out by responsibility
+# (skills/_shared/file-size-caps.md). Imported by NAME so `run_round._emit` stays patchable and every
 # call site below reads unchanged.
 from run_round_boundary import (  # noqa: E402
     _emit,
@@ -93,16 +95,22 @@ from run_round_boundary import (  # noqa: E402
 )
 
 
-def _load_repo_config(cwd: Path) -> dict | None:
-    """Try to read .three-pillars/config.json from cwd (or parent). Fail-open."""
-    try:
-        cfg_path = cwd / ".three-pillars" / "config.json"
-        if cfg_path.exists():
-            with open(cfg_path, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-    except Exception:
-        pass
-    return None
+def _load_repo_config(cwd: Path) -> "dict | None":
+    """Read .three-pillars/config.json from cwd's WORKING TREE. Fail-open.
+
+    Routes through the shared `repo_config_load.load_repo_config` (default
+    `source="worktree"`, consumer-repo-parity Tasks 1.1-1.3) so this reader shares
+    ONE schema-pruning implementation with the gate's `_load_repo_config` — invalid
+    keys are dropped with a warning, valid siblings kept. `status == "ok"` covers
+    both a clean config AND the fatal `schema_version` prune (which still returns
+    `config={}`, not None) — the caller's config=None fallback (strict
+    expects_copilot/expects_github_checks defaults) is reserved for `absent` (no
+    file) and `unreadable` (bad JSON / non-dict / OS error), matching the pre-rewire
+    contract exactly.
+    """
+    from repo_config_load import load_repo_config
+    result = load_repo_config(cwd)
+    return result.config if result.status == "ok" else None
 
 
 def _handle_dispose_only(payload: dict) -> int:
@@ -119,6 +127,7 @@ def _handle_dispose_only(payload: dict) -> int:
     if str(_shared) not in _sys.path:
         _sys.path.insert(0, str(_shared))
     try:
+        import automation_identity
         import thread_dispose
     except ImportError as exc:
         return _emit(_escalate("dispose-only-import-error", _safe_detail(exc)), 2)
@@ -144,6 +153,7 @@ def _handle_dispose_only(payload: dict) -> int:
             envelope,
             resolved_ids=resolved_ids,
             author=author,
+            config=payload.get("config", automation_identity.DISCOVER),
         )
     except Exception as exc:
         return _emit(
@@ -316,6 +326,20 @@ def _main() -> int:
             2,
         )
 
+    # Fragility items (Task 9.4): record this round's confirmed fragile items at
+    # head_sha, keyed by the CURRENT CHECKOUT'S BRANCH NAME (the merge gate's
+    # fragility_predicate reads open_items(root, branch) — never the head SHA).
+    # Fail-open: an unwritable store or an unresolvable branch is logged to stderr
+    # and never changes this round's outcome.
+    try:
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        fragility_items.record_round(Path.cwd(), branch, head_sha, codereview_findings)
+    except Exception as exc:  # noqa: BLE001 — fail-open, never blocks the round
+        print(f"run_round: fragility_items.record_round failed: {exc}", file=sys.stderr)
+
     # Proof-of-review enforcement (codereview-proof-of-review + review-integrity-enforcement).
     # Read optional new fields: review_proof_root + review_base.
     proof_root_raw = payload.get("review_proof_root")
@@ -428,6 +452,8 @@ def _main() -> int:
         # convergence_proof_ok): present ONLY on the round that seeded the state, so
         # a cold start is recorded in the envelope instead of being silent.
         envelope["state_bootstrapped"] = True
+    if result.get("finalizer_stop") is not None:  # a newly fired budget terminal
+        envelope["finalizer_stop"] = result["finalizer_stop"]
     if envelope_proof_enforced is not None:
         envelope["proof_enforced"] = envelope_proof_enforced
     if convergence_proof_ok is not None:

@@ -193,7 +193,7 @@ def _run_cli(payload: dict):
 def test_the_cli_bootstraps_a_zero_length_state_file(tmp_path):
     """The claim both SKILL.md files pin is a CLI-level claim, so pin it there.
 
-    `tp-pr-iterate/SKILL.md` §Cold-resume contract and `tp-run-full-design/SKILL.md`'s
+    `tp-pr-iterate/SKILL.md` §Cold-resume contract and `tp-run-full-design/tier-7-review.md`'s
     Tier-7 bullet both promise a caller of `run_round.py` that a zero-length state
     file counts as absent and is re-seeded (exit 0, `state_bootstrapped: true`) rather
     than refused as `state-read-failed`. Everything above tests the helper; this is

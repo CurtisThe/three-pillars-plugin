@@ -11,7 +11,6 @@ raises the limit or repairs the input.
 from __future__ import annotations
 
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,6 +19,8 @@ from round_budget import K_KEY, BudgetError, tick  # noqa: E402
 from test_round_budget_kinds import BLOCK, CLEAN, NOW, PR, Loop, S  # noqa: E402
 
 CAP7 = {"pdw": {"guards": {"round_cap": 7}}}
+# keep-the-pin: this case's 200-line diff is below the 300 growth floor.
+FLOOR0 = {"pdw": {"guards": {"growth_floor_lines": 0}}}
 
 
 def at_round_cap(tmp_path) -> Loop:
@@ -75,7 +76,7 @@ def test_raise_k_consecutive_lifts(tmp_path):
               **{K_KEY: 3})
     lp.step("h3", "r3.1", CLEAN)  # a clean re-roll must not escape k-consecutive
     assert lp.term == "convergence-failure" and lp.at() == (3, 3)
-    lp.config = {"pdw": {"guards": {"k_consecutive": 4}}}
+    lp.config = {"pdw": {"guards": {"k_consecutive": 4, "round_cap": 6}}}  # keep-the-pin
     lp.step("h3", "r3.2", BLOCK)
     assert lp.term is None and lp.at() == (3, 3)
     assert len(lifted_notes(lp.state)) == 1
@@ -87,9 +88,8 @@ def _tick(state, config=None, numstat_fn=None, base=None, tally=CLEAN, ordinal="
 
 
 def test_wall_clock_holds_then_lifts():
-    started = (NOW - timedelta(seconds=20000)).isoformat()
     state = S(iteration=2, phase="cap-exhausted", termination_reason="wall-clock",
-              started_at=started, budget_last_head="h1", budget_last_round="r1")
+              budget_active_elapsed_sec=20000, budget_last_head="h1", budget_last_round="r1")
     st, term, detail = _tick(state)
     assert term == "cap-exhausted" and detail["holding"] == ["wall-clock"]
     st, term, _ = _tick(state, config={"pdw": {"guards": {"wall_clock_sec": 30000}}})
@@ -124,13 +124,14 @@ def test_growth_terminal_holds_without_numstat_or_base():
               budget_baseline_split={"test_added": 0, "code_added": 100},
               budget_last_head="h1", budget_last_round="r1")
     for fn, base in ((None, "BASE"), (lambda a, b: [], None), (None, None)):
-        _, term, detail = _tick(state, numstat_fn=fn, base=base)
+        _, term, detail = _tick(state, numstat_fn=fn, base=base, config=FLOOR0)
         assert term == "budget-exhausted" and detail["signal"] == "growth-lines"
     big = lambda a, b: [("src/a.py", 200, 0)]  # noqa: E731
-    _, term, _ = _tick(state, numstat_fn=big, base="BASE")
+    _, term, _ = _tick(state, numstat_fn=big, base="BASE", config=FLOOR0)
     assert term == "budget-exhausted"
     st, term, _ = _tick(state, numstat_fn=big, base="BASE",
-                        config={"pdw": {"guards": {"growth_multiplier": 3}}})
+                        config={"pdw": {"guards": {"growth_multiplier": 3,
+                                            "growth_floor_lines": 0}}})
     assert term is None and st["phase"] == "awaiting-review"
 
 

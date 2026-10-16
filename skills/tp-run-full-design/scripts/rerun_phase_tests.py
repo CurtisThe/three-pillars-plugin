@@ -336,7 +336,7 @@ def _judge_one(runner: str, target: str, scratch: Path, timeout):
                                 timeout), target, scratch)
     if timed_out:
         return "unverified", "timeout", rc, output
-    if rc in task_scope.RUNNER_BROKEN_RCS:
+    if task_scope.runner_broken(rc, output, reason):
         return "unverified", "runner-error", rc, output
     status = {"pass": "pass", "red": "candidate", "missing": "candidate"}.get(kind,
                                                                               "unverified")

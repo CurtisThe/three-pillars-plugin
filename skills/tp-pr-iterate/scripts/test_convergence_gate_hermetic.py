@@ -141,7 +141,7 @@ def test_117_copilot_arm_bypass_closed(tmp_path):
 def test_absent_digest_clean_angle_blocks(tmp_path):
     """Case 4 — clean findings but NO proof comment on head (the #104 shape) → blocked."""
     local_ok = _stage_local_artifact(tmp_path)
-    findings = review_merge.merge_codereview_angles(["```json\n[]\n```"])  # real clean → []
+    findings = review_merge.merge_codereview_angles(['{"findings": []}'])  # real clean → []
     assert findings == []
     proof_ok, reason = _resolve(local_ok, findings=findings, comments=[])  # absent digest
     assert proof_ok is False and reason == "degraded-or-absent-proof-on-head"
@@ -158,7 +158,7 @@ def test_real_clean_angle_with_nondegraded_digest_converges(tmp_path):
     distinguishes a real angle carrying [] findings (converges) from
     merge_codereview_angles([]) (no-angles → blocks) — the exact confusion design.md flags."""
     local_ok = _stage_local_artifact(tmp_path)
-    findings = review_merge.merge_codereview_angles(["```json\n[]\n```"])
+    findings = review_merge.merge_codereview_angles(['{"findings": []}'])
     assert findings == [] and review_merge.is_degraded_review(findings) is False
     meta = {"base": BASE, "head": HEAD, "files_changed": 3, "insertions": 5,
             "deletions": 1, "degraded": False, "reason": None}

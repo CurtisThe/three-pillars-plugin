@@ -17,11 +17,15 @@ import fnmatch
 import re
 from datetime import datetime
 
+import budget_clock
+import budget_extension
 import finding_class
 from review_proof import _default_run_git
 
-DEFAULTS = {"round_cap": 6, "growth_multiplier": 1.5, "test_code_ratio": 3.0,
-            "ratio_floor_lines": 100, "k_consecutive": 3, "wall_clock_sec": 14400}
+WEIGHT_ROUND_CAPS = {"just-do-it": 2, "light": 3, "spike": 3, "full": 3}
+DEFAULTS = {"round_cap": 3, "growth_multiplier": 1.5, "test_code_ratio": 3.0,
+            "ratio_floor_lines": 100, "growth_floor_lines": 300,
+            "k_consecutive": 3, "wall_clock_sec": 14400}
 
 _EXCLUDED_PREFIX = "three-pillars-docs/"
 _TEST_BASENAMES = ("test_*.py", "*_test.py", "*.test.*", "*.spec.*")
@@ -33,9 +37,12 @@ class BudgetError(Exception):
     """A budget measurement could not be taken (fail-closed → `budget-error`)."""
 
 
-def limits(config: dict | None) -> dict:
-    """`DEFAULTS` overlaid by numeric `config.pdw.guards.<key>` values."""
+def limits(config: dict | None, state: dict | None = None) -> dict:
+    """`DEFAULTS` overlaid by numeric `config.pdw.guards.<key>`, then `state`'s extensions."""
     out = dict(DEFAULTS)
+    weight = state.get("review_weight") if isinstance(state, dict) else None
+    if weight in WEIGHT_ROUND_CAPS:
+        out["round_cap"] = WEIGHT_ROUND_CAPS[weight]
     guards = {}
     if isinstance(config, dict):
         pdw = config.get("pdw")
@@ -45,7 +52,7 @@ def limits(config: dict | None) -> dict:
         val = guards.get(key)
         if isinstance(val, (int, float)) and not isinstance(val, bool):
             out[key] = val
-    return out
+    return budget_extension.overlay(out, state) if state is not None else out
 
 
 def _new_path(path: str) -> str:
@@ -124,7 +131,8 @@ def git_numstat(a, b, *, run_git=None, cwd=".") -> list[tuple[str, int, int]]:
 K_KEY = "consecutive_codereview_structural_rounds"
 BUDGET_FIELDS = ("budget_pr_url", "budget_baseline_head", "budget_baseline_split",
                  "budget_last_head", "budget_last_round", "budget_last_action",
-                 "budget_head_blocking")
+                 "budget_head_blocking", budget_clock.ACTIVE_FIELD,
+                 budget_clock.ROUND_START_FIELD, "budget_extensions")
 # signal → terminal phase, in check order (budget-error is check 1).
 TERMINAL_PHASE = {"budget-error": "budget-exhausted", "wall-clock": "cap-exhausted",
                   "round-cap": "budget-exhausted", "growth-lines": "budget-exhausted",
@@ -179,6 +187,7 @@ def _count_round(state: dict, kind: str, head_sha, tally: dict, class_log_path) 
         state["budget_head_blocking"] = False  # [Q2] before the k evaluation
     if kind not in ("counted", "completion") or _degraded_only(tally):
         return
+    state["reproduced_blockers"] = tally.get("reproduced", 0)
     blocking = tally.get("blocking", 0) > 0
     if not blocking:
         state[K_KEY] = 0
@@ -211,6 +220,8 @@ def loop_delta(baseline_split, current: dict) -> dict:
 def _growth(state: dict, lim: dict, measure) -> list[tuple[str, object, object]]:
     """Check 4 against the R1 baseline; nothing without a measure or a baseline."""
     if measure is None or state.get("budget_baseline_head") is None:
+        return []
+    if measure["total"] <= lim["growth_floor_lines"]:  # at/below the floor: not judged
         return []
     out = []
     limit = lim["growth_multiplier"] * max(state.get("original_diff_lines") or 0, 1)
@@ -286,14 +297,17 @@ def tick(state, *, head_sha, pr_url, tally, review_base, config, now, ordinal=No
 
     Order: PR key → check 0 (sticky terminal) → classify and count → checks 1–5.
     Never mutates `state`; the returned copy carries the updated counters and, on a
-    terminal, `phase` and `termination_reason`.
+    terminal, `phase` and `termination_reason`. The wall clock reads the active
+    in-round total (`budget_clock`), folded in before check 0.
     """
-    lim = limits(config)
     st = _reset_for_pr(dict(state), pr_url, now)
+    lim = limits(config, st)  # after the reset: a new PR key clears the grant first
     if st.get("started_at") is None:
         st["started_at"] = now.isoformat()  # legacy state: restart the wall clock
     started = _started(st, now)
-    elapsed = (now - started).total_seconds() if started is not None else None
+    active, clock = budget_clock.active_elapsed(st, now)  # in-round time, not loop age
+    st.update(clock)
+    elapsed = active if started is not None else None  # None: unparseable started_at
     measure, err = _measure(numstat_fn, review_base, head_sha)
     if is_budget_terminal(st):
         reason = st["termination_reason"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The five MECHANICAL resolvers — one function per mechanical class, plus `HunkResult`.
+"""The eight MECHANICAL resolvers — one function per mechanical class, plus `HunkResult`.
 
 `resolve_id_renumber` is DORMANT: its class is in `classify.GATED` (round 20), so
 `resolve.resolve_hunk` defers every `id-renumber-collision` hunk before reaching it (outside
@@ -24,11 +24,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import keyed_classes  # noqa: E402
+import keyed_rows  # noqa: E402
+import shaped_merge  # noqa: E402
 from classify import (  # noqa: E402
-    Hunk, ID_HEADING, INV_ROW, _is_append_only_log, _is_id_renumber_collision,
+    Hunk, ID_HEADING, INV_ROW, LOG_ENTRY, _is_append_only_log, _is_id_renumber_collision,
     _is_inventory_row_merge,
 )
-from resolve_totality import CannotPlace, table_frame_lines  # noqa: E402
+from resolve_totality import CannotPlace, shared_entry_affix, table_frame_lines  # noqa: E402
 from table_run import appended_rows_refusal, table_run_refusal  # noqa: E402
 
 RESOLVED, DEFER = "RESOLVED", "DEFER"
@@ -346,15 +349,31 @@ def resolve_append_log(h: Hunk) -> HunkResult:
 
 def resolve_log_entry_insertion(h: Hunk) -> HunkResult:
     """Both sides concurrently inserted dated log entries at the same location — classification
-    guarantees an EMPTY base (no deletions). Keep BOTH insertion blocks VERBATIM, ours' then
-    theirs' (deterministic; the cert re-runs this and byte-compares).
+    guarantees an EMPTY base (no deletions). Keep BOTH insertion blocks, ours' then theirs'
+    (deterministic; the cert re-runs this and byte-compares).
 
-    Deliberately NO line-dedup: two DISTINCT dated entries can legitimately share a body line, and
-    dropping it would CORRUPT an entry (a zero-drop violation). Verbatim concatenation keeps every
-    line; the only degenerate case — both sides added the byte-identical entry — yields a visible
-    duplicate, the fail-SAFE direction, since nothing is ever lost. `h.base` is empty by
-    construction, so there is no shared tail to re-attach."""
-    return HunkResult("log-entry-insertion", RESOLVED, list(h.ours) + list(h.theirs))
+    **One copy of the entries both blocks open or close with.** That is the normal archive
+    conflict, not a degenerate one: two branches that each run `history_rollover` on the same
+    shared History insert the SAME rolled entries (ours [A, B], theirs [C, A, B]), and plain
+    concatenation wrote A and B twice under a RESOLVED verdict. The shared leading and trailing
+    whole entries (`shared_entry_affix`, which is what git's own zealous merge trims) are emitted
+    once around the two differing middles — prefix, ours' middle, theirs' middle, suffix. That is
+    the class's one cross-side licence (`resolve_totality.licensed_keys`).
+
+    Otherwise NO line-dedup: two DISTINCT dated entries can legitimately share a body line, and
+    dropping it would CORRUPT an entry (a zero-drop violation). If the two middles still share an
+    entry start, the hunk DEFERS: the resolver cannot tell which copy to keep or where the
+    one-side entries belong around it. `h.base` is empty by construction."""
+    k, m = shared_entry_affix(h)
+    ours, theirs = list(h.ours), list(h.theirs)
+    ours_mid, theirs_mid = ours[k:len(ours) - m], theirs[k:len(theirs) - m]
+    ours_entries = {ln for ln in ours_mid if LOG_ENTRY.match(ln)}
+    shared = sorted(ln for ln in theirs_mid if LOG_ENTRY.match(ln) and ln in ours_entries)
+    if shared:
+        raise CannotPlace(shared[0], "both insertion blocks carry this entry between entries "
+                                     "they do not share; keep-both would duplicate it")
+    return HunkResult("log-entry-insertion", RESOLVED,
+                      ours[:k] + ours_mid + theirs_mid + ours[len(ours) - m:])
 
 
 def resolve_decision_entry_insertion(h: Hunk) -> HunkResult:
@@ -371,11 +390,54 @@ def resolve_decision_entry_insertion(h: Hunk) -> HunkResult:
     return HunkResult("decision-entry-insertion", RESOLVED, list(h.ours) + list(h.theirs))
 
 
+def resolve_keyed_heading_insertion(h: Hunk) -> HunkResult:
+    """Both sides inserted whole keyed entries (`### M48:`, `### M-new-x:`, `### M27 (RESOLVED …):`,
+    `` ### `slug` (date) ``) with distinct keys and an EMPTY base — `keyed_classes` decides that and
+    does the merge: ours' lines then theirs' unchanged, or, when every key is a numbered ID, the
+    whole entries sorted by (letter, number). Nothing is renumbered, deduped or dropped, so it
+    needs no `resolve_totality` licence: identity key, exact multiplicity (the sort only reorders
+    whole entries). Classification and `is_confident` guard the shape; this only merges."""
+    return HunkResult("keyed-heading-insertion", RESOLVED,
+                      keyed_classes.merge_keyed_heading_lines(h))
+
+
+def resolve_last_updated_preamble(h: Hunk) -> HunkResult:
+    """Ours and theirs are each ONE `*Last updated: YYYY-MM-DD …*` line (base empty or one such
+    line) — `keyed_classes` decides that and does the merge: the later-dated line, or the later
+    date and summary followed by the other side's summary. Two one-line sides collapse to one line,
+    the single licence this class holds (`resolve_totality`: one constant key, cross-side, and the
+    union line is exempt from `overproduced` only as exactly one `LAST_UPDATED` line)."""
+    return HunkResult("last-updated-preamble", RESOLVED, keyed_classes.merge_last_updated_lines(h))
+
+
+def resolve_keyed_row_insertion(h: Hunk) -> HunkResult:
+    """Both sides appended slug-keyed table rows (`| slug | … |`) at one point, with distinct keys
+    found nowhere else in the file and an EMPTY base — `keyed_rows` decides that and does the
+    merge: ours' rows then theirs', verbatim. Nothing is renumbered, deduped, reordered or dropped,
+    so it needs no `resolve_totality` licence (identity key, exact multiplicity). Classification
+    and `is_confident` guard the shape; this only merges."""
+    return HunkResult(keyed_rows.LABEL, RESOLVED, keyed_rows.merge_keyed_row_lines(h))
+
+
+def resolve_shaped_line_merge(h: Hunk) -> HunkResult:
+    """Merge a `shaped-line-merge` hunk line by line (`shaped_merge`); its refusal defers only this
+    hunk. `resolve_totality`'s base-aware licence and `unplaceable` check the result."""
+    try:
+        lines = shaped_merge.merge_shaped_lines(h)
+    except shaped_merge.ShapedMergeRefused as exc:
+        raise CannotPlace(h.theirs[0] if h.theirs else "", str(exc)) from exc
+    return HunkResult("shaped-line-merge", RESOLVED, lines)
+
+
 MECH_RESOLVERS = {
     "id-renumber-collision": resolve_id_renumber,
     "design-inventory-row-merge": resolve_inventory,
     "append-only-log": resolve_append_log,
     "log-entry-insertion": resolve_log_entry_insertion,
     "decision-entry-insertion": resolve_decision_entry_insertion,
+    "keyed-heading-insertion": resolve_keyed_heading_insertion,
+    "last-updated-preamble": resolve_last_updated_preamble,
+    keyed_rows.LABEL: resolve_keyed_row_insertion,
+    "shaped-line-merge": resolve_shaped_line_merge,
 }
 

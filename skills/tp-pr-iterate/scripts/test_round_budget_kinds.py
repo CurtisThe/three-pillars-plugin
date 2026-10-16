@@ -151,7 +151,7 @@ def test_head_blocking_reset_on_every_counted_round(tmp_path):  # [Q2]
 
 
 def test_degraded_then_blocking_pairs_three_heads_reach_k(tmp_path):  # [Q2]
-    lp = Loop(tmp_path)
+    lp = Loop(tmp_path, config={"pdw": {"guards": {"round_cap": 6}}})  # keep-the-pin: k at 3
     lp.step("H1", "r1", DEGR)
     assert lp.at() == (1, 0)
     lp.step("H1", "r1.1", BLOCK)
@@ -213,7 +213,10 @@ def test_class_line_once_across_reshell(tmp_path):  # Behavior 10
     lp.step("H1", "r1", BLOCK)
     lp.tick("H1", "r1", BLOCK)  # converge retry inside the same round
     lp.tick("H1", None, BLOCK)
-    assert lp.lines == ["[tp-pr-iterate] round 1 head=H1 P0 X0 T0 C1 blocking=1"]
+    assert len(lp.lines) == 1  # the class line is written once across re-shells
+    tokens = lp.lines[0].split()
+    assert tokens[:4] == ["[tp-pr-iterate]", "round", "1", "head=H1"]
+    assert {"C1", "blocking=1"} <= set(tokens)
     assert lp.at() == (1, 1)
 
 

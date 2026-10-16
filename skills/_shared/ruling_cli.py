@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""ruling_cli.py — answer/feedback/link/show/subject/card for a ruling file.
+
+design: fable-escalation (Tasks 4.5, 4.6). Each subcommand prints one JSON
+line, exit 0; bad input exits 2 with one ``ruling-cli: <why>`` stderr line,
+nothing written. Root: project root else cwd. Stdlib only.
+
+  answer   --id I --choice LABEL [--text T]
+  feedback --id I agree|disagree --reason R
+  link     --id I --explain REF
+  show     --id I
+  subject  --id I --out F   card  --id I [--html P]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import finalizer_ruling as fr  # noqa: E402
+import ruling_file as rf  # noqa: E402
+from project_root import find_project_root  # noqa: E402
+
+
+class CliError(Exception):
+    """A usage or input error: exit 2, one stderr line, nothing written."""
+
+
+VERDICTS = ("agree", "disagree")
+RECOMMENDED = " (Recommended)"
+STOP_RUN = {"label": "stop-run", "description": "Stop the run and leave it "
+            "for the operator."}
+PADS = (STOP_RUN, {"label": "answer-in-text", "description": "Type the "
+                   "ruling yourself as free text; the run records it with "
+                   "ruling_cli answer."})
+
+
+def _root() -> Path:
+    return find_project_root() or Path.cwd()
+
+
+def _ruling_path(id_: str) -> Path:
+    path = rf.find(_root(), id_)
+    if path is None:
+        raise CliError(f"no ruling for id {id_!r} under "
+                       f"{_root() / rf.RULINGS_REL}")
+    return path
+
+
+def _emit(payload: dict) -> int:
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
+def _payload(path: Path) -> dict:
+    parsed = rf.parse(path)
+    return {"id": parsed["front"].get("id", path.stem),
+            "path": str(path), "feedback": parsed["feedback"]}
+
+
+def cmd_answer(args, **_):
+    path = _ruling_path(args.id)
+    line = f"answer: {args.choice}"
+    if args.text:
+        line += f" — {args.text}"
+    rf.append_feedback(path, line)
+    return _emit(_payload(path))
+
+
+def cmd_feedback(args, **_):
+    if args.verdict not in VERDICTS:
+        raise CliError(f"verdict must be one of {'|'.join(VERDICTS)}, "
+                       f"not {args.verdict!r}")
+    path = _ruling_path(args.id)
+    rf.append_feedback(path, f"{args.verdict} — {args.reason}")
+    return _emit(_payload(path))
+
+
+def cmd_link(args, **_):
+    path = _ruling_path(args.id)
+    rf.set_explain(path, args.explain)
+    return _emit(_payload(path))
+
+
+def cmd_show(args, **_):
+    return _emit(rf.parse(_ruling_path(args.id)))
+
+
+def _ruling_dict(parsed):
+    """The six ruling keys: nested ``ruling`` dict, else the result dict."""
+    result = parsed["ruling"] if isinstance(parsed.get("ruling"), dict) else {}
+    inner = result.get("ruling")
+    return inner if isinstance(inner, dict) else result
+
+
+def _opts(ruling):
+    return [o for o in ruling.get("options") or [] if isinstance(o, dict)]
+
+
+def _decided(pick):
+    label = str(pick.get("label") or "") if pick else ""
+    desc = str(pick.get("description") or "") if pick else ""
+    return f"{label} — {desc}" if label and desc else label or desc
+
+
+def _stance(option_id, basis):
+    return " ".join(f"{str(e.get('stance') or '').capitalize()} {e.get('doc')}"
+                    f" § {e.get('section')}." for e in basis
+                    if e.get("option") == option_id)
+
+
+def _card_opt(o, basis, recommended):
+    label = str(o.get("label") or o.get("id") or "Option")
+    desc = f"{str(o.get('description') or '').strip()} " \
+           f"{_stance(o.get('id'), basis)}".strip()
+    return {"label": label + (RECOMMENDED if recommended else ""),
+            "description": desc}
+
+
+def cmd_subject(args, **_):
+    path = _ruling_path(args.id)
+    parsed = rf.parse(path)
+    ruling = _ruling_dict(parsed)
+    subject = {"question": parsed["question"], "options": [],
+               "pillar_basis": [], "commits_to": [], "tie_breaker": None,
+               "decided": _decided(fr.chosen(_opts(ruling)))}
+    for k in ("options", "pillar_basis", "commits_to", "tie_breaker"):
+        subject[k] = ruling.get(k, subject[k])
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(subject, indent=2, ensure_ascii=False) + "\n",
+                   encoding="utf-8")
+    return _emit({"id": path.stem, "out": str(out)})
+
+
+def cmd_card(args, **_):
+    path = _ruling_path(args.id)
+    parsed = rf.parse(path)
+    ruling = _ruling_dict(parsed)
+    options = _opts(ruling)
+    basis = [e for e in ruling.get("pillar_basis") or []
+             if isinstance(e, dict)]
+    pick = fr.chosen(options)
+    ordered = [pick] + [o for o in options if o is not pick] \
+        if pick else options[:]
+    deduped, seen = [], set()
+    for o in ordered:
+        lab = str(o.get("label") or o.get("id") or "Option")
+        if lab not in seen:
+            seen.add(lab)
+            deduped.append(o)
+    ordered = deduped
+    for pad in PADS:
+        if len(ordered) < 2 and pad["label"] not in seen:
+            ordered.append(dict(pad))
+            seen.add(pad["label"])
+    ordered = ordered[:4]
+    question = parsed["question"] + (f" (Full explanation: {args.html})"
+                                     if args.html else "")
+    return _emit({"question": f"{question}\nruling: {path.stem}",
+                  "options": [_card_opt(o, basis, o is pick)
+                              for o in ordered]})
+
+
+_COMMANDS = {"answer": cmd_answer, "feedback": cmd_feedback, "link": cmd_link,
+             "show": cmd_show, "subject": cmd_subject, "card": cmd_card}
+
+
+def _parser() -> argparse.ArgumentParser:
+    top = argparse.ArgumentParser(
+        prog="ruling-cli", description="Feedback on a finalizer ruling file.")
+    sub = top.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("answer", help="record the operator's choice")
+    a.add_argument("--id", required=True)
+    a.add_argument("--choice", required=True)
+    a.add_argument("--text", default="")
+    f = sub.add_parser("feedback", help="agree or disagree with the ruling")
+    f.add_argument("--id", required=True)
+    f.add_argument("verdict", help="agree|disagree")
+    f.add_argument("--reason", required=True)
+    l = sub.add_parser("link", help="point the ruling at its explain page")
+    l.add_argument("--id", required=True)
+    l.add_argument("--explain", required=True)
+    s = sub.add_parser("show", help="print the parsed ruling")
+    s.add_argument("--id", required=True)
+    j = sub.add_parser("subject", help="write the explain subject dict")
+    j.add_argument("--id", required=True)
+    j.add_argument("--out", required=True)
+    c = sub.add_parser("card", help="print the AskUserQuestion card")
+    c.add_argument("--id", required=True)
+    c.add_argument("--html", default="", help="explain page path")
+    return top
+
+
+def main(argv=None) -> int:
+    try:
+        args = _parser().parse_args(argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 2
+    try:
+        return _COMMANDS[args.cmd](args)
+    except CliError as exc:
+        print(f"ruling-cli: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"ruling-cli: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

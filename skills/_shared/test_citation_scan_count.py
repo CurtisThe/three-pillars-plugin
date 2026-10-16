@@ -18,6 +18,12 @@ from citation_scan import (
     scan_count_cites,
     scan_number_cites,
 )
+import pytest
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_framework_check = pytest.mark.skipif(
+    not (_DEV_ROOT / "framework-check.sh").exists(),
+    reason="reads framework-check.sh (dev-repo only)")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -162,6 +168,7 @@ def test_custom_allowlist_only_checks_named_sites(tmp_path):
 # ------------------------------------------------------------------ #
 
 
+@_needs_framework_check
 def test_live_tree_number_cites_zero_false_positives():
     # The number-cite scan over the live tree must not flag any in-range cite.
     # (Pre-sweep there may be genuine out-of-range rot; but every flagged cite
@@ -201,6 +208,7 @@ def test_fixtures_segment_excluded_from_number_scan(tmp_path):
     assert scan_number_cites(repo) == []
 
 
+@_needs_framework_check
 def test_live_tree_count_cites_zero_false_positives():
     # On the current tree the count check may surface the known stale
     # SECURITY.md line (sweep target) — but it must NEVER flag a site whose

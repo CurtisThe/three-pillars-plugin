@@ -30,7 +30,7 @@ def test_worker_claims_only():
 # Interactive audit surfaces (Tasks 7.4, 7.5): one shared certify-step shape.
 # --------------------------------------------------------------------------- #
 PROTOCOL = "skills/_shared/certification-protocol.md"
-DISPATCH = 'Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")'
+DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus")'
 RS_LINE = ('if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then '
            'RS="$TOP"/skills/_shared/resolve_script.py; else '
            'RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi')

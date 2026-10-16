@@ -7,7 +7,9 @@ design: audit-pass-does-not-bind (Tasks 3.6, 5.3; detailed-design.md §Interface
                    [--name N] [--watch-ref GLOB]... [--max-claims N] [--budget-s S]
                    [--artifact A] [--out F]
     certify.py fold --envelope E [--result R]... --slot {4|8}
-                    [--member-summaries M] [--verdict-guards G] --out F
+                    [--member-summaries M] [--verdict-guards G] [--kept K] --out F
+    certify.py lint --claims C --ref SHA [--repo P] [--name N]
+                    [--light] [--diff F] [--kept-out K]
 
 `fold` [R3] is the only caller of `cert_fold.fold`, once per audit return:
 strip the model-supplied certification keys → `cert_phrase_scan.scan_envelope`
@@ -203,11 +205,16 @@ def cmd_fold(args) -> int:
         except (OSError, UnicodeError) as exc:
             raise BadInput(f"{args.verdict_guards}: {exc}") from exc
         guards = {line.strip() for line in text.splitlines() if line.strip()}
+    kept_ids = None
+    if args.kept:
+        kept = load_json(args.kept)
+        kept_ids = {c.get("id") for c in _claims(kept) if isinstance(c, dict)}
     stripped = {k: v for k, v in env.items() if k not in cert_fold.STRIPPED}
     try:
         hits = cert_phrase_scan.scan_envelope(stripped, members, slot=args.slot,
                                               claims=returned_claims(stripped, results, guards))
-        folded = cert_fold.fold(env, results, hits, verdict_guards=guards)
+        folded = cert_fold.fold(env, results, hits, verdict_guards=guards,
+                                kept_ids=kept_ids)
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise BadInput(f"cannot fold: {exc}") from exc
     emit(args.out, folded)
@@ -267,11 +274,15 @@ def build_parser() -> argparse.ArgumentParser:
     fold.add_argument("--slot", type=int, choices=cert_phrase_scan.SLOTS, required=True)
     fold.add_argument("--member-summaries")
     fold.add_argument("--verdict-guards")
+    fold.add_argument("--kept", help="a lint --kept-out doc: only its ids can be uncovered")
     fold.add_argument("--out", required=True)
     fold.set_defaults(func=cmd_fold)
     import certify_cli_checks  # deferred: it imports this module
 
     certify_cli_checks.register(sub)
+    import certify_cli_lean  # deferred: each lean module imports this one
+
+    certify_cli_lean.register(sub)
     return parser
 
 

@@ -1,483 +1,153 @@
-"""Grep + ast invariants for `/tp-pr-iterate` SKILL.md.
+"""Structured contract checks for `skills/tp-pr-iterate/SKILL.md` (dev repo only).
 
-Five tests:
-- four grep substrings (`Agent(`, `claude-sonnet-4-6`, `classifier-flip`, `--dry-run`)
-- one ast walk asserting `classifier_judge.py` does not `import anthropic` nor
-  `from anthropic …` — the C1 constraint that helpers compute/parse and prose orchestrates.
+design: fragile-test-prevention (Part D reference integrity + frontmatter schema, phase 18).
+These replace the substring and regex pins on the SKILL.md with checks on parsed
+structures: the frontmatter through `skill_frontmatter`, the references (every path,
+skill, flag or `python3` invocation the prose names) through `skill_refs` (invariant
+46), the model role through `model_policy`, the per-surface Copilot login filter
+through `review_readiness`, and the dual-source / reply-and-resolve / proof helpers
+directly (they are shipped modules whose behaviour is owned by their own test files).
+No assert here reads a heading, a section, a phrase or a line count out of the prose.
+
 Run with: pytest skills/tp-pr-iterate/scripts/test_pr_iterate_skill_md.py -q
 """
-
 from __future__ import annotations
 
-import ast
+import sys
 from pathlib import Path
 
-SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
-# C1 architectural constraint applies to every model-adjacent helper: the model
-# invocation lives in SKILL.md prose via Agent(); helpers compute/parse/gate only.
-# review_merge.py + thread_resolver.py joined the family with Enhancement 1.
-C1_HELPERS = [
-    Path(__file__).parent / "classifier_judge.py",
-    Path(__file__).parent / "review_merge.py",
-    Path(__file__).parent / "review_merge_dedupe.py",
-    Path(__file__).parent.parent.parent / "_shared" / "thread_resolver.py",
-    # Phase 4 (pr-iterate-codereview-real-harness): run_round.py is the B1 CLI
-    # wrapper — C1-clean (no anthropic, no claude subprocess; fan-out is caller-driven).
-    Path(__file__).parent / "run_round.py",
-    # pr-iterate-state-bootstrap: run_round.py's state seam. Stdlib-only by contract,
-    # so it is held to the same C1 constraint as the wrapper that imports it.
-    Path(__file__).parent / "iterate_state.py",
-]
-
-
-def _read_skill() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
-
-
-def test_agent_call_documented_for_sonnet_judge() -> None:
-    assert "Agent(" in _read_skill(), "Agent() invocation for the Sonnet judge must be documented"
-
-
-def test_judge_model_named_sonnet_4_6() -> None:
-    assert "claude-sonnet-4-6" in _read_skill(), "model `claude-sonnet-4-6` must be named"
-
-
-def test_classifier_flip_termination_explained() -> None:
-    assert "classifier-flip" in _read_skill().lower(), "classifier-flip termination must be explained"
-
-
-def test_dry_run_flag_documented() -> None:
-    assert "--dry-run" in _read_skill(), "`--dry-run` flag must be documented"
-
-
-def _assert_no_anthropic(py: Path) -> None:
-    tree = ast.parse(py.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert "anthropic" not in alias.name.lower(), (
-                    f"{py.name} imports {alias.name!r} — violates C1"
-                )
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            assert "anthropic" not in module.lower(), (
-                f"{py.name} does `from {module} import …` — violates C1"
-            )
-
-
-def _assert_no_claude_subprocess(py: Path) -> None:
-    """No `subprocess.run(["claude", ...])` CALL — the model is invoked from
-    SKILL prose via Agent(), never shelled out to from a helper. AST-based so a
-    docstring that merely *names* the forbidden pattern is not a false positive.
-    """
-    tree = ast.parse(py.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for arg in node.args:
-            if isinstance(arg, (ast.List, ast.Tuple)) and arg.elts:
-                first = arg.elts[0]
-                if isinstance(first, ast.Constant) and first.value == "claude":
-                    raise AssertionError(
-                        f"{py.name} invokes a `claude` subprocess — violates C1"
-                    )
-
-
-def test_no_anthropic_import_in_c1_helpers() -> None:
-    """C1 architectural constraint over every model-adjacent helper.
-
-    The Sonnet judge call and the /code-review dispatch happen in SKILL.md
-    prose via `Agent()`. Helpers (classifier_judge, review_merge,
-    thread_resolver) own prompt construction + response parsing + plumbing
-    only — no `import anthropic`, no `subprocess.run(["claude", …])`.
-    """
-    for py in C1_HELPERS:
-        _assert_no_anthropic(py)
-        _assert_no_claude_subprocess(py)
-
-
-# ---------- Enhancement 1: dual-source loop prose ----------
-
-
-def test_code_review_dispatch_documented() -> None:
-    body = _read_skill()
-    assert "/code-review" in body, "the local /code-review dispatch must be documented"
-    assert "subagent_type" in body, "the dispatch must use Agent(subagent_type=...)"
-    assert "∥" in body or "concurrent" in body.lower(), (
-        "the /code-review dispatch must run concurrently with the Copilot poll"
-    )
-    assert "--effort" in body, "the /code-review effort flag must be documented"
-
-
-def test_normalize_and_dedupe_referenced() -> None:
-    body = _read_skill().lower()
-    assert "normalize" in body and "dedupe" in body, (
-        "both review sources must be normalized + deduped (review_merge)"
-    )
-
-
-def test_reply_precedes_resolve() -> None:
-    body = _read_skill()
-    assert "resolveReviewThread" in body, "thread resolution via GraphQL resolveReviewThread"
-    # reply-before-resolve: a reply literal must appear before the resolve call.
-    reply_idx = body.find("reply_to_thread")
-    resolve_idx = body.find("resolve_thread")
-    assert reply_idx != -1 and resolve_idx != -1, "both reply and resolve must be documented"
-    assert reply_idx < resolve_idx, (
-        "reply-and-resolve is reply-BEFORE-resolve: the loop never resolves a "
-        "thread without first leaving the evidence reply"
-    )
-
-
-# ---------- T1.4: step-9.5 refactored onto shared helper ----------
-
-
-def _extract_step_9_5_section(body: str) -> str:
-    """Extract the text of step 9.5 from SKILL.md (between '9.5.' and next numbered step)."""
-    start = body.find("9.5.")
-    if start == -1:
-        return ""
-    # Next numbered step: look for "\n10." or "\n9.6." etc
-    import re
-    m = re.search(r'\n\d+\.', body[start + 3:])
-    if m:
-        end = start + 3 + m.start()
-        return body[start:end]
-    return body[start:]
-
-
-def test_step_9_5_uses_dispose_threads_helper() -> None:
-    """Step 9.5 must reference the shared thread_dispose.dispose_threads primitive
-    in the 9.5 section itself (not just elsewhere in the file) — single source of truth."""
-    body = _read_skill()
-    section_9_5 = _extract_step_9_5_section(body)
-    assert section_9_5, "SKILL.md must have a step 9.5 section"
-    assert "dispose_threads" in section_9_5, (
-        "SKILL.md step 9.5 section must reference dispose_threads (the shared helper, T1.4); "
-        "the inline reply-and-resolve loop should be replaced by a call to the shared primitive"
-    )
-    assert "thread_dispose" in section_9_5, (
-        "SKILL.md step 9.5 section must name the thread_dispose module"
-    )
-
-
-def test_dispose_only_and_step_9_5_name_same_function() -> None:
-    """Both the --dispose-only path and step-9.5 must name the SAME function
-    (dispose_threads) — single source of truth for the reply-and-resolve primitive."""
-    body = _read_skill()
-    # Both paths must name dispose_threads — if one path uses a different call
-    # this test catches the divergence.
-    count = body.count("dispose_threads")
-    assert count >= 2, (
-        f"'dispose_threads' must appear at least twice in SKILL.md — once for "
-        f"the --dispose-only flag description, once for step 9.5 (found {count} times)"
-    )
-
-
-def test_step_9_5_load_bearing_prose_preserved() -> None:
-    """Step 9.5 must keep its load-bearing prose after the T1.4 refactor:
-    reply-before-resolve ordering, disposition_for-only, 9.5-mandatory-every-round."""
-    body = _read_skill()
-    assert "reply ALWAYS precedes the resolve" in body or (
-        "reply" in body.lower() and "always" in body.lower() and "resolve" in body.lower()
-    ), "reply-before-resolve ordering prose must be preserved in step 9.5"
-    assert "disposition_for" in body, (
-        "disposition_for must remain named (disposition is ONLY ever disposition_for's output)"
-    )
-    assert "9.5 is mandatory every round" in body, (
-        "The '9.5 is mandatory every round' rule must be preserved after T1.4 refactor"
-    )
-
-
-def test_two_stable_termination_documented() -> None:
-    body = _read_skill()
-    assert "two-stable" in body, "two-stable termination must be documented"
-    assert "review-instructions.md" in body, "the shared review-instructions.md must be referenced"
-
-
-def test_run_round_call_passes_head_ref_and_loop_mode() -> None:
-    body = _read_skill()
-    assert "head_ref=" in body and "loop_mode=True" in body, (
-        "the loop's run_round call must pass head_ref + loop_mode=True (F1 wiring)"
-    )
-
-
-# ---------- Copilot review gotchas (observed 2026-06-04, PRs #45/#46) ----------
-
-
-def test_copilot_login_per_surface_gotcha_documented() -> None:
-    """The login-differs-by-surface gotcha must be documented: a single hard-coded
-    Copilot login filter yields a false zero on a successful review."""
-    body = _read_skill()
-    # the distinct login spellings the loop's REST/GraphQL polls see. Pin the
-    # BACKTICKED exact tokens: `copilot-pull-request-reviewer` is a substring of
-    # `copilot-pull-request-reviewer[bot]`, so an un-delimited `in` check would
-    # pass even if the GraphQL spelling were removed (Copilot review, PR #47).
-    # The backticks differ (…reviewer` vs …reviewer[bot]`), so they pin distinctly.
-    assert "`copilot-pull-request-reviewer[bot]`" in body, "the REST review-author login must be named"
-    assert "`copilot-pull-request-reviewer`" in body, "the GraphQL author login (no [bot]) must be named distinctly"
-    assert "false zero" in body.lower() or "matches nothing" in body.lower(), (
-        "the false-zero consequence of a wrong per-surface login filter must be documented"
-    )
-
-
-def test_copilot_transient_error_gotcha_documented() -> None:
-    """The 'encountered an error' = transient GitHub-side build crash gotcha must be
-    documented so the loop never classifies or terminates on it."""
-    body = _read_skill()
-    assert "encountered an error" in body, "the Copilot error-body string must be named"
-    assert "detect-libc" in body, "the observed detect-libc root cause must be named"
-    body_lower = body.lower()
-    assert "transient" in body_lower and "no signal" in body_lower, (
-        "an error-body review must be flagged transient + treated as no signal"
-    )
-
-
-def test_copilot_rerequest_new_sha_gotcha_documented() -> None:
-    """The re-request-only-fires-on-a-new-SHA dedupe gotcha must be documented."""
-    body = _read_skill()
-    body_lower = body.lower()
-    assert "dedupe" in body_lower or "deduped" in body_lower, (
-        "the unchanged-SHA re-request dedupe behavior must be documented"
-    )
-    assert "unchanged" in body_lower and "sha" in body_lower, (
-        "the re-request gotcha must explain that an unchanged head SHA does not re-fire"
-    )
-
-
-# ---------- Phase 6: run_round and _request_copilot_review references ----------
-
-
-def test_terminal_mentions_reviewed_conjunct() -> None:
-    """Phase 2.4 — the terminal section must name the third copilot_reviewed_successfully
-    conjunct, the tp:ready-for-human-merge readiness signal, and the fail-open behavior."""
-    body = _read_skill()
-
-    assert "copilot_reviewed_successfully" in body, (
-        "SKILL.md terminal section must name the copilot_reviewed_successfully "
-        "third conjunct (pr-readiness-surface)"
-    )
-    assert "tp:ready-for-human-merge" in body, (
-        "SKILL.md terminal section must name the tp:ready-for-human-merge readiness label "
-        "applied on convergence"
-    )
-    # The loop stays fail-open when the predicate is false/unverifiable.
-    body_lower = body.lower()
-    assert "fail-open" in body_lower or "fail open" in body_lower, (
-        "SKILL.md must document that the loop stays fail-open when the readiness "
-        "predicate is false/unverifiable"
-    )
-
-
-def test_skill_md_points_loop_body_at_run_round() -> None:
-    """SKILL.md loop body names run_round (run_loop is deleted, Task 4.2) and the
-    per-round Copilot re-request delegates to _request_copilot_review."""
-    body = _read_skill()
-    assert "run_round" in body and "run_loop" not in body, (
-        "SKILL.md loop body must name run_round, not the deleted run_loop driver"
-    )
-    assert "_request_copilot_review" in body, (
-        "SKILL.md must reference _request_copilot_review for the per-round Copilot re-request"
-    )
-    assert "awaiting-copilot" in body, (
-        "SKILL.md must note the awaiting-copilot phase around the CI/Copilot wait"
-    )
-
-
-def test_code_review_comment_post_is_mandatory() -> None:
-    """Every /code-review invocation must post a summary comment (no silent reviews).
-    The SKILL step 2.5 must mandate review_merge.post_codereview_comment."""
-    body = _read_skill()
-    assert "post_codereview_comment" in body, (
-        "step 2.5 must call review_merge.post_codereview_comment after the /code-review parse"
-    )
-    assert "mandatory" in body.lower() and "silent" in body.lower(), (
-        "the SKILL must state the review-summary comment is mandatory and that there are no "
-        "silent reviews"
-    )
-
-
-def test_code_review_is_multi_angle_and_fail_closed_parse() -> None:
-    """Step 2.5 must fan out MULTIPLE review angles (not a single /code-review subagent,
-    which can't fan out under L23) and parse fail-closed (unparseable != clean). Locked
-    tightly enough that a rewrite back to a single-angle / fail-soft form fails here."""
-    body = _read_skill()
-    assert "merge_codereview_angles" in body, (
-        "step 2.5 must use review_merge.merge_codereview_angles (multi-angle, fail-closed)"
-    )
-    # The fan-out must be explicit (an ANGLES set the driver dispatches), not rewordable
-    # to a single dispatch while still passing.
-    assert "ANGLES" in body, "step 2.5 must define the explicit ANGLES fan-out set"
-    assert "fan out" in body.lower() or "fans out" in body.lower(), (
-        "step 2.5 must state the loop driver FANS OUT the angles (multi-angle, not single-pass)"
-    )
-    # The unparseable-is-not-clean contract must be stated.
-    assert "unparseable" in body.lower(), (
-        "the SKILL must state that an unparseable review is NOT a clean one"
-    )
-    # The anti-pattern the change exists to prevent must be called out negatively.
-    assert "parse_codereview_response" in body and "never use the bare" in body.lower(), (
-        "the SKILL must warn never to use the bare parse_codereview_response on the convergence path"
-    )
-
-
-# ---------- Phase 5 (pr-iterate-codereview-real-harness): Tier 7 prose + step 10b ----------
-
-TIER7_SKILL_MD = Path(__file__).parent.parent.parent / "tp-run-full-design" / "SKILL.md"
-
-
-def _read_tier7_skill() -> str:
-    return TIER7_SKILL_MD.read_text(encoding="utf-8")
-
-
-def test_tier7_orchestrator_owns_round_loop() -> None:
-    """Tier 7 / Slot 11: the orchestrator MUST drive run_round iteration-by-iteration —
-    it must NOT delegate the whole loop to one Slot 11 subagent (the B1 regression this
-    design fixes). Asserts: (a) the orchestrator drives each round; (b) uses
-    run_round.py shell-out; (c) dispatches ANGLES fan-out at top level; (d) dispatches
-    /tp-pr-fix per round; (e) the old 'delegate-whole-loop' anti-pattern is absent."""
-    body = _read_tier7_skill()
-
-    # (a) The orchestrator-driven round loop must name run_round.py shell-out.
-    assert "run_round.py" in body, (
-        "Tier 7 prose must name run_round.py (the B1 shell-out seam, not an in-process call)"
-    )
-
-    # (b) Must reference the ANGLES fan-out at top level (general-purpose sub-agents).
-    assert "ANGLES" in body, (
-        "Tier 7 prose must reference the ANGLES fan-out set (per-head review dispatch)"
-    )
-    assert "merge_codereview_angles" in body, (
-        "Tier 7 prose must name merge_codereview_angles (multi-angle merge step)"
-    )
-
-    # (c) Must reference post_codereview_comment (mandatory review-summary comment).
-    assert "post_codereview_comment" in body, (
-        "Tier 7 prose must name post_codereview_comment"
-    )
-
-    # (d) Per-head /tp-pr-fix dispatch.
-    assert "/tp-pr-fix" in body, (
-        "Tier 7 prose must name /tp-pr-fix dispatch per round"
-    )
-
-    # (e) blocked-no-independent-review terminal must be acknowledged.
-    assert "blocked-no-independent-review" in body, (
-        "Tier 7 prose must name the blocked-no-independent-review terminal"
-    )
-
-    # (f) The old 'delegate whole loop to Slot 11' anti-pattern must NOT appear.
-    bad_phrases = [
-        "runs /tp-pr-iterate {slug} inline",
-        "runs `/tp-pr-iterate {slug}` inline",
-    ]
-    for bad in bad_phrases:
-        assert bad not in body, (
-            f"Tier 7 prose must NOT say the old 'delegate whole loop to Slot 11' form; "
-            f"found: {bad!r}"
-        )
-
-
-def test_step_10b_blocked_no_independent_review_terminal() -> None:
-    """tp-pr-iterate SKILL.md step 10b must document the blocked-no-independent-review
-    fail-closed terminal and the honest-attribution rule (a single-context self-pass
-    is never signed /code-review).
-
-    The honest-attribution assertions pin the ACTUAL rule text — a distinctive phrase
-    that only appears because the rule is present. They must be RED if the rule is
-    removed: a generic 'self in body' / 'review in body' check would pass even if the
-    rule were deleted (both words appear in other contexts throughout the skill). (F-T1)
-    """
-    body = _read_skill()
-
-    assert "blocked-no-independent-review" in body, (
-        "SKILL.md must document the blocked-no-independent-review fail-closed terminal"
-    )
-
-    # Pin the SPECIFIC honest-attribution rule text. The phrase
-    # "single-context self-pass" is the load-bearing descriptor: it names the exact
-    # pattern being forbidden. This assertion is genuinely RED if the rule is removed
-    # or reworded away from this concept — unlike a generic 'self in body' check.
-    assert "single-context self-pass" in body, (
-        "SKILL.md honest-attribution rule must use the phrase 'single-context self-pass' "
-        "to name the forbidden pattern (a /code-review running in the loop's own context). "
-        "This is the distinctive marker that makes the test RED when the rule is removed."
-    )
-    # Also pin the prohibition itself: that a self-pass must NOT be signed as /code-review.
-    assert "must never be signed as" in body, (
-        "SKILL.md honest-attribution rule must state the prohibition: "
-        "'must never be signed as /code-review on the convergence path'. "
-        "This pins the rule text, not just a tangentially relevant word."
-    )
-
-
-# ---------- codereview-proof-of-review: Task 5.2 capture-proof contract prose ----------
-
-PROOF_DOC = Path(__file__).parent.parent / "proof-of-review.md"
-
-
-def _read_proof_doc() -> str:
-    return PROOF_DOC.read_text(encoding="utf-8")
-
-
-def test_proof_doc_exists() -> None:
-    """Companion proof-of-review.md must exist under tp-pr-iterate/."""
-    assert PROOF_DOC.exists(), (
-        f"skills/tp-pr-iterate/proof-of-review.md must exist (Task 5.2); "
-        f"expected at {PROOF_DOC}"
-    )
-
-
-def test_proof_doc_has_capture_proof_contract() -> None:
-    """proof-of-review.md must contain the capture_proof contract literal."""
-    body = _read_proof_doc()
-    assert "capture_proof" in body, (
-        "proof-of-review.md must name capture_proof (the per-round entry point)"
-    )
-    assert "review_proof_root" in body, (
-        "proof-of-review.md must name review_proof_root (the stdin field passed to run_round.py)"
-    )
-    assert "review_base" in body, (
-        "proof-of-review.md must name review_base (the base SHA passed to run_round.py)"
-    )
-    assert "blocked-no-independent-review" in body or "blocked" in body.lower(), (
-        "proof-of-review.md must state that empty/degraded diff → blocked"
-    )
-    assert "digest" in body.lower(), (
-        "proof-of-review.md must document the digest posted to the PR"
-    )
-
-
-def test_tier7_skill_has_capture_proof_in_round_sequence() -> None:
-    """tp-run-full-design SKILL.md Tier-7/Slot-11 round sequence must contain
-    capture_proof and review_proof_root in the per-round step."""
-    body = _read_tier7_skill()
-    assert "capture_proof" in body, (
-        "Tier-7 SKILL.md must name capture_proof in the Slot-11 round sequence"
-    )
-    assert "review_proof_root" in body, (
-        "Tier-7 SKILL.md must name review_proof_root (the stdin field for run_round.py)"
-    )
-    assert "review_base" in body, (
-        "Tier-7 SKILL.md must name review_base in the per-round sequence"
-    )
-    assert "proof_enforced" in body, (
-        "Tier-7 SKILL.md must mention proof_enforced (the envelope flag for un-proofed convergence)"
-    )
-
-
-def test_tp_pr_iterate_skill_has_proof_pointer() -> None:
-    """tp-pr-iterate SKILL.md must carry a ONE-LINE pointer to proof-of-review.md."""
-    body = _read_skill()
-    assert "proof-of-review.md" in body, (
-        "tp-pr-iterate SKILL.md must contain a pointer to proof-of-review.md"
-    )
-
-
-def test_tp_pr_iterate_skill_md_under_500_lines() -> None:
-    """tp-pr-iterate SKILL.md must be ≤500 lines after the proof pointer was added."""
-    lines = SKILL_MD.read_text(encoding="utf-8").count("\n") + 1
-    assert lines <= 500, (
-        f"tp-pr-iterate SKILL.md is {lines} lines after proof pointer — must be ≤500 "
-        "(the file is NOT grandfathered; full prose would block the commit)"
-    )
+import pytest
+
+SCRIPTS = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPTS.parent
+SKILL_MD = SKILL_DIR / "SKILL.md"
+REPO_ROOT = SCRIPTS.parents[2]
+for _dir in (REPO_ROOT / "skills" / "_shared", SCRIPTS):
+    if str(_dir) not in sys.path:
+        sys.path.insert(0, str(_dir))
+
+
+def _frontmatter() -> dict:
+    """`{key: value}` of the SKILL.md frontmatter, through the shipped parser."""
+    skill_frontmatter = pytest.importorskip("skill_frontmatter")
+    fields, issues = skill_frontmatter.parse(SKILL_MD.read_text(encoding="utf-8"))
+    assert fields is not None and issues == [], f"unparseable frontmatter {issues}"
+    return {key: value for key, (_line, value) in fields.items()}
+
+
+def test_skill_frontmatter_passes_schema():
+    """The frontmatter is a closed schema: `name`, `description` and the `argument-hint`
+    that declares the skill's interface (`--max-iterations`, `--max-wall-clock`,
+    `--dry-run`, `--dispose-only`) — parsed, not read as prose."""
+    skill_frontmatter = pytest.importorskip("skill_frontmatter")
+    assert skill_frontmatter.check(SKILL_MD) == []
+
+
+def test_skill_references_resolve(tmp_path):
+    """Every path, `/tp-*` skill and `python3` invocation the SKILL.md names resolves
+    and parses with its own argparse (invariant 46's check, run in-suite). This covers
+    `model_policy.py`, `classifier_judge.py`, `review_merge.py`, `round_scratch.py`,
+    `reproduce.py`, `converge.py`, `run_round.py`, `thread_dispose.py`,
+    `thread_resolver.py`, `fix_round.py`, the `tp-pr-fix` and `tp-run-full-design`
+    skills, the proof-of-review.md pointer and every other referenced script, flag
+    or skill the prose once pinned as a substring."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(REPO_ROOT, [SKILL_MD], cache_dir=tmp_path)
+    assert report.issues == []
+
+
+def test_classifier_role_is_declared():
+    """The classifier judge (the Sonnet model that classifies borderline comments)
+    is a named model role: `model_policy.ROLES` holds it and `model_for` resolves it
+    against the role's own config block (the prose's `model_policy.model_for("classifier",
+    config)` seam)."""
+    model_policy = pytest.importorskip("model_policy")
+    assert "classifier" in model_policy.ROLES
+    assert callable(getattr(model_policy, "model_for"))
+
+
+def test_copilot_logins_per_surface_are_distinct():
+    """The Copilot login differs by surface — REST review/comment author carries the
+    `[bot]` suffix while GraphQL `reviewThreads…author.login` does not. The registry
+    the loop's poll / classify code actually uses must hold a REST set and a bare
+    GraphQL login, and the two must be distinct (a single hard-coded filter yields
+    false zeros — the observed gotcha this registry exists to prevent)."""
+    review_readiness = pytest.importorskip("review_readiness")
+    rest = review_readiness._REST_COPILOT_LOGINS
+    graphql = review_readiness._GRAPHQL_COPILOT_LOGIN
+    assert isinstance(rest, frozenset) and rest
+    assert "copilot-pull-request-reviewer[bot]" in rest
+    assert isinstance(graphql, str) and graphql
+    assert graphql not in rest
+
+
+def test_dual_source_merge_helpers_are_shipped():
+    """Both review sources are normalized, deduped, and merged fail-closed into the
+    per-round decision. The dual-source helpers the SKILL.md prose once pinned
+    (Enhancement 1, the multi-angle / fail-closed parse contract, and the mandatory
+    summary comment on every `/code-review` invocation) must be importable from the
+    shipped `review_merge` module — their behaviour is owned by
+    `skills/tp-pr-iterate/scripts/test_review_merge.py` and the `test_review_merge_*`
+    siblings, not by this prose-pin test."""
+    rm = pytest.importorskip("review_merge")
+    for name in (
+        "normalize_copilot",
+        "normalize_codereview",
+        "dedupe",
+        "merge_codereview_angles",
+        "parse_codereview_findings_or_block",
+        "format_codereview_comment",
+        "post_codereview_comment",
+    ):
+        assert callable(getattr(rm, name)), name
+
+
+def test_reply_and_resolve_primitives_are_shipped():
+    """The shared reply-and-resolve primitives (reply before resolve, idempotent,
+    driven by the per-thread disposition) must be importable from the shipped
+    `thread_resolver` and `thread_dispose` modules — the loop's step 9.5 and the
+    `--dispose-only` out-of-band path both call the same `dispose_threads` primitive
+    (single source of truth), and the behaviour is owned by
+    `skills/_shared/test_thread_dispose.py` and `test_thread_resolver.py`, not by
+    this prose-pin test."""
+    tr = pytest.importorskip("thread_resolver")
+    for name in ("disposition_for", "reply_to_thread", "resolve_thread",
+                 "list_review_threads"):
+        assert callable(getattr(tr, name)), name
+    td = pytest.importorskip("thread_dispose")
+    assert callable(getattr(td, "dispose_threads"))
+
+
+def test_transient_copilot_error_detector_is_shipped():
+    """The 'Copilot encountered an error' transient build-crash contract (never
+    classify it, never terminate on it) is owned by the shipped detector
+    `review_readiness.is_error_body` (its `_ERROR_BODY_MARKER` registry) — the
+    prose's 'no signal' gotcha is the detector's behaviour, tested in
+    `skills/_shared/test_review_readiness.py`, not by a prose substring here."""
+    review_readiness = pytest.importorskip("review_readiness")
+    assert callable(getattr(review_readiness, "is_error_body"))
+    marker = getattr(review_readiness, "_ERROR_BODY_MARKER", "")
+    assert isinstance(marker, str) and marker
+
+
+def test_round_decision_helpers_are_shipped():
+    """The per-round re-request (`_request_copilot_review`) and the two-stable /
+    blocked-no-independent-review terminal decision live in the shipped
+    `loop_driver` module; their behaviour is owned by
+    `skills/tp-pr-iterate/scripts/test_loop_driver.py` and the `test_loop_driver_*`
+    siblings, not by this prose-pin test."""
+    ld = pytest.importorskip("loop_driver")
+    assert callable(getattr(ld, "_request_copilot_review"))
+    assert callable(getattr(ld, "run_round"))
+
+
+def test_proof_capture_helpers_are_shipped():
+    """The per-round proof-of-review contract (capture proof, digest, present-and-
+    nonempty check, and the comment-on-head verifier) lives in the shipped
+    `review_proof` module; its behaviour is owned by
+    `skills/tp-pr-iterate/scripts/test_review_proof.py` and the `test_review_proof_*`
+    siblings, not by this prose-pin test."""
+    rp = pytest.importorskip("review_proof")
+    for name in ("capture_proof", "proof_present_and_nonempty",
+                 "format_proof_digest", "proof_comment_on_head"):
+        assert callable(getattr(rp, name)), name

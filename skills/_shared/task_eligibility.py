@@ -9,16 +9,28 @@ shared `task_scope` predicates so eligibility, `task_verify` and the Tier 3.5
 re-run agree on what a task's declared **Targets** run and which Files it may touch.
 
 Rules, in order (the first that applies sets the tier; every applicable reason
-is recorded for the flip-evidence logs):
+is recorded for the flip-evidence logs). No dispatchable task starts on Opus
+(operator 2026-10-09: the local model is strong enough, and Opus starts burned
+tokens); Opus is reached only by escalating after a failed attempt:
 
 1. status in `DISPATCH_EXCLUDED` (`task_scope.EXCLUDED` + Done) → `excluded: true`,
    tier `opus`, never dispatched;
-2. no node-targetable runner → `opus` (`no-runner`);
-3. a not-runnable **Targets** field (missing or malformed, i.e. non-canonical, or
-   `none`), a target whose file and directory are both absent (`target-missing`), or
-   any unparsed File span (`unparsed-file`) → `opus`. The **Red** prose is not read;
-4. more parsed Files than `max_files` → `sonnet` (`too-many-files`);
-5. else `local`.
+2. no node-targetable runner (`no-runner`) or a not-runnable **Targets** field (missing
+   or malformed, i.e. non-canonical, or `none`) is a no-oracle row: it is `local` like any
+   other, and its recorded reason starts it at `local-xhigh` (`local-medium` when clerical).
+   `task_verify` fails every cheap rung `no oracle` for such a row unless an Opus diff
+   review accepts the attempt (`no_oracle_review`; `accepted-by-review`, never a test
+   pass), so Opus reads a diff instead of doing the task (operator 2026-10-09). The
+   **Red** prose is not read;
+3. else `local`. A target whose file and directory are both absent
+   (`target-missing`: the task creates them), any unparsed File span (`unparsed-file`:
+   the Targets still run, only scope is logged) and more parsed Files than `max_files`
+   (`too-many-files`) are recorded as reasons but stay `local`. A local row with a
+   reason starts at `local-xhigh` (`local-medium` when clerical or clean).
+
+The CLI's mutually exclusive `--route JSON` / `--route-from PATH` add a display-only
+`effective` key (via `tier_ladder.route_label`/`route_floor`/`display`) to every row;
+without either flag no row gains the key, so today's output is unchanged.
 
 `collides_with` (other dispatchable tasks sharing a written path: a File or a declared
 **Targets** file, both of which an attempt may write; paths are normalised, and a File
@@ -34,6 +46,7 @@ import glob as _glob
 import json
 import os
 import posixpath
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -43,7 +56,9 @@ if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
 import local_implement_config  # noqa: E402 — in-repo, stdlib-only sibling
+import ladder_rungs  # noqa: E402 — in-repo, stdlib-only sibling
 import task_scope  # noqa: E402 — in-repo, stdlib-only sibling
+import tier_ladder  # noqa: E402 — in-repo, stdlib-only sibling
 
 # Never dispatched: `task_scope.EXCLUDED` plus Done (a resume must not re-run finished
 # tasks). Eligibility-only: the Tier 3.5 re-run keeps `task_scope.rerun_excluded`,
@@ -51,6 +66,13 @@ import task_scope  # noqa: E402 — in-repo, stdlib-only sibling
 DISPATCH_EXCLUDED = task_scope.EXCLUDED | {"Done"}
 _PLACEHOLDERS = frozenset({"tbd", "todo", "n/a", "-", "same as above"})
 _TRAILING_PUNCT = " \t\n.:;!"
+_KIND_RE = re.compile(r"^\*\*Kind\*\*:\s*(\w+)", re.MULTILINE)
+
+
+def _kind(task: dict) -> str | None:
+    """The task's declared ``**Kind**`` (e.g. ``clerical``), or ``None`` if absent."""
+    m = _KIND_RE.search(task.get("raw") or "")
+    return m.group(1) if m else None
 
 
 def _has_refactor(fields: dict) -> bool:
@@ -79,19 +101,21 @@ def _row(task: dict, *, max_files: int, runner_ok: bool, exists) -> dict:
     status = task_scope.task_status(task)
     row = {"task_id": task["id"], "tier": "opus", "reasons": [], "files": files,
            "unparsed_files": unparsed, "test": test, "test_paths": list(test["files"]),
-           "collides_with": [],
+           "collides_with": [], "kind": _kind(task),
            "new_test": bool(test["new_files"]) or any(not exists(p) for p in test["files"]),
            "has_refactor": _has_refactor(fields), "excluded": status in DISPATCH_EXCLUDED}
     if row["excluded"]:
         row["reasons"] = [f"excluded:{status}"]
+        row["start_rung"] = ladder_rungs.task_start(row)[0]
         return row
-    opus = [] if runner_ok else ["no-runner"]
-    opus += _test_reasons(test, exists)
+    checks = [] if runner_ok else ["no-runner"]
+    checks += _test_reasons(test, exists)
     if unparsed:
-        opus.append("unparsed-file")
+        checks.append("unparsed-file")
     too_many = ["too-many-files"] if len(files) > max_files else []
-    row["reasons"] = opus + too_many
-    row["tier"] = "opus" if opus else ("sonnet" if too_many else "local")
+    row["reasons"] = checks + too_many
+    row["tier"] = "local"  # a no-oracle row too: an Opus diff review accepts it (module doc)
+    row["start_rung"] = ladder_rungs.task_start(row)[0]
     return row
 
 
@@ -158,6 +182,30 @@ def configured_max_files(root) -> int:
     return int((cfg or local_implement_config.DEFAULTS)["max_files"])
 
 
+def phase_rows(plan_text: str, phase: int, root, *, max_files: int | None = None) -> list[dict]:
+    """`classify_phase` with the CLI's own arguments: ``max_files`` from
+    `configured_max_files` unless given, ``runner_ok`` from `task_scope.resolve_runner`,
+    ``exists`` against ``root``. A malformed config raises ``ValueError``."""
+    root = Path(root)
+    if max_files is None:
+        max_files = configured_max_files(root)
+    runner, _reason = task_scope.resolve_runner(root, None)
+    return classify_phase(plan_text, phase, max_files=max_files, runner_ok=runner is not None,
+                          exists=lambda p: (root / p).exists())
+
+
+def _route_from_text(path: str | None) -> str | None:
+    """The text at ``path`` (utf-8), or ``None`` on any read/decode failure
+    (including ``path is None``) — never an error exit."""
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Per-task tier table for one plan phase.")
     parser.add_argument("plan", help="path to plan.md")
@@ -165,20 +213,25 @@ def main(argv=None) -> int:
     parser.add_argument("--max-files", type=int, default=None,
                         help="override local_implement.max_files (default: the config's)")
     parser.add_argument("--root", default=".", help="repository root (default: .)")
+    route_group = parser.add_mutually_exclusive_group()
+    route_group.add_argument("--route", help="a route result, as a JSON object or string")
+    route_group.add_argument("--route-from", help="a decisions.md path to read the route from")
     args = parser.parse_args(argv)
     plan = Path(args.plan)
     if not plan.is_file():
         parser.error(f"plan not found: {plan}")
-    root = Path(args.root)
     try:
-        max_files = (args.max_files if args.max_files is not None
-                     else configured_max_files(root))
+        rows = phase_rows(plan.read_text(encoding="utf-8"), args.phase, args.root,
+                          max_files=args.max_files)
     except ValueError as exc:
         parser.error(str(exc))
-    runner, _reason = task_scope.resolve_runner(root, None)
-    rows = classify_phase(plan.read_text(encoding="utf-8"), args.phase,
-                          max_files=max_files, runner_ok=runner is not None,
-                          exists=lambda p: (root / p).exists())
+
+    if args.route is not None or args.route_from is not None:
+        route_from_text = _route_from_text(args.route_from)
+        label = tier_ladder.route_label(args.route, route_from_text, os.environ)
+        for row in rows:
+            floored_tier, _floored = tier_ladder.route_floor(row["tier"], label)
+            row["effective"] = tier_ladder.display(row["tier"], floored_tier, label)
     print(json.dumps(rows, indent=2, sort_keys=True))
     return 0
 

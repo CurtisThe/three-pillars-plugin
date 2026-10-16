@@ -7,6 +7,7 @@ and conflict deferral.
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -966,6 +967,18 @@ def test_cached_findings_for_head_empty_findings():
     assert result == []
 
 
+def _blocked_line_fields(decisions_text: str) -> dict:
+    """Parse the code-under-test's ` — `-separated BLOCKED line: the token list plus the
+    (pr, sha7, iso) fields of its last token, so tests assert on values, not prose."""
+    lines = [line for line in decisions_text.splitlines() if line.strip()]
+    tokens = lines[-1].split(" — ")
+    m = re.match(r"PR #(\d+) @ (\w+) \((\S+)\)$", tokens[-1])
+    if m is None:
+        raise AssertionError(f"last token {tokens[-1]!r} does not match the blocked-line grammar")
+    return {"tokens": tokens, "count": len(tokens),
+            "pr": m.group(1), "sha7": m.group(2), "iso": m.group(3)}
+
+
 # ---------- Phase 3 Task 3.1: _append_blocked_no_review_line ----------
 
 
@@ -981,11 +994,12 @@ def test_append_blocked_no_review_line_writes_correct_format(tmp_path):
     loop_driver._append_blocked_no_review_line(pr_url, head_oid, now, decisions_file)
 
     content = decisions_file.read_text(encoding="utf-8")
-    assert "### [pr-readiness/terminal] BLOCKED" in content
-    assert "no independent review ran" in content
-    assert "PR #42" in content
-    assert "abcdef1" in content  # sha7
-    assert "2026-06-08T10:30:00Z" in content
+    fields = _blocked_line_fields(content)
+    assert fields["count"] == 4
+    assert fields["tokens"][0] == "### [pr-readiness/terminal] BLOCKED"
+    assert fields["pr"] == "42"
+    assert fields["sha7"] == "abcdef1"
+    assert fields["iso"] == "2026-06-08T10:30:00Z"
 
 
 def test_append_blocked_no_review_line_none_path_is_noop():
@@ -1159,7 +1173,7 @@ def test_run_round_fail_closed_blocked_no_independent_review(tmp_path):
         "(the F9 'escalate' label); labels seen: {labels_applied!r}"
     )
     content = decisions_file.read_text(encoding="utf-8")
-    assert "BLOCKED" in content
+    assert _blocked_line_fields(content)["tokens"][0] == "### [pr-readiness/terminal] BLOCKED"
     assert result["state"]["phase"] == "blocked-no-independent-review"
     assert result["action"] in ("fix", "noop")
 

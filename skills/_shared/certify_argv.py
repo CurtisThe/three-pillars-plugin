@@ -10,7 +10,7 @@ table.
 **Pytest or not is the guard's, never the argv's.** `is_pytest_guard(guard)` is the one
 detector: a guard is pytest when it names a node (`path::node`) or a file whose name is a
 pytest test module (`test_*.py` / `*_test.py`). Every other guard (a script, a lint, a
-`.sh` gate, `framework-check.sh`) is not.
+`.sh` gate) is not.
 
 **A pytest pole's command is the certifier's.** `pytest_command` builds it: one fixed
 launcher (`sys.executable -m pytest`), then the one target `pytest_target` builds from the

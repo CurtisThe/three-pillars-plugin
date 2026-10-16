@@ -1,6 +1,6 @@
 """The cold-resume contract is stated in TWO SKILL.md files — pin that they AGREE.
 
-`tp-pr-iterate/SKILL.md` §Cold-resume contract and `tp-run-full-design/SKILL.md`'s
+`tp-pr-iterate/SKILL.md` §Cold-resume contract and `tp-run-full-design/tier-7-review.md`'s
 Tier-7 `run_round.py` bullet describe the same seam for two different readers. Twin-file
 drift is the real risk: the last time this contract was corrected, one twin was fixed
 and the other kept asserting the opposite, and the suite stayed green.
@@ -63,9 +63,14 @@ This is the cheap half that catches the common failures, not the whole of it.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 _SKILLS = Path(__file__).resolve().parent.parent.parent
 PR_ITERATE_MD = _SKILLS / "tp-pr-iterate" / "SKILL.md"
@@ -155,6 +160,8 @@ _SECTION_TERMINATORS = {
 
 
 def _normalised(path: Path) -> str:
+    if path == RUN_FULL_DESIGN_MD:
+        return re.sub(r"\s+", " ", skill_text.read_skill_text("tp-run-full-design"))
     return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
 
 
@@ -261,10 +268,12 @@ def test_the_persistence_line_states_the_in_worktree_limit(twins):
         "claim went unguarded in the first place."
     )
     line = text[text.index(opening):][:400]
-    for phrase in ("in-worktree", "gitignored"):
+    # review-proof-out-of-tree: the state now lives under the worktree's git-dir, not a
+    # gitignored in-tree path, so the limit reads "untracked".
+    for phrase in ("in-worktree", "untracked"):
         assert phrase in line, (
             f"the persistence line no longer says {phrase!r}: {line[:220]!r}\n"
-            "State is resumable only INSIDE a live worktree — the path is gitignored "
+            "State is resumable only INSIDE a live worktree — the path is untracked "
             "and no code path commits it. Stating persistence without that limit is "
             "the false claim this pin exists to catch."
         )

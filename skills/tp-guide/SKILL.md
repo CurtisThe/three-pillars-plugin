@@ -27,7 +27,7 @@ Read the project's current state and recommend the highest-impact next step.
    - **High alignment**: directly advances the vision's Problem, serves its Users, or fixes a break that blocks a Success signal. These go to the top.
    - **Low alignment**: solves a real technical problem but isn't load-bearing for the stated why. These get deprioritized even if they're interesting. Call out the deprioritization explicitly so the user can override it.
    - **Conflict**: the work pushes the project toward a stated non-goal. Recommend *against* it and suggest updating the vision via `/tp-docs-update` if the user thinks the non-goal has moved.
-7. **Choose the weight class**. Not everything needs the full pipeline. Score the four rubric axes — **risk, blast radius, reversibility, novelty** (each low/medium/high; see `skills/_shared/weight-class.md`, or shell `python3 "$TP_ROOT"/skills/_shared/weight_class.py recommend`) — and match the class to the complexity:
+7. **Choose the weight class**. Not everything needs the full pipeline. Score the four rubric axes — **risk, blast radius, reversibility, novelty** (each low/medium/high; see `skills/_shared/weight-class.md`, or shell `python3 "$TP_ROOT"/skills/_shared/weight_class.py recommend --risk … --blast-radius … --reversibility … --novelty …`) — and match the class to the complexity:
 
    | Weight class | When to use | Example |
    |---|---|---|

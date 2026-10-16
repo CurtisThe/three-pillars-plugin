@@ -15,6 +15,13 @@ from pathlib import Path
 
 import pytest
 
+import skill_text
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_known_issues = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs/known_issues.md").exists(),
+    reason="reads the dev repo's known_issues.md (dev-repo only)")
+
 #: Anchored on THIS FILE, like every sibling module in this suite.
 #:
 #: This used to shell out to `git rev-parse --show-toplevel` with check=True at
@@ -27,12 +34,24 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 FIRST_RUN = REPO / "skills" / "_shared" / "first-run.md"
 
-# The 3 EXECUTED github_pr_author.py call sites (plan Task 2.2), each mapped to
-# the --context it must preserve byte-for-byte (Behavior 6).
+# The 3 EXECUTED PR-create call sites (plan Task 2.2), each mapped to the
+# --context it must preserve byte-for-byte (Behavior 6).
 CALL_SITES = {
     "skills/tp-run-full-design/SKILL.md": "autonomous",
     "skills/tp-design-complete/SKILL.md": "manual",
     "skills/tp-revert/SKILL.md": "manual",
+}
+
+# Which chokepoint each site resolves: (shell var, script basename, create verb).
+# design forge-interface Task 1.6 moved the two completion-PR sites to the forge
+# chokepoint (`forge.py pr-create`, which hands a GitHub origin to
+# github_pr_author.py unchanged); /tp-revert still calls github_pr_author.py.
+_FORGE = ("FORGE", "forge.py", "pr-create")
+_GHPA = ("GHPA", "github_pr_author.py", "create")
+CHOKEPOINT = {
+    "skills/tp-run-full-design/SKILL.md": _FORGE,
+    "skills/tp-design-complete/SKILL.md": _FORGE,
+    "skills/tp-revert/SKILL.md": _GHPA,
 }
 
 # The bare, broken pattern this design removes — github_pr_author.py invoked
@@ -43,6 +62,8 @@ _BARE_GHPA = re.compile(
 
 
 def _read(path: Path) -> str:
+    if path == REPO / "skills/tp-run-full-design/SKILL.md":
+        return skill_text.read_skill_text("tp-run-full-design")
     return path.read_text(encoding="utf-8")
 
 
@@ -104,25 +125,27 @@ def test_call_site_has_no_bare_github_pr_author(rel_path):
 
 @pytest.mark.parametrize("rel_path", sorted(CALL_SITES))
 def test_call_site_resolves_via_helper(rel_path):
-    """Each site reaches the chokepoint through resolve_script.py ... github_pr_author.py."""
+    """Each site reaches its chokepoint through resolve_script.py ... <script>."""
+    var, script, verb = CHOKEPOINT[rel_path]
     text = _read(REPO / rel_path)
-    # The resolver is reached and delegated the github_pr_author.py basename.
+    # The resolver is reached and delegated the chokepoint's basename.
     assert "resolve_script.py" in text
-    assert re.search(r'python3\s+"\$RS"\s+github_pr_author\.py', text), (
-        f"{rel_path} does not delegate github_pr_author.py resolution to $RS"
+    assert re.search(rf'python3\s+"\$RS"\s+{re.escape(script)}', text), (
+        f"{rel_path} does not delegate {script} resolution to $RS"
     )
-    # And the resolved path is what gets invoked (python3 "$GHPA" ...).
-    assert re.search(r'python3\s+"\$GHPA"\s+create', text), (
-        f"{rel_path} does not invoke the resolved chokepoint via $GHPA"
+    # And the resolved path is what gets invoked (python3 "$VAR" <verb> ...).
+    assert re.search(rf'python3\s+"\${var}"\s+{verb}\b', text), (
+        f"{rel_path} does not invoke the resolved chokepoint via ${var}"
     )
 
 
 @pytest.mark.parametrize("rel_path,ctx", sorted(CALL_SITES.items()))
 def test_call_site_preserves_context_tail(rel_path, ctx):
-    """The create --context {manual|autonomous} -- tail is preserved unchanged."""
+    """The <verb> --context {manual|autonomous} -- tail is preserved unchanged."""
+    var, _script, verb = CHOKEPOINT[rel_path]
     text = _read(REPO / rel_path)
-    assert re.search(rf'"\$GHPA"\s+create\s+--context\s+{ctx}\s+--', text), (
-        f"{rel_path} lost its 'create --context {ctx} --' invocation tail"
+    assert re.search(rf'"\${var}"\s+{verb}\s+--context\s+{ctx}\s+--', text), (
+        f"{rel_path} lost its '{verb} --context {ctx} --' invocation tail"
     )
 
 
@@ -131,7 +154,7 @@ def test_call_site_resolution_is_git_toplevel_first():
     for rel_path in CALL_SITES:
         text = _read(REPO / rel_path)
         top_idx = text.index("git rev-parse --show-toplevel")
-        ghpa_idx = text.index('python3 "$RS" github_pr_author.py')
+        ghpa_idx = text.index(f'python3 "$RS" {CHOKEPOINT[rel_path][1]}')
         assert top_idx < ghpa_idx, (
             f"{rel_path} resolves the chokepoint before probing the git toplevel"
         )
@@ -153,31 +176,36 @@ def test_call_site_resolution_is_git_toplevel_first():
 # fails, and only then does `||` fire; but when the capture FAILS, the `&&`
 # arm is skipped and `||` fires on the capture's own status. The two cases
 # collapse into one branch that reads as if it covers both and does not.
-_CAPTURE_GUARDED = re.compile(
-    r'^[ \t]*GHPA="\$\(python3 "\$RS" github_pr_author\.py\)"[ \t]*\|\|[ \t]*exit 1[ \t]*$',
-    re.M,
-)
-_NONEMPTY_GUARD = re.compile(r'^[ \t]*\[ -n "\$GHPA" \][ \t]*\|\|[ \t]*exit 1[ \t]*$', re.M)
-_INVOCATION = re.compile(r'^[ \t]*python3 "\$GHPA" create\b', re.M)
+def _guard_patterns(var: str, script: str, verb: str):
+    """(capture, non-empty guard, invocation) line patterns for one chokepoint."""
+    capture = re.compile(
+        rf'^[ \t]*{var}="\$\(python3 "\$RS" {re.escape(script)}\)"[ \t]*\|\|[ \t]*exit 1[ \t]*$',
+        re.M,
+    )
+    nonempty = re.compile(rf'^[ \t]*\[ -n "\${var}" \][ \t]*\|\|[ \t]*exit 1[ \t]*$', re.M)
+    invocation = re.compile(rf'^[ \t]*python3 "\${var}" {verb}\b', re.M)
+    return capture, nonempty, invocation
 
 
 @pytest.mark.parametrize("rel_path", sorted(CALL_SITES))
 def test_call_site_has_exit_guard(rel_path):
     """Both guard lines are present, and BETWEEN the capture and the invocation."""
+    var, script, verb = CHOKEPOINT[rel_path]
+    capture_re, guard_re, invocation_re = _guard_patterns(var, script, verb)
     text = _read(REPO / rel_path)
 
-    capture = _CAPTURE_GUARDED.search(text)
+    capture = capture_re.search(text)
     assert capture, (
-        f"{rel_path}: the github_pr_author.py capture is not guarded with "
-        "'|| exit 1' — a failed resolve leaves $GHPA empty and execution continues"
+        f"{rel_path}: the {script} capture is not guarded with "
+        f"'|| exit 1' — a failed resolve leaves ${var} empty and execution continues"
     )
-    guard = _NONEMPTY_GUARD.search(text)
+    guard = guard_re.search(text)
     assert guard, (
-        f"{rel_path}: missing the separate '[ -n \"$GHPA\" ] || exit 1' line — "
+        f"{rel_path}: missing the separate '[ -n \"${var}\" ] || exit 1' line — "
         "a capture can succeed and still yield an empty path"
     )
-    invocation = _INVOCATION.search(text)
-    assert invocation, f"{rel_path}: no 'python3 \"$GHPA\" create' invocation"
+    invocation = invocation_re.search(text)
+    assert invocation, f"{rel_path}: no 'python3 \"${var}\" {verb}' invocation"
 
     assert capture.start() < guard.start() < invocation.start(), (
         f"{rel_path}: the guards must sit BETWEEN the capture and the "
@@ -185,7 +213,7 @@ def test_call_site_has_exit_guard(rel_path):
     )
 
     for line in text.splitlines():
-        if "$GHPA" in line and "&&" in line and "|| exit 1" in line:
+        if f"${var}" in line and "&&" in line and "|| exit 1" in line:
             raise AssertionError(
                 f"{rel_path}: guards are chained with && — that mis-binds; "
                 f"use two separate lines. Offending line: {line.strip()!r}"
@@ -248,6 +276,7 @@ def test_a6_note_removed_from_resolver():
     assert "audit A6" not in text
 
 
+@_needs_known_issues
 def test_known_issues_m2_no_longer_defers_overrides():
     """M2 records the override roots as RESOLVED, not deferred.
 

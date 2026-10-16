@@ -43,7 +43,7 @@ def local_env_vars() -> set[str]:
     names = set(LOCAL_ENV_VARS)
     base = {k: v for k, v in os.environ.items() if k not in names}
     try:
-        proc = subprocess.run(["git", "rev-parse", "--local-env-vars"], env=base,
+        proc = subprocess.run(["git", "rev-parse", "--local-env-vars"], env=base,  # tp-allow-fail-open: git unavailable is handled by the except
                               capture_output=True, text=True, timeout=GIT_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
         return names  # git unavailable: the pinned set still applies

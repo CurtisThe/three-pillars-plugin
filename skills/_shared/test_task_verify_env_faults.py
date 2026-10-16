@@ -4,8 +4,8 @@ design: local-implement-and-review (impl-audit-1 #2, #4)
 
 A runner that cannot start (missing / not executable, rc 127 / 126) is an env-error
 (exit 2), not a FAIL the ladder would retry and end Blocked. ``task_verify check`` and
-the Tier 3.5 re-run share one run helper (``task_scope.run_capture``). Real tmp repos
-only (``attempt_fixture``).
+the Tier 3.5 re-run share one run helper (``task_scope.run_capture``). Each attempt
+commits the red/green pair (``commit_pair``). Real tmp repos only (``attempt_fixture``).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 import task_attempts
 import task_scope
 import task_verify
-from attempt_fixture import DD, commit, make_seat, task_row
+from attempt_fixture import DD, commit_pair, make_seat, task_row
 
 RUNNER = f"{sys.executable} -m pytest -q"
 GREEN = "def test_a():\n    assert 1 == 1\n"
@@ -25,7 +25,8 @@ NODE_ROW = {"files": ["skills/a.py"], "targets": "`skills/test_a.py::test_a`"}
 def _green_attempt(tmp_path: Path, task: str = "1.1") -> dict:
     _seat, wt = make_seat(tmp_path)
     att = task_attempts.open_attempt(wt, task, DD)
-    commit(Path(att["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": GREEN})
+    commit_pair(Path(att["attempt_dir"]), {"skills/test_a.py": GREEN},
+                {"skills/a.py": "A = 2\n"})
     return att
 
 
@@ -57,7 +58,7 @@ def test_run_capture_maps_runner_faults(tmp_path):
 def test_fallback_runner_is_python3(tmp_path):
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     runner, source = task_scope.resolve_runner(tmp_path, None)
-    assert runner == "python3 -m pytest" and source == "pytest-config"
+    assert runner == "python3 -m pytest" and source == "discovered"
     assert not runner.startswith("python ")
 
 
@@ -76,3 +77,48 @@ def test_red_at_base_error_keeps_pass(tmp_path, monkeypatch):
     res = task_verify.check(att, task_row(**NODE_ROW), RUNNER, rung="local", timeout=60)
     assert (res["verdict"], res["exit"], res["unverified"]) == ("PASS", 0, False)
     assert (res["red_at_base"], res["red_at_base_tail"]) == ("error", "fatal: boom")
+
+
+# --- B3 (seat live check 1.1): a runner module missing from the interpreter -----------
+
+def _python_without_pytest(tmp_path: Path) -> str:
+    """A `python3` whose `-m pytest` fails exactly as the live dispatcher's did."""
+    fake = tmp_path / "bin" / "python3"
+    fake.parent.mkdir()
+    fake.write_text('#!/bin/sh\necho "/usr/bin/python3: No module named pytest" >&2\nexit 1\n',
+                    encoding="utf-8")
+    fake.chmod(0o755)
+    return f"{fake} -m pytest -q"
+
+
+def test_missing_pytest_module_is_env_error_not_fail(tmp_path):
+    att = _green_attempt(tmp_path)
+    res = task_verify.check(att, task_row(**NODE_ROW), _python_without_pytest(tmp_path),
+                            rung="local", timeout=60)
+    assert (res["verdict"], res["exit"]) == ("env-error", 2)
+    assert res["reason"] == "runner-unavailable (No module named pytest)"
+
+
+def test_task_import_error_is_still_the_tasks_red(tmp_path):
+    """The task's own missing import (a test's or a conftest's) is a FAIL, never env."""
+    for name in ("skills/test_a.py", "skills/conftest.py"):
+        sub = tmp_path / name.replace("/", "_")
+        sub.mkdir()
+        _seat, wt = make_seat(sub)
+        att = task_attempts.open_attempt(wt, "1.1", DD)
+        red, green = {"skills/test_a.py": GREEN}, {"skills/a.py": "A = 2\n"}
+        into = red if name in red else green  # the red holds only the Targets file
+        into[name] = "import tp_no_such_module_xyz\n" + into.get(name, "")
+        commit_pair(Path(att["attempt_dir"]), red, green)
+        res = task_verify.check(att, task_row(**NODE_ROW), RUNNER, rung="local", timeout=60)
+        assert res["verdict"] == "FAIL" and res["exit"] == 1, (name, res["reason"])
+
+
+def test_runner_broken_predicate():
+    assert task_scope.runner_broken(127, "") == "rc 127"
+    tail = "/usr/bin/python3: No module named pytest"
+    assert task_scope.runner_broken(1, tail, "no-report") == "No module named pytest"
+    quoted = "E   ModuleNotFoundError: No module named 'tp_x'"  # a conftest's: the task's
+    assert task_scope.runner_broken(4, quoted, "no-report") is None
+    assert task_scope.runner_broken(1, tail, "red") is None  # a report exists: the task's
+    assert task_scope.runner_broken(0, tail, "no-report") is None

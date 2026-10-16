@@ -44,6 +44,13 @@ from verify import DROPS_DETECTED, atoms, verify  # noqa: E402
 # imported for a test that pinned the marker strip's safety; there is no strip any more (round 9),
 # so both the regex and that test are gone.
 from verify_atoms import _norm  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_DEV_ROOT = Path(__file__).resolve().parents[3]
+# The real decisions.md corpus lives in the dev repo's three-pillars-docs/ (dev-repo
+# only); in a plugin install only the adversarial fixtures run, and the corpus-size
+# floors below apply only where the corpus exists.
+_HAS_DEV_DOCS = (_DEV_ROOT / "three-pillars-docs").exists()
 
 # ---- The adversarial corpus -------------------------------------------------------------------
 # Ordinary markdown that a fence-aware or zone-aware scanner reads wrongly. Named after the defect
@@ -165,7 +172,8 @@ def test_atoms_is_a_superset_of_a_markdown_blind_scan():
     invisible. Extra atoms are fine and expected — that direction only ever reports MORE drops.
     """
     docs = _documents()
-    assert len(docs) >= len(ADVERSARIAL) + 50, f"corpus did not load ({len(docs)} docs)"
+    if _HAS_DEV_DOCS:
+        assert len(docs) >= len(ADVERSARIAL) + 50, f"corpus did not load ({len(docs)} docs)"
     missing = []
     for name, text in docs:
         lost = _naive_atoms(text) - set(atoms(text))
@@ -180,7 +188,8 @@ def test_the_superset_test_is_not_vacuous():
     """A floor under the floor: `_naive_atoms` must actually find things, or the assertion above
     passes by finding nothing to lose."""
     total = sum(len(_naive_atoms(t)) for _n, t in _documents())
-    assert total >= 1000, f"the naive scan found only {total} atoms — it has broken, not passed"
+    if _HAS_DEV_DOCS:
+        assert total >= 1000, f"the naive scan found only {total} atoms — it has broken, not passed"
     per_fixture = {k: len(_naive_atoms(v)) for k, v in ADVERSARIAL.items()}
     assert all(per_fixture.values()), f"an adversarial fixture yields no atoms: {per_fixture}"
 
@@ -237,7 +246,7 @@ def _undetectable(name, text, limit=None):
     for i in _atom_shaped_lines(text)[:limit]:
         if counts[_norm(raw[i])] > 1:
             continue                                        # accepted normalization residual
-        r = verify(text, text, _without(text, i), mechanical_applied=True)
+        r = verify(text, text, _without(text, i), base=None, mechanical_applied=True)
         if r.verdict != DROPS_DETECTED:
             bad.append((name, i, raw[i][:60], r.verdict))
     return bad
@@ -286,5 +295,5 @@ def test_atoms_removes_no_line_at_all():
         assert atoms(text) != atoms(f"### [tp-plan] a decision\nbody line\ntail line\n"), marker
         without = "".join(ln for ln in text.splitlines(keepends=True)
                           if ln.rstrip("\n") != marker)
-        r = verify(text, text, without, mechanical_applied=True)
+        r = verify(text, text, without, base=None, mechanical_applied=True)
         assert r.verdict == DROPS_DETECTED, (marker, r.verdict)

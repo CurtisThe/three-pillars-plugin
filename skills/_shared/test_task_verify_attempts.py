@@ -74,7 +74,7 @@ def test_open_refuses_dirty_outside_design_dir(tmp_path):
     assert err.value.paths == ["skills/a.py"]
     assert "skills/a.py" in str(err.value)
     assert branches(wt) == []
-    assert not (wt / ".claude").exists()
+    assert not (wt / ".tp-scratch").exists()
     assert not (_common(wt) / "tp-attempts" / "demo").exists() or \
         not list((_common(wt) / "tp-attempts" / "demo").iterdir())
 
@@ -84,7 +84,7 @@ def test_open_adds_info_exclude_once(tmp_path):
     task_attempts.open_attempt(wt, "1.1", DD)
     task_attempts.open_attempt(wt, "1.2", DD)
     lines = (_common(wt) / "info" / "exclude").read_text(encoding="utf-8").splitlines()
-    assert lines.count("/.claude/worktrees/") == 1
+    assert lines.count("/.tp-scratch/") == 1
     assert git(wt, "status", "--porcelain", "-uall") == ""
 
 
@@ -127,7 +127,7 @@ def test_discard_never_rms_outside_owner_prefix(tmp_path):
     escapes = {  # attempt_dir → a file that must survive the discard
         str(tmp_path / "outside"): sentinel,
         # `..` climbs out of the prefix into the dispatcher's own tracked tree
-        os.path.join(str(wt), ".claude", "worktrees", "tp-attempt-x", "..", "..", "..",
+        os.path.join(str(wt), ".tp-scratch", "tp-attempt-x", "..", "..",
                      "skills"): wt / "skills" / "a.py",
     }
     for i, (attempt_dir, keep) in enumerate(escapes.items()):

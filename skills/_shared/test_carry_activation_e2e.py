@@ -1,7 +1,7 @@
 """End-to-end ACTIVATION test [SHIP GATE] -- task 8.5, Phase 8.
 
 Design-audit MANDATE (torvalds HIGH): the base-sync approval carry must demonstrably
-FIRE in the documented invocation topology (SKILL.md step 6.7 / step 2's dispatch-
+FIRE in the documented invocation topology (SKILL.md step 7a / step 2's dispatch-
 from-seat recipe), not just fail closed against a fixture that never reaches it. This
 is a hermetic, offline, real-subprocess test -- it invokes the ACTUAL
 `gate_cli.py --repo <path> <pr_url>` CLI (no injected runners, no monkeypatched
@@ -55,7 +55,7 @@ def _human_approved_line(stdout: str) -> str:
 
 
 def test_carry_fires_via_documented_dispatch_from_seat_invocation(tmp_path, monkeypatch):
-    """THE SHIP-GATE ASSERTION: the ACTUAL step-6.7 invocation --
+    """THE SHIP-GATE ASSERTION: the ACTUAL step-7a invocation --
     `python3 <seat>/skills/tp-merge-from-main/scripts/gate_cli.py --repo <worktree>
     <pr_url>` run as a real subprocess with cwd=<design worktree> -- turns the carry
     ON in its primary documented topology. No runners injected, no evaluate_gate

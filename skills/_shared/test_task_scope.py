@@ -175,3 +175,39 @@ def test_phase_tasks_uses_audit_plan_splitter():
     assert [t["id"] for t in got] == ["2.1", "2.2", "2.3", "2.4"]
     assert [t["id"] for t in task_scope.phase_tasks(_PLAN, 3)] == ["3.1"]
     assert task_scope.phase_tasks(_PLAN, 9) == []
+
+
+# --- Worker work dirs: <design-dir>/ledgers/ and <design-dir>/staging/ -----------------
+
+_WORK_PATHS = [f"{_DD}/ledgers/x.jsonl", f"{_DD}/staging/x.md"]
+_DISPATCHER_PATHS = [f"{_DD}/decisions.md", f"{_DD}/plan.md", f"{_DD}/lock.json",
+                     f"{_DD}/candidates/single/summary.md"]
+
+
+@pytest.mark.parametrize("path", _WORK_PATHS)
+def test_classify_path_work_dir_listed_is_listed(path):
+    assert task_scope.classify_path(path, [path], _DD) == "listed"
+
+
+@pytest.mark.parametrize("path", _WORK_PATHS)
+def test_classify_path_work_dir_unlisted_is_unlisted(path):
+    assert task_scope.classify_path(path, ["skills/a.py"], _DD) == "unlisted"
+
+
+@pytest.mark.parametrize("path", _DISPATCHER_PATHS)
+def test_classify_path_other_design_dir_stays_design_dir_even_listed(path):
+    assert task_scope.classify_path(path, [path], _DD) == "design-dir"
+
+
+@pytest.mark.parametrize("path", [f"{_DD}/ledgers-evil/x", f"{_DD}/stagingx/y"])
+def test_classify_path_work_dir_prefix_is_on_directory_boundary(path):
+    assert task_scope.classify_path(path, [path], _DD) == "design-dir"
+
+
+def test_step_scope_accepts_listed_ledger_and_rejects_plan():
+    import task_verify
+    ledger = f"{_DD}/ledgers/x.jsonl"
+    row = {"files": [ledger, f"{_DD}/plan.md"]}
+    assert task_verify._step_scope([ledger], row, _DD, "sonnet") == []
+    with pytest.raises(task_verify._Fail, match="design-dir touched"):
+        task_verify._step_scope([f"{_DD}/plan.md"], row, _DD, "sonnet")

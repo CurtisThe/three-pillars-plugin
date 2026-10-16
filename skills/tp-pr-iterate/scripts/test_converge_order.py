@@ -29,7 +29,7 @@ from convergence_proof import non_degraded_proof_on_head  # noqa: E402
 
 def _angle(findings) -> str:
     """A `/code-review` reply carrying a fenced JSON findings array."""
-    return "Review notes.\n\n```json\n" + json.dumps(findings) + "\n```\n"
+    return "```json\n" + json.dumps({"findings": findings}) + "\n```\n"
 
 
 _STRUCTURAL = [{
@@ -270,6 +270,8 @@ def test_untrusted_author_digest_blocks(tmp_path):
     assert rc != 0
     result = json.loads(out.getvalue().strip().splitlines()[-1])
     assert result["converged"] is False
+    assert result["reason"] == "proof-author-untrusted"  # read-back names it during the round
+    assert rec.run_round_index is None  # run_round never ran
 
 
 def test_run_round_not_converged_blocks(tmp_path):

@@ -12,11 +12,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import task_scope
+import pytest
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_docs = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs").exists(),
+    reason="reads the dev repo's three-pillars-docs/ (dev-repo only)")
 
 _REPO = Path(__file__).resolve().parents[2]
 _GLOB = str(_REPO / "three-pillars-docs" / "completed-tp-designs" / "*" / "plan.md")
 
 
+@_needs_dev_docs
 def test_corpus_parsers_never_raise_and_counts_add_up():
     report = task_scope.corpus_report(_GLOB)
     assert report["plans"] >= 100

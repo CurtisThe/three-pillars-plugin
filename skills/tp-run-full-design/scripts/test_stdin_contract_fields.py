@@ -26,7 +26,12 @@ of each DECLARATION and nothing about the surrounding sentence.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
 
@@ -67,7 +72,7 @@ def _field_half() -> str:
     region caught only 7 of the 11 — four names survive their own deletion because the
     same characters occur elsewhere in reach.
     """
-    flat = " ".join(re.sub(r"\*", "", SKILL_MD.read_text(encoding="utf-8")).split())
+    flat = " ".join(re.sub(r"\*", "", skill_text.read_skill_text("tp-run-full-design")).split())
     begin = flat.index(_BULLET_OPENING)
     return flat[begin:flat.index(_CLAIM_OPENING, begin)]
 

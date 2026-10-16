@@ -13,6 +13,8 @@ sys.path.insert(0, str(HERE))
 
 import review_merge  # noqa: E402
 
+CLEAN = '{"findings": []}'
+
 _SCHEMA = json.loads(
     (HERE.parent / "schemas" / "normalized-finding.v1.json").read_text(encoding="utf-8")
 )
@@ -113,8 +115,8 @@ def test_dedupe_records_merged_from():
 
 def test_parse_codereview_response_extracts_findings():
     text = (
-        "Here is my review.\n\n```json\n"
-        '[{"file": "x.py", "line_range": [3, 4], "summary": "bug", "verdict": "structural"}]\n'
+        "```json\n"
+        '{"findings": [{"file": "x.py", "line_range": [3, 4], "summary": "bug", "verdict": "structural"}]}\n'
         "```\n"
     )
     findings = review_merge.parse_codereview_response(text)
@@ -255,42 +257,23 @@ def test_default_comment_post_uses_rest_not_gh_pr_comment(monkeypatch):
 
 
 def test_parse_codereview_result_distinguishes_clean_from_unparseable():
-    # genuine clean review: valid empty array → parsed_ok True
-    findings, ok = review_merge.parse_codereview_result("```json\n[]\n```")
+    # genuine clean review: {"findings": []} → parsed_ok True
+    findings, ok = review_merge.parse_codereview_result(CLEAN)
     assert findings == [] and ok is True
     # valid findings
     findings, ok = review_merge.parse_codereview_result(
-        '```json\n[{"file":"a.py","verdict":"minor","summary":"x","line_range":[1,1]}]\n```'
+        '```json\n{"findings": [{"file":"a.py","verdict":"minor","summary":"x","line_range":[1,1]}]}\n```'
     )
     assert ok is True and len(findings) == 1
-    # UNPARSEABLE: no block / invalid JSON / non-list → parsed_ok False (NOT clean)
-    for bad in ("no json here", "```json\n{not valid\n```", "", "```json\n{}\n```"):
+    # UNPARSEABLE: no object / invalid JSON / no findings key / a bare list (the old
+    # format) → parsed_ok False (NOT clean). The full mutation families live in
+    # test_review_merge_reply_strict.py.
+    for bad in ("no json here", "```json\n{not valid\n```", "", "```json\n{}\n```", "```json\n[]\n```"):
         f, ok = review_merge.parse_codereview_result(bad)
         assert f == [] and ok is False, f"{bad!r} must be unparseable (ok=False), got ok={ok}"
-    # A PARSEABLE array of only non-dict items → ([], False): it WAS a valid JSON list
-    # but has no findings and is 'ambiguous' — NOT a genuine clean signal (pr-iterate-loop-
-    # hardening, Hole 2 fix). Must block convergence, not silently read clean.
-    f, ok = review_merge.parse_codereview_result("```json\n[1, 2, \"x\"]\n```")
+    # A findings list with a non-dict item → ([], False): never partially read.
+    f, ok = review_merge.parse_codereview_result('{"findings": [1, 2, "x"]}')
     assert f == [] and ok is False
-
-
-def test_parse_prefers_last_json_block_not_an_early_draft():
-    """Review #61 finding: an early '[]' fence (deliberation) must NOT shadow the real
-    findings in a LATER ```json block — last block wins, else findings silently drop."""
-    text = (
-        "First I thought it was clean:\n```json\n[]\n```\n"
-        "But on closer look:\n```json\n"
-        '[{"file":"x.py","line_range":[3,3],"summary":"real bug","verdict":"structural"}]\n```'
-    )
-    findings, ok = review_merge.parse_codereview_result(text)
-    assert ok is True and len(findings) == 1 and findings[0]["summary"] == "real bug"
-
-
-def test_parse_non_str_input_is_unparseable_not_crash():
-    """A non-str reply (None / an object) must fail CLOSED (unparseable), never raise."""
-    for bad in (None, 123, {"x": 1}, ["a"]):
-        f, ok = review_merge.parse_codereview_result(bad)
-        assert f == [] and ok is False
 
 
 def test_normalize_tolerates_non_str_summary_and_bad_range():
@@ -304,12 +287,12 @@ def test_normalize_tolerates_non_str_summary_and_bad_range():
 def test_parse_codereview_response_backcompat_still_collapses_to_list():
     # The back-compat wrapper still returns just the list (fail-soft) for old callers.
     assert review_merge.parse_codereview_response("no json here") == []
-    assert review_merge.parse_codereview_response("```json\n[]\n```") == []
+    assert review_merge.parse_codereview_response(CLEAN) == []
 
 
 def test_findings_or_block_injects_structural_sentinel_on_unparseable():
     # clean → []
-    assert review_merge.parse_codereview_findings_or_block("```json\n[]\n```") == []
+    assert review_merge.parse_codereview_findings_or_block(CLEAN) == []
     # unparseable → ONE structural sentinel (blocks convergence, never silent [])
     out = review_merge.parse_codereview_findings_or_block("garbage, no json")
     assert len(out) == 1
@@ -319,14 +302,14 @@ def test_findings_or_block_injects_structural_sentinel_on_unparseable():
 
 def test_merge_codereview_angles_dedupes_and_fails_closed():
     # two angles find the SAME defect (same file + proximate line + similar summary) → 1 after dedupe
-    a1 = '```json\n[{"file":"g.py","line_range":[10,10],"summary":"off by one in loop","verdict":"structural"}]\n```'
-    a2 = '```json\n[{"file":"g.py","line_range":[10,11],"summary":"off-by-one in the loop","verdict":"structural"}]\n```'
+    a1 = '{"findings": [{"file":"g.py","line_range":[10,10],"summary":"off by one in loop","verdict":"structural"}]}'
+    a2 = '{"findings": [{"file":"g.py","line_range":[10,11],"summary":"off-by-one in the loop","verdict":"structural"}]}'
     merged = review_merge.merge_codereview_angles([a1, a2])
     assert len(merged) == 1, f"duplicate finding across angles must collapse; got {len(merged)}"
 
     # a clean angle + an UNPARSEABLE angle → EXACTLY one structural sentinel (the clean
     # [] must add nothing; the unparseable one blocks convergence)
-    merged2 = review_merge.merge_codereview_angles(["```json\n[]\n```", "totally broken"])
+    merged2 = review_merge.merge_codereview_angles([CLEAN, "totally broken"])
     assert len(merged2) == 1, f"clean + unparseable must yield exactly 1 finding; got {len(merged2)}"
     assert merged2[0]["verdict"] == "structural"
     assert "could not be parsed" in merged2[0]["summary"].lower()
@@ -338,7 +321,7 @@ def test_merge_codereview_angles_dedupes_and_fails_closed():
     assert all(f["verdict"] == "structural" for f in two_bad)
 
     # all-clean angles → genuinely empty (the round may converge)
-    assert review_merge.merge_codereview_angles(["```json\n[]\n```", "```json\n[]\n```"]) == []
+    assert review_merge.merge_codereview_angles([CLEAN, CLEAN]) == []
 
     # None / empty input → ONE no-angles sentinel (fail-closed; blocks convergence).
     # (pr-iterate-loop-hardening Hole 3 fix: was [] before, now returns sentinel.)
@@ -351,61 +334,15 @@ def test_merge_codereview_angles_dedupes_and_fails_closed():
     # a non-str angle reply fails closed to a sentinel, never crashes the merge
     assert len(review_merge.merge_codereview_angles([None])) == 1
 
-    # garbage list items are filtered, the real finding survives normalization
-    one_real = review_merge.merge_codereview_angles(
-        ['```json\n[1, "x", {"file":"r.py","line_range":[2,2],"summary":"real","verdict":"minor"}]\n```']
+    # garbage list items make the whole reply unparseable (one sentinel), never a
+    # partial read that drops what the angle meant to say
+    garbage = review_merge.merge_codereview_angles(
+        ['{"findings": [1, "x", {"file":"r.py","line_range":[2,2],"summary":"real","verdict":"minor"}]}']
     )
-    assert len(one_real) == 1 and one_real[0]["summary"] == "real"
+    assert len(garbage) == 1 and review_merge.is_degraded_review(garbage)
 
     # all-clean angles → genuinely empty (may converge)
-    assert review_merge.merge_codereview_angles(["```json\n[]\n```", "```json\n[]\n```"]) == []
-
-
-def test_parse_unions_all_nonempty_arrays_both_directions():
-    """Audit blocker (#61): selection must UNION every findings-bearing array, not take
-    only the last. Re-specs the prior 'last-wins' contract — interpreting two non-empty
-    arrays as draft→refined silently dropped the earlier array, so a '## Structural'
-    block followed by a '## Minor' block lost the structural finding and false-converged
-    the two-stable gate. Surfacing every finding is the fail-closed direction; an empty
-    `[]` still contributes nothing in either position."""
-    real = '[{"file":"x.py","line_range":[3,3],"summary":"real bug","verdict":"structural"}]'
-    empty = "[]"
-    # early [] then real → real survives
-    t1 = f"draft:\n```json\n{empty}\n```\nfinal:\n```json\n{real}\n```"
-    f1, ok1 = review_merge.parse_codereview_result(t1)
-    assert ok1 and len(f1) == 1 and f1[0]["summary"] == "real bug"
-    # real then trailing [] ("on reflection, clean") → real STILL survives (fail-closed)
-    t2 = f"found:\n```json\n{real}\n```\non reflection clean:\n```json\n{empty}\n```"
-    f2, ok2 = review_merge.parse_codereview_result(t2)
-    assert ok2 and len(f2) == 1 and f2[0]["summary"] == "real bug", (
-        "a trailing [] must NOT suppress earlier real findings (false-convergence guard)"
-    )
-    # two NON-empty arrays (e.g. a structural block then a minor block) → UNION BOTH.
-    # The old last-wins behavior dropped the structural finding here — the audit blocker.
-    real2 = '[{"file":"y.py","line_range":[9,9],"summary":"refined","verdict":"minor"}]'
-    t3 = f"```json\n{real}\n```\n```json\n{real2}\n```"
-    f3, ok3 = review_merge.parse_codereview_result(t3)
-    summaries3 = {d["summary"] for d in f3}
-    assert ok3 and len(f3) == 2 and summaries3 == {"real bug", "refined"}, (
-        "two non-empty arrays must UNION — an earlier (structural) array must NOT be "
-        "shadowed by a later (minor) one"
-    )
-    # genuinely all-empty → clean []
-    t4 = f"```json\n{empty}\n```\n```json\n{empty}\n```"
-    f4, ok4 = review_merge.parse_codereview_result(t4)
-    assert f4 == [] and ok4 is True
-
-
-def test_parse_skips_malformed_block_for_a_valid_one():
-    """A malformed json fence must not shadow a valid array fence (either order) —
-    valid findings survive instead of being replaced by an unparseable sentinel."""
-    real = '[{"file":"x.py","line_range":[3,3],"summary":"real","verdict":"structural"}]'
-    # valid then malformed-last
-    f1, ok1 = review_merge.parse_codereview_result(f"```json\n{real}\n```\n```json\n[broken\n```")
-    assert ok1 and len(f1) == 1 and f1[0]["summary"] == "real"
-    # malformed then valid-last
-    f2, ok2 = review_merge.parse_codereview_result(f"```json\n[broken\n```\n```json\n{real}\n```")
-    assert ok2 and len(f2) == 1
+    assert review_merge.merge_codereview_angles([CLEAN, CLEAN]) == []
 
 
 def test_coerce_range_rejects_bool_elements():
@@ -414,71 +351,6 @@ def test_coerce_range_rejects_bool_elements():
     assert review_merge._coerce_range(["a", "b"], None) == (0, 0)
     assert review_merge._coerce_range([3, 5], None) == (3, 5)
     assert review_merge._coerce_range(None, True) == (0, 0)  # bool line too
-
-
-def test_parse_no_cross_tag_shadow_and_ignores_stray_arrays():
-    """Round-3 finding: an empty ```json fence must NOT shadow real findings in an
-    untagged fence, and a stray non-dict array must not be mistaken for the answer —
-    selection is last-array-WITH-FINDINGS, across all fences regardless of tag."""
-    real = '[{"file":"x.py","line_range":[3,3],"summary":"real","verdict":"structural"}]'
-    # empty ```json fence + real findings in an UNTAGGED fence → real survives
-    cross = f"```json\n[]\n```\nand the actual findings:\n```\n{real}\n```"
-    f1, ok1 = review_merge.parse_codereview_result(cross)
-    assert ok1 and len(f1) == 1 and f1[0]["summary"] == "real", (
-        "an empty json-tagged fence must not shadow untagged real findings"
-    )
-    # real findings followed by a stray non-dict array (a code example) → real survives
-    stray = f"```json\n{real}\n```\nexample list:\n```json\n[1, 2, 3]\n```"
-    f2, ok2 = review_merge.parse_codereview_result(stray)
-    assert ok2 and len(f2) == 1 and f2[0]["summary"] == "real", (
-        "a trailing stray non-dict array must not suppress the real findings"
-    )
-
-
-# ---------- Phase 1: parse fail-closed (Task 1.1 – 1.3) ----------
-
-
-def test_array_shape_classification():
-    """_array_shape classifies lists as empty / findings / ambiguous."""
-    assert review_merge._array_shape([]) == "empty"
-    assert review_merge._array_shape([{"x": 1}]) == "findings"
-    assert review_merge._array_shape([1, 2, 3]) == "ambiguous"      # all-non-dict
-    assert review_merge._array_shape([[{"x": 1}]]) == "ambiguous"   # nested list, dicts at depth 2
-    # a mixed list with at least one dict at depth 1 → findings win
-    assert review_merge._array_shape([1, {"x": 1}]) == "findings"
-
-
-def test_parse_codereview_result_fail_closed():
-    """parse_codereview_result closes the three parse holes via _array_shape."""
-    # Hole 1: nested [[{...}]] — dicts at depth 2, none at depth 1 → ([], False)
-    nested = '```json\n[[{"file":"a.py","verdict":"structural","summary":"s","line_range":[1,1]}]]\n```'
-    f, ok = review_merge.parse_codereview_result(nested)
-    assert f == [] and ok is False, f"nested array must be unparseable (blocks); got ok={ok}"
-
-    # Hole 2: all-non-dict [1,2,3] alone → ([], False) (ambiguous → blocks)
-    all_int = '```json\n[1,2,3]\n```'
-    f, ok = review_merge.parse_codereview_result(all_int)
-    assert f == [] and ok is False, f"all-non-dict alone must block; got ok={ok}"
-
-    # literal [] → ([], True) — the ONLY genuine clean signal
-    clean = '```json\n[]\n```'
-    f, ok = review_merge.parse_codereview_result(clean)
-    assert f == [] and ok is True, "empty array must be genuinely clean"
-
-    # [1,2,3] fence AND a real findings fence in the same reply → findings win, ok=True
-    mixed = (
-        '```json\n[1,2,3]\n```\n'
-        '```json\n[{"file":"x.py","verdict":"structural","summary":"bug","line_range":[1,1]}]\n```'
-    )
-    f, ok = review_merge.parse_codereview_result(mixed)
-    assert ok is True and len(f) == 1, f"findings fence must win over ambiguous; got ok={ok}, f={f}"
-
-    # two findings arrays (union case) → both dicts returned, ok=True (no regression)
-    real1 = '{"file":"a.py","verdict":"structural","summary":"bug1","line_range":[1,1]}'
-    real2 = '{"file":"b.py","verdict":"minor","summary":"nit","line_range":[2,2]}'
-    union = f'```json\n[{real1}]\n```\n```json\n[{real2}]\n```'
-    f, ok = review_merge.parse_codereview_result(union)
-    assert ok is True and len(f) == 2, f"union of two findings arrays must return both; got {len(f)}"
 
 
 def test_merge_codereview_angles_no_angles_blocks():
@@ -494,8 +366,7 @@ def test_merge_codereview_angles_no_angles_blocks():
         assert "no-angles" in sentinel.get("file", "")
 
     # non-empty per-angle path is UNCHANGED (one clean angle → [])
-    clean_angle = "```json\n[]\n```"
-    result = review_merge.merge_codereview_angles([clean_angle])
+    result = review_merge.merge_codereview_angles([CLEAN])
     assert result == [], f"a single clean angle must return []; got {result}"
 
 

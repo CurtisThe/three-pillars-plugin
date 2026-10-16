@@ -52,7 +52,8 @@ def setup_collision(tmp_path, bump_preamble: bool, ours_extra="", theirs_extra="
     commit(repo, "base")
     git(repo, "checkout", "-q", "-b", "design")
     od = "2026-05-10" if bump_preamble else "2026-05-01"
-    write(repo, KI, PRE.format(date=od) + head
+    under = "A second preamble line.\n" if bump_preamble else ""   # a date-only region is mechanical
+    write(repo, KI, PRE.format(date=od).replace("*\n", "*\n" + under, 1) + head
           + ours_extra + "- **2026-05-09** — ours unique entry\n  ours body\n" + theirs_extra)
     commit(repo, "ours")
     git(repo, "checkout", "-q", "master")
@@ -112,6 +113,77 @@ def test_non_living_doc_conflict_is_deferred(tmp_path):
     report = merge_back(str(repo), "master")
     assert "code.py" in report.deferred
     assert report.needs_human
+
+
+ARCHIVE = "three-pillars-docs/product_roadmap_archive.md"
+ARCH_ARCH = "three-pillars-docs/architecture_archive.md"
+
+
+def test_archive_living_docs_are_on_the_lane():
+    """Step 2 of the seed: `*_archive.md` and `known_issues_resolved.md` are append-only living docs.
+    The framework already treats all three this way in its other subsystems (see
+    `test_archive_exemptions.py`: same size-exempt / frozen / writable-on-seat governance class); this
+    pins that the merge driver's lane agrees — each archive is auto-resolvable, and the frozen
+    `completed-tp-designs/` tree (a different thing entirely) stays out of the lane."""
+    from auto_safe_resolution import is_auto_safe_path
+    for rel in (ARCHIVE, ARCH_ARCH, "three-pillars-docs/known_issues_resolved.md"):
+        assert is_auto_safe_path(rel) is True, rel
+    assert is_auto_safe_path("three-pillars-docs/completed-tp-designs/some-slug/design.md") is False
+
+
+def test_product_roadmap_archive_is_a_living_doc_and_auto_resolves(tmp_path):
+    """`product_roadmap_archive.md` is an append-only living doc (step 2 of the seed). It is on the
+    AUTO-SAFE lane, so a real base-sync shape — both sides inserting keyed slug bullets into the
+    `Recent completions` list — is resolved mechanically, verified zero-drop, and staged, rather than
+    deferred as a non-living doc. The following bullet is the `_ends_at_boundary` line that makes the
+    hunk a `log-entry-insertion` (keep-both) rather than generic prose — the same shape the real
+    #191 sync produced, whose two archive hunks the driver now clears to `auto-resolved`."""
+    from auto_safe_resolution import is_auto_safe_path
+    assert is_auto_safe_path(ARCHIVE) is True   # it is on the mechanical lane
+    repo = make_repo(tmp_path)
+    head = "## Recent completions\n\n- **`older`** — Done — PR #170\n"
+    write(repo, ARCHIVE, head)
+    commit(repo, "base")
+    git(repo, "checkout", "-q", "-b", "design")
+    write(repo, ARCHIVE, head + "- **`design-slug`** — Done — PR #180 (2026-09-30), light class\n")
+    commit(repo, "ours")
+    git(repo, "checkout", "-q", "master")
+    write(repo, ARCHIVE, head + "- **`base-slug`** — Done — PR #181 (2026-09-30), light class\n")
+    commit(repo, "theirs")
+    git(repo, "checkout", "-q", "design")
+    report = merge_back(str(repo), "master")
+    assert ARCHIVE in report.auto_resolved, report.to_json()
+    assert ARCHIVE not in report.deferred
+    assert ARCHIVE not in report.partially_resolved
+    content = (repo / ARCHIVE).read_text(encoding="utf-8")
+    assert "<<<<<<<" not in content                       # no markers left
+    assert "design-slug" in content and "base-slug" in content   # zero-drop: both kept
+    unmerged = git(repo, "diff", "--name-only", "--diff-filter=U").stdout
+    assert ARCHIVE not in unmerged                        # staged
+
+
+def test_architecture_archive_history_is_a_living_doc_and_auto_resolves(tmp_path):
+    """`architecture_archive.md` is likewise an append-only living doc: its `## History` bullets use
+    the same dated log-entry shape as the live `architecture.md`, so a both-added dated-bullet
+    conflict resolves as `log-entry-insertion` (keep-both) instead of deferring as a non-living doc.
+    The following dated bullet is the `_ends_at_boundary` line that makes it a log insertion rather
+    than generic prose."""
+    repo = make_repo(tmp_path)
+    head = "## History\n\n- **2026-06-01** — `older-entry` implemented (light class)\n"
+    write(repo, ARCH_ARCH, head)
+    commit(repo, "base")
+    git(repo, "checkout", "-q", "-b", "design")
+    write(repo, ARCH_ARCH, head + "- **2026-06-05** — `design-entry` implemented (light class)\n")
+    commit(repo, "ours")
+    git(repo, "checkout", "-q", "master")
+    write(repo, ARCH_ARCH, head + "- **2026-06-06** — `base-entry` implemented (light class)\n")
+    commit(repo, "theirs")
+    git(repo, "checkout", "-q", "design")
+    report = merge_back(str(repo), "master")
+    assert ARCH_ARCH in report.auto_resolved, report.to_json()
+    content = (repo / ARCH_ARCH).read_text(encoding="utf-8")
+    assert "<<<<<<<" not in content
+    assert "design-entry" in content and "base-entry" in content
 
 
 def test_empty_but_present_file_is_not_misreported_as_add_delete(tmp_path):

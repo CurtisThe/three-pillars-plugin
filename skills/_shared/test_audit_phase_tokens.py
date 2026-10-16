@@ -58,31 +58,31 @@ def test_collaboration_enum_has_distinct_tokens_and_retains_audit() -> None:
 
 def test_design_audit_emits_distinct_token() -> None:
     text = DESIGN_AUDIT_SKILL.read_text(encoding="utf-8")
-    assert 'phase: "design-audit"' in text, (
+    assert 'phase: "design-audit"' in text, (  # tp-allow-fragile: lock.json phase token is an interface value consumers parse; the emitted literal is the contract
         "skills/tp-design-audit/SKILL.md must emit phase: \"design-audit\""
     )
 
 
 def test_implementation_audit_emits_distinct_token() -> None:
     text = IMPLEMENTATION_AUDIT_SKILL.read_text(encoding="utf-8")
-    assert 'phase: "implementation-audit"' in text, (
+    assert 'phase: "implementation-audit"' in text, (  # tp-allow-fragile: lock.json phase token is an interface value consumers parse; the emitted literal is the contract
         "skills/tp-implementation-audit/SKILL.md must emit phase: \"implementation-audit\""
     )
 
 
 def test_spike_results_emits_distinct_token() -> None:
     text = SPIKE_RESULTS_SKILL.read_text(encoding="utf-8")
-    assert 'phase: "spike-results"' in text, (
+    assert 'phase: "spike-results"' in text, (  # tp-allow-fragile: lock.json phase token is an interface value consumers parse; the emitted literal is the contract
         "skills/tp-spike-results/SKILL.md must emit phase: \"spike-results\""
     )
 
 
 def test_plan_audit_emits_both_mode_conditional_tokens() -> None:
     text = PLAN_AUDIT_SKILL.read_text(encoding="utf-8")
-    assert 'phase: "plan-audit"' in text, (
+    assert 'phase: "plan-audit"' in text, (  # tp-allow-fragile: lock.json phase token is an interface value consumers parse; the emitted literal is the contract
         "skills/tp-plan-audit/SKILL.md must emit phase: \"plan-audit\" for code-ladder mode"
     )
-    assert 'phase: "spike-plan-audit"' in text, (
+    assert 'phase: "spike-plan-audit"' in text, (  # tp-allow-fragile: lock.json phase token is an interface value consumers parse; the emitted literal is the contract
         "skills/tp-plan-audit/SKILL.md must emit phase: \"spike-plan-audit\" for --spike mode"
     )
 

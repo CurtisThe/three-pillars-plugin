@@ -204,23 +204,26 @@ _PREAMBLE_DATE_RE = re.compile(r"(\*Last updated:\s*)\d{4}-\d{2}-\d{2}", re.IGNO
 _DATE_MASK = "0000-00-00"
 
 
-def _mechanical_resolution(base, ours, theirs) -> "str | None":
+def _mechanical_resolution(base, ours, theirs, *, archives=None, path=None) -> "str | None":
     """Attempt a byte-deterministic mechanical merge of ONE conflicted path (M2 + F1).
 
-    Calls `resolve_conflict_bytes(base=…, ours=…, theirs=…)` **keyword-only** (F1: a positional
-    call raises `TypeError` by design). On RESOLVED, re-runs `verify.verify(ours, theirs, merged,
-    mechanical_applied=True)` FIRST — mirroring strict `_cond5_resolve`, which re-verifies even
-    after RESOLVED — and returns `None` unless the three-state verdict is `VERIFIED` (M2: the
-    byte-exact `continue` is never trusted without zero-drop). Both `DROPS_DETECTED` and
+    Calls `resolve_conflict_bytes(base=…, ours=…, theirs=…, path=…)` **keyword-only** (F1: a
+    positional call raises `TypeError` by design); `path` opens the design `decisions.md` union
+    lane and `None` leaves the byte path as it was. On RESOLVED, re-runs `verify.verify(ours,
+    theirs, merged, base=base, mechanical_applied=True)` FIRST — mirroring strict `_cond5_resolve`,
+    which re-verifies even after RESOLVED — and returns `None` unless the three-state verdict is
+    `VERIFIED` (M2: the byte-exact `continue` is never trusted without zero-drop). Both `DROPS_DETECTED` and
     `UNVERIFIABLE` are failures here: this lane DID apply a mechanical resolution, so parsing zero
     atoms means the shape is unknown to the verifier, not that nothing was lost. On DEFER, attempts
     the preamble-date upgrade (date-only divergence only) — itself a mechanical apply and so
     verified the same way — else `None` (genuine defer). Total; any exception → `None`."""
     try:
         import base_sync_cert as bsc
-        status, merged = bsc.resolve_conflict_bytes(base=base, ours=ours, theirs=theirs)
+        status, merged = bsc.resolve_conflict_bytes(base=base, ours=ours, theirs=theirs,
+                                                   path=path)
         if status == bsc.RESOLVED:
-            r = _verify.verify(ours, theirs, merged, mechanical_applied=True)
+            r = bsc.archive_moves.verify_with_moves(base, ours, theirs, merged,
+                                                    mechanical_applied=True, archives=archives)
             return None if not r.ok else merged
         # DEFER — the only mechanical win left is a date-only `*Last updated:*` divergence.
         masked_ours = _PREAMBLE_DATE_RE.sub(lambda m: m.group(1) + _DATE_MASK, ours)
@@ -231,7 +234,7 @@ def _mechanical_resolution(base, ours, theirs) -> "str | None":
         if new_date is None:
             return None                       # no History date to regenerate from → defer
         candidate = _PREAMBLE_DATE_RE.sub(lambda m: m.group(1) + new_date, ours)
-        r = _verify.verify(ours, theirs, candidate, mechanical_applied=True)
+        r = _verify.verify(ours, theirs, candidate, base=base, mechanical_applied=True)
         return None if not r.ok else candidate
     except Exception:
         return None
@@ -242,7 +245,7 @@ def _mechanical_resolution(base, ours, theirs) -> "str | None":
 # ============================================================
 
 
-def _relaxed_resolve(git, conflicts: dict, h1: str):
+def _relaxed_resolve(git, conflicts: dict, h1: str, *, sides=None):
     """Relaxed cond5 — replaces strict `_cond5_resolve`'s byte-exact hash gate. Returns
     `(reason, carry_paths)`: `reason` is "" on success with `carry_paths` a sorted list of the
     K hand-res carry files (empty if every conflict byte-matched a zero-drop-verified clean
@@ -277,7 +280,9 @@ def _relaxed_resolve(git, conflicts: dict, h1: str):
             return "undecodable (non-UTF-8) blob content", None
         except bsc._GitOpError:
             return "git error: cat-file blob failed", None
-        mech = _mechanical_resolution(base_txt, ours_txt, theirs_txt)   # M2/F1: zero-drop INSIDE
+        archives = bsc.archive_moves.seam_archives(git, path, sides)   # one loader per path
+        mech = _mechanical_resolution(base_txt, ours_txt, theirs_txt, archives=archives,
+                                      path=path)   # M2/F1: zero-drop INSIDE
         if mech is not None and committed_txt == mech:
             continue   # byte-exact to a zero-drop-verified mechanical merge → K unchanged
         # --- hand-resolution: the trust relaxation, fully guarded ---
@@ -297,7 +302,8 @@ def _relaxed_resolve(git, conflicts: dict, h1: str):
         # lane, where UNVERIFIABLE does fire, and the cross-module coverage test that catches the
         # NEXT drift at commit time rather than at merge time. Closing it needs a different
         # signal than "atoms parsed" and is out of scope for this design.
-        r = _verify.verify(ours_txt, theirs_txt, committed_txt, mechanical_applied=False)
+        r = bsc.archive_moves.verify_with_moves(base_txt, ours_txt, theirs_txt, committed_txt,
+                                                mechanical_applied=False, archives=archives)
         if not r.ok:
             return "zero-drop verifier detected a content drop", None
         carry_paths.add(path)
@@ -329,7 +335,7 @@ def certify_link_carry(repo_root, h0: str, h1: str, *, base_ref: str, run_git=No
         reason = bsc._cond4_containment(git, tree, conflicts, h1)
         if reason:
             return bsc.LinkCheck(False, reason, tuple(sorted(conflicts)))
-        reason, carry_paths = _relaxed_resolve(git, conflicts, h1)
+        reason, carry_paths = _relaxed_resolve(git, conflicts, h1, sides=(h0, p2))
         if reason:
             return bsc.LinkCheck(False, reason, tuple(sorted(conflicts)))
         return bsc.LinkCheck(True, "", tuple(carry_paths))

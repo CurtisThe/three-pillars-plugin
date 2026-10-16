@@ -22,15 +22,22 @@ Order:
      `records/` result (the orchestrator-written claims path a candidate never
      carries, so a candidate file with the same id covers nothing) gets an
      `unverified` entry (file `guard_claims`, reason `no-result`): a lost result
-     never drops a claim. `uncertified_phrases[]` += each hit with `matched is
-     False` (P5);
+     never drops a claim. `kept_ids` (certifier-lean B1, `fold --kept`) narrows that rule
+     to the ids a claim lint kept, so a lint-dropped id folds nowhere at all.
+     `uncertified_phrases[]` += each hit with `matched is False` (P5);
   5. verdict = combine_verdict(base, claim statuses + one "unverified" per
      counted hit). Status (N1/P4): `errored` / `handoff-pending` pass through
      for every folded verdict; otherwise status' = max(status, STATUS_FOR[verdict'])
      over pass < needs-work.
 
-One finding per `not-binding`/`false-red` claim (category `certification`) and
-per `unverified` claim or counted hit (category `certification-unverified`).
+One finding per `not-binding`/`false-red` claim and per `unverified` claim whose
+reasons are all claim-shape (`invalid:*`, `guard-is-subject`) — a note (category
+`certification-note`, severity `minor`), never the finalizer path. Every other
+`unverified` claim or counted hit keeps a `certification-unverified` finding.
+A claim-shape-only `unverified` claim also folds like `not-binding` for the verdict
+(never `unverified` — no record could bind a malformed claim), while its
+`certifications[]` entry keeps status `unverified`. Other note categories leave the
+folded verdict and status unchanged.
 """
 
 from __future__ import annotations
@@ -75,15 +82,40 @@ def _finding(category: str, description: str, fix: str) -> dict:
             "suggested_fix": fix}
 
 
+CLAIM_SHAPE_PREFIX = "invalid:"
+CLAIM_SHAPE_REASONS = ("guard-is-subject",)
+
+
+def _is_claim_shape(reason: str) -> bool:
+    return reason.startswith(CLAIM_SHAPE_PREFIX) or reason in CLAIM_SHAPE_REASONS
+
+
+def _all_claim_shape(reasons) -> bool:
+    """True when a non-empty reason list is entirely about a malformed claim."""
+    return bool(reasons) and all(_is_claim_shape(str(r)) for r in reasons)
+
+
+def _note(description: str, fix: str) -> dict:
+    finding = _finding("certification-note", description, fix)
+    finding["severity"] = "minor"
+    return finding
+
+
 def _claim_finding(file: str, claim: dict) -> dict | None:
     status = claim["status"]
-    reasons = ", ".join(claim.get("reasons") or []) or "none given"
+    raw_reasons = [str(r) for r in claim.get("reasons") or []]
+    reasons = ", ".join(raw_reasons) or "none given"
     where = f"{file} [cert:{claim['id']}]"
     if status in ("not-binding", "false-red"):
-        return _finding("certification", f"{where}: guard claim is {status} ({reasons}).",
-                        "Fix the guard so it goes red on the violating input and green "
-                        "on the correct one, or withdraw the claim.")
+        return _note(f"{where}: guard claim is {status} ({reasons}).",
+                     "Fix the guard so it goes red on the violating input and green "
+                     "on the correct one, or withdraw the claim.")
     if status == "unverified":
+        if _all_claim_shape(raw_reasons):
+            return _note(f"{where}: guard claim is unverified ({reasons}).",
+                         "The claim itself is malformed, so no record could bind it: fix "
+                         "the claim shape (guard path, subjects) and re-run "
+                         "certification, or withdraw the claim.")
         return _finding("certification-unverified",
                         f"{where}: guard claim is unverified ({reasons}).",
                         "Obtain a certifier record and re-run certification, or withdraw "
@@ -109,14 +141,21 @@ def folded_claims(res: dict, verdict_guards=None) -> list[dict]:
             if isinstance(c.get("guard"), str) and norm(c["guard"].partition("::")[0]) in guards]
 
 
-def uncovered_guard_claims(env: dict, certifications) -> list[str]:
-    """J1: envelope guard-claim ids no `records/` result certified (module docstring, step 4)."""
+def uncovered_guard_claims(env: dict, certifications, kept_ids=None) -> list[str]:
+    """J1: envelope guard-claim ids no `records/` result certified (module docstring, step 4).
+
+    `kept_ids` (certifier-lean B1) is the set of ids the claim lint kept for the design's
+    claims file: an envelope id outside it was dropped before any certifier ran, so it is
+    a PR note, never a `no-result` entry. None (no lint ran) keeps the rule whole."""
     covered = {c["id"] for c in certifications if str(c["file"]).startswith("records/")}
     ids = [c.get("id") if isinstance(c, dict) else None for c in env.get("guard_claims") or []]
+    if kept_ids is not None:
+        ids = [cid for cid in ids if cid in kept_ids]
     return [str(cid) for cid in ids if cid not in covered]  # an id-less claim is never covered
 
 
-def fold(env: dict, results: list[dict], hits: list[dict], verdict_guards=None) -> dict:
+def fold(env: dict, results: list[dict], hits: list[dict], verdict_guards=None,
+         kept_ids=None) -> dict:
     """Return the post-fold envelope; `env`, `results` and `hits` are not mutated."""
     out = copy.deepcopy(env)
     for key in STRIPPED:
@@ -146,12 +185,18 @@ def fold(env: dict, results: list[dict], hits: list[dict], verdict_guards=None) 
             certifications[(file, claim["id"])] = {
                 "file": file, "id": claim["id"], "status": claim["status"],
                 "reasons": list(claim.get("reasons") or [])}
-    for cid in uncovered_guard_claims(env, certifications.values()):
+    for cid in uncovered_guard_claims(env, certifications.values(), kept_ids):
         certifications[(GUARD_CLAIMS_FILE, cid)] = {
             "file": GUARD_CLAIMS_FILE, "id": cid, "status": "unverified", "reasons": [NO_RESULT]}
     statuses = []
     for entry in certifications.values():
-        statuses.append(entry["status"])
+        # a claim-shape-only `unverified` claim folds like `not-binding`: no record
+        # could bind a malformed claim, so the verdict never goes `unverified` (F2).
+        # The certification entry keeps the status it came back with.
+        if entry["status"] == "unverified" and _all_claim_shape(entry["reasons"]):
+            statuses.append("not-binding")
+        else:
+            statuses.append(entry["status"])
         finding = _claim_finding(entry["file"], entry)
         if finding:
             findings.append(finding)

@@ -29,7 +29,7 @@ The file starts with `# Decisions log — schema v1` on line 1. The current sche
 
 ### Initialization + append (canonical snippet)
 
-The first `--auto` skill invoked within a design directory creates the file with the schema-v1 header; subsequent invocations append. The init/append protocol is stdlib-only and should appear inline in each SKILL.md's `## Auto Mode` section (or be invoked from a thin `skills/_shared/auto_decisions.py` helper if a future change consolidates it):
+The first `--auto` skill invoked within a design directory creates the file with the schema-v1 header; subsequent invocations append. The init/append protocol is stdlib-only and should appear inline in each SKILL.md's `## Auto Mode` section (or be invoked from a thin helper under `skills/_shared/` if a future change consolidates it):
 
 ```python
 from pathlib import Path

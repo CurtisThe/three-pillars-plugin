@@ -6,19 +6,35 @@ reads them itself, preserving context isolation) and serializes the Round-1
 verdict dicts + Round-2 rebuttal dicts (including each challenged_finding_indices,
 F4) into the prompt text the synthesizer weighs.
 
-The synthesizer is dispatched as a general-purpose, read-only subagent (NO
-isolation="worktree", F8) and emits the existing audit-return.v1 envelope.
+The synthesizer is dispatched as a read-only `tp-readonly-auditor` subagent (Slot 8:
+`tp-impl-auditor`; NO isolation="worktree", F8) and emits the audit-return.v1 envelope.
 """
 
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 
 # Slots 4/6 carry the state-space map-check angle; its findings are tagged so the
 # orchestrator can exempt them from retry-with-advice (they go to the operator).
 MAP_CHECK_SLOTS = frozenset({"design-audit", "plan-audit"})
 MAP_CHECK_CATEGORY = "map-check"
+# Every finding's `severity` keys the audit-retry lows rule (run-throughput Part C:
+# `audit_retry_rules.lows_only` — all non-map-check findings `minor` → one patch, one re-audit).
+SEVERITIES = ("critical", "medium", "minor")
+# review-convergence 9.2: the three fields beside `severity` the orchestrator folds
+# downstream (a finding's locus + the run evidence behind it). One constant so the
+# brief and its test never drift.
+FIELD_REQUEST = ("Each finding also carries `file` (repo-relative path), `line` (an int, "
+                 "or null when no single line applies) and `run_failure` (the command or "
+                 "test plus the observed failure; an empty string when none) beside its "
+                 "`severity` (`" + "|".join(SEVERITIES) + "`).")
+
+# review-convergence 9.2: the Security block caps its rendered surfaces; the rest
+# are counted, never dropped silently.
+SECURITY_SURFACE_LIMIT = 40
 
 # Slots 4/8 return guard claims for Step 2b (skills/_shared/certification-protocol.md):
 # the synthesizer names claims only; the tp-certifier agent authors every RED/GREEN.
@@ -32,6 +48,99 @@ GUARD_CLAIM_KEYS = ("id", "guard", "property", "parameters", "subjects")
 CERT_PHRASE_EXAMPLES = ("the test binds", "the check is non-vacuous", "no test catches X",
                         "the new guard will catch it")
 
+# member_engine: "opus" (default, prompt unchanged) or "local" (members ran on local
+# models; the synthesizer adds its own gap pass and returns escape_dispositions[]).
+MEMBER_ENGINES = ("opus", "local")
+DISPOSITIONS = ("kept", "dropped", "downgraded", "opus-added")
+GAP_PASS_BRIEF = [
+    "",
+    "## Gap pass (members ran on local models)",
+    "The members above ran on a local model. Before you emit the envelope, do "
+    "your own pass over the artifacts under audit and add any real defect the "
+    "members missed.",
+    "Also return `escape_dispositions[]` alongside the audit-return.v1 fields "
+    "(the envelope is otherwise unchanged): one entry per member finding, plus "
+    "one per finding you add. Each item is `{from, disposition, defect_class?, "
+    "served?}`: `from` names the member (or `opus` for your own addition), "
+    "`disposition` is one of `" + "|".join(DISPOSITIONS) + "` (`opus-added` for "
+    "findings you add), `defect_class` is an optional short class label.",
+    "Where this prompt marks a member as Sonnet-served because the local slot "
+    "was busy, copy `served: \"sonnet-busy\"` onto every item from that member.",
+]
+
+
+def _shared_path() -> str:
+    """`skills/_shared` on sys.path (lazily, so importing this module stays cheap)."""
+    shared = str(Path(__file__).resolve().parents[2] / "_shared")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    return shared
+
+
+def _known_item_lines(design_dir) -> list[str]:
+    """The `## Known items (per-phase check)` block, or [] when nothing is carried.
+
+    review-convergence 9.2: the per-phase checks already found and carried these, so
+    the synthesizer must not re-raise one as a new find.
+    """
+    _shared_path()
+    import phase_check
+
+    items = phase_check.known_items(design_dir)
+    if not items:
+        return []
+    lines = [
+        "## Known items (per-phase check)",
+        "The per-phase checks found these and carried them forward, so they are "
+        "KNOWN, not new finds: do not re-raise one or count it against the verdict "
+        "unless it is still open in the code.",
+    ]
+    for item in items:
+        line = (f"- [phase {item.get('phase')}] {item.get('id')} "
+                f"{item.get('file')}:{item.get('line_range')} — "
+                f"{item.get('summary')} ({item.get('status')})")
+        if item.get("status") == "disputed" and item.get("reason"):
+            line += f" — disputed: {item['reason']}"
+        lines.append(line)
+    lines.append("")
+    return lines
+
+
+def _security_lines(repo, code_input, run_git) -> list[str]:
+    """The `## Security` block for a code-bearing (Slot-8) dispatch.
+
+    Names the repo's own brief (or the shipped checklist), the shared security bar,
+    the finding tag, and the trust-boundary surfaces of the whole design diff. A
+    failed git read fails CLOSED: every touched file is in scope.
+    """
+    _shared_path()
+    import trust_boundary
+
+    lines = [
+        "## Security",
+        f"Brief: read `{trust_boundary.brief_path(repo)}` yourself.",
+        trust_boundary.SECURITY_BAR,
+        'Mark the lens: security findings carry `category: "security"` exactly.',
+    ]
+    try:
+        found = trust_boundary.surfaces_for_range(
+            repo, code_input["base"], code_input["candidate"],
+            three_dot=True, run_git=run_git)
+    except trust_boundary.TrustBoundaryError as exc:
+        lines.append(f"- surfaces unavailable ({exc}): treat every touched file "
+                     "as in scope")
+        lines.append("")
+        return lines
+    if not found:
+        lines.append("- none flagged")
+    else:
+        for surface in found[:SECURITY_SURFACE_LIMIT]:
+            lines.append(f"- `{surface['surface']}` {surface['path']}:{surface['line']}")
+        if len(found) > SECURITY_SURFACE_LIMIT:
+            lines.append(f"- … ({len(found) - SECURITY_SURFACE_LIMIT} more)")
+    lines.append("")
+    return lines
+
 
 def build_synth_prompt(
     artifact_paths: list[str],
@@ -39,11 +148,33 @@ def build_synth_prompt(
     round2: list[dict] | None,
     slot: str,
     code_input: dict | None = None,
+    member_engine: str = "opus",
+    *,
+    busy_members=(),
+    capped_members=(),
+    design_dir=None,
+    repo=None,
+    run_git=None,
 ) -> str:
     """Assemble the synthesizer subagent prompt.
 
     round2 None ⇒ --fast-audit (Round-2 skipped). Returns prompt text; raises
     ValueError on empty round1 or member-set mismatch between round1 and round2.
+
+    ``capped_members`` names council members whose reply was cut off at the hard
+    limit (on either cheap engine); the prompt marks them so the synthesizer
+    copies ``capped: true`` onto their ``escape_dispositions[]`` items.
+
+    ``design_dir`` (review-convergence 9.2) is the in-flight design directory: its
+    ``phase-check-carry.json`` items render as a ``## Known items (per-phase check)``
+    block so the synthesizer treats them as carried, not re-discovered. ``None`` or an
+    empty carry ⇒ no block.
+
+    ``repo`` + ``run_git`` (review-convergence 9.2) add the ``## Security`` block to a
+    code-bearing dispatch: the repo's security brief (its ``SECURITY.md``, else the
+    shipped checklist), the shared security bar, and the trust-boundary surfaces of
+    ``base...candidate``. ``run_git`` is the test seam handed to ``trust_boundary``.
+    Either of ``repo`` / ``code_input`` being ``None`` ⇒ no block.
 
     ``code_input`` is the Slot-8-only (impl-audit) code addition: when not
     ``None`` it is ``{"base": <ref>, "candidate": <ref>, "touched_files":
@@ -55,6 +186,12 @@ def build_synth_prompt(
     ``code_input is None`` (every Slot-4/6 dispatch) no code section is added, but a
     ``GUARD_CLAIM_SLOTS`` slot (Slot 4 ``design-audit``) still gets its guard-claims line.
     """
+    if member_engine not in MEMBER_ENGINES:
+        raise ValueError(f"unknown member_engine {member_engine!r}; expected one of {MEMBER_ENGINES}")
+    busy_members = list(busy_members)
+    capped_members = list(capped_members)
+    if busy_members and member_engine != "local":
+        raise ValueError("busy_members requires member_engine='local'")
     if not round1:
         raise ValueError("round1 must be a non-empty list of Round-1 verdict dicts")
 
@@ -73,8 +210,9 @@ def build_synth_prompt(
         f"You are the SYNTHESIZER for the `{slot}` audit slot of the autonomous "
         "tp-run-full-design orchestrator."
     )
+    agent = "tp-impl-auditor" if slot == "impl-audit" else "tp-readonly-auditor"
     lines.append(
-        "You are a read-only, general-purpose subagent. Read the artifact paths "
+        f"You are a read-only `{agent}` subagent. Read the artifact paths "
         "below yourself; weigh the council deliberation; emit ONE fenced ```json "
         "block carrying the `audit-return.v1` envelope "
         "(schema tp-run-full-design/audit-return/v1)."
@@ -115,6 +253,12 @@ def build_synth_prompt(
         )
         lines.append("")
 
+    if repo is not None and code_input is not None:
+        lines.extend(_security_lines(repo, code_input, run_git))
+
+    if design_dir is not None:
+        lines.extend(_known_item_lines(design_dir))
+
     lines.append("## Round 1 — independent verdicts")
     lines.append(
         "Each finding already carries its per-finding `confidence`; carry it "
@@ -148,6 +292,13 @@ def build_synth_prompt(
         "from the confidence/verdict mix exactly as the standalone audit skill "
         "would, and emit the audit-return.v1 envelope."
     )
+    lines.append(
+        f"`severity` (`{'|'.join(SEVERITIES)}`) is REQUIRED on every finding, independent of "
+        "its `confidence`: `critical` blocks the artifact's purpose, `medium` is a real defect "
+        "a run or user would hit, `minor` is polish. A finding without it takes the full "
+        "retry loop (the orchestrator's lows rule treats it as not minor)."
+    )
+    lines.append(FIELD_REQUEST)
     if slot in MAP_CHECK_SLOTS:
         lines.append(
             "Map-check findings (the state-space Check-mode angle: a better locus or "
@@ -173,5 +324,14 @@ def build_synth_prompt(
             + ", ".join(f'"{e}"' for e in CERT_PHRASE_EXAMPLES)
             + " are all certifying phrases. Describe such a guard without that wording."
         )
+
+    if member_engine == "local":
+        lines.extend(GAP_PASS_BRIEF)
+        if busy_members:
+            lines.append("Sonnet-served (slot busy): " + ", ".join(busy_members))
+
+    if capped_members:
+        lines.append("Capped at the hard limit: " + ", ".join(capped_members)
+                     + ". Copy `capped: true` onto every escape_dispositions[] item from these members.")
 
     return "\n".join(lines)

@@ -104,6 +104,8 @@ Lock-aware skills run this before executing their main work:
    | Lock exists, `owner` or `branch` differs, `last_touched` ≤ 14 days old | Show owner/branch/phase/last_touched. Refuse unless `--force-takeover` was passed. |
    | Lock exists, `last_touched` > 14 days old | Warn that the lock looks stale, show its contents, ask whether to take over. |
 
+   **Orphan locks** — the orphan-lock gate (`detect_orphan_locks.py`, a `framework-check.sh` step) is dev-repo only and never ships. In your repo, `/tp-inflight` shows stale locks (the `⚠ stale` flag), and the stale-lock row above handles a takeover.
+
    **Takeover procedure** — copy the existing lock's `{owner, branch, acquired_at}` into `previous_owners[]` with a new `released_at: {now}`, then overwrite the top-level fields with the new holder's values and reset `acquired_at` to now.
 
    **In-flight remote collision check (additive)** — the local + `origin/{default-branch}` checks above only see locks that have landed on the default branch. In-flight locks live on `tp/*` branches and never touch the default branch, so they are invisible to those checks until PR-merge time. To close that gap, also consult the in-flight registry built from `origin/tp/*` branches via `skills/_shared/inflight_registry.py`:
@@ -174,8 +176,9 @@ Running a worktree-operating skill (tp-phase-implement, tp-spike-implement, tp-m
 tp-design-complete, and the worktree-management skill) from the **main checkout** while a
 `tp/<design>` worktree is live is unsupported and actively guarded. Two controls enforce this:
 
-1. **Fail-closed commit guard** — in the three-pillars dev repo, a pre-commit
-   hook calls `skills/_shared/worktree_write_guard.py` before every commit. If
+1. **Fail-closed commit guard** — in a user's repo, only when the commit
+   guard (`commit_guard.py`) is installed, its `pre-commit` hook calls
+   `skills/_shared/worktree_write_guard.py` before every commit. If
    the commit is on a default branch (`main`/`master`), a `tp/*` worktree is
    live, AND the staged set contains framework code or design artifacts, the
    commit is refused with guidance. This is the backstop control — it fires

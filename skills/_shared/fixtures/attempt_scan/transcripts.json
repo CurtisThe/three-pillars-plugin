@@ -1,0 +1,1991 @@
+{
+ "provenance": "Hand-built on the record shape of transcript_tail's tails.json fixture (Claude Code 2.1.283, model qwen3.8-27b-*). Each named list is one transcript, written as JSONL by the test into tmp_path, then passed to attempt_scan.scan().",
+ "cases": {
+  "identical_calls_total_4": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "same0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same0",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "diff0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff0",
+       "name": "Bash",
+       "input": {
+        "command": "echo 0"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "same1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same1",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "diff1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff1",
+       "name": "Bash",
+       "input": {
+        "command": "echo 1"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:07Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:08Z",
+    "message": {
+     "id": "same2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same2",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:09Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:10Z",
+    "message": {
+     "id": "diff2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff2",
+       "name": "Bash",
+       "input": {
+        "command": "echo 2"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:11Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:12Z",
+    "message": {
+     "id": "same3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same3",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:13Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same3",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:14Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "identical_calls_total_5": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "same0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same0",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "diff0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff0",
+       "name": "Bash",
+       "input": {
+        "command": "echo 0"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "same1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same1",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "diff1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff1",
+       "name": "Bash",
+       "input": {
+        "command": "echo 1"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:07Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:08Z",
+    "message": {
+     "id": "same2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same2",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:09Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:10Z",
+    "message": {
+     "id": "diff2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff2",
+       "name": "Bash",
+       "input": {
+        "command": "echo 2"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:11Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:12Z",
+    "message": {
+     "id": "same3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same3",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:13Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same3",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:14Z",
+    "message": {
+     "id": "diff3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_diff3",
+       "name": "Bash",
+       "input": {
+        "command": "echo 3"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:15Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_diff3",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:16Z",
+    "message": {
+     "id": "same4",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same4",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:17Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same4",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:18Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "identical_calls_row_2": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "same0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same0",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "same1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same1",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "identical_calls_row_3": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "same0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same0",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "same1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same1",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "same2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_same2",
+       "name": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_same2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "reverted_edit_1": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "edit0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit0",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/f.py",
+        "old_string": "A",
+        "new_string": "B"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "edit1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit1",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/f.py",
+        "old_string": "B",
+        "new_string": "A"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "reverted_edit_2": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "edit0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit0",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/f.py",
+        "old_string": "A",
+        "new_string": "B"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "edit1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit1",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/f.py",
+        "old_string": "B",
+        "new_string": "A"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "edit2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit2",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/f.py",
+        "old_string": "A",
+        "new_string": "B"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "same_test_red_4": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "run0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest0",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest0",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "edit0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit0",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b0"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "run1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest1",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest1",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "edit1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit1",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b1"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:07Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:08Z",
+    "message": {
+     "id": "run2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest2",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:09Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest2",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:10Z",
+    "message": {
+     "id": "edit2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit2",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b2"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:11Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:12Z",
+    "message": {
+     "id": "run3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest3",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:13Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest3",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:14Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "same_test_red_5": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "run0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest0",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest0",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "edit0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit0",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b0"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:03Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit0",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:04Z",
+    "message": {
+     "id": "run1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest1",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:05Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest1",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:06Z",
+    "message": {
+     "id": "edit1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit1",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b1"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:07Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit1",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:08Z",
+    "message": {
+     "id": "run2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest2",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:09Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest2",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:10Z",
+    "message": {
+     "id": "edit2",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit2",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b2"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:11Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit2",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:12Z",
+    "message": {
+     "id": "run3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest3",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:13Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest3",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:14Z",
+    "message": {
+     "id": "edit3",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit3",
+       "name": "Edit",
+       "input": {
+        "file_path": "/tmp/x.py",
+        "old_string": "a",
+        "new_string": "b3"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:15Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit3",
+       "content": "<scrubbed>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:16Z",
+    "message": {
+     "id": "run4",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "tool_use",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 50
+     },
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "pytest4",
+       "name": "Bash",
+       "input": {
+        "command": "python3 -m pytest x"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "timestamp": "2026-09-28T15:00:17Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "pytest4",
+       "content": "FAILED skills/_shared/test_x.py::test_thing - AssertionError"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:18Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "reasoning_tokens_23999": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "big",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 23999
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "<scrubbed reasoning>"
+      }
+     ]
+    }
+   }
+  ],
+  "reasoning_tokens_24000": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "big",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 24000
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "<scrubbed reasoning>"
+      }
+     ]
+    }
+   }
+  ],
+  "reasoning_toolfree_1": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "body0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": null,
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 100
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "thinking out loud 0"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "reasoning_toolfree_2": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "body0",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": null,
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 100
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "thinking out loud 0"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "id": "body1",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": null,
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 100
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "thinking out loud 1"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:02Z",
+    "message": {
+     "id": "final",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 20
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"claimed\": \"done\"}"
+      }
+     ]
+    }
+   }
+  ],
+  "split_multi_block": [
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:00Z",
+    "message": {
+     "id": "split",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": null,
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 10
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "part one "
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "timestamp": "2026-09-28T15:00:01Z",
+    "message": {
+     "id": "split",
+     "model": "qwen3.8-27b-240k",
+     "role": "assistant",
+     "stop_reason": "end_turn",
+     "usage": {
+      "input_tokens": 9000,
+      "output_tokens": 15
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "part two"
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

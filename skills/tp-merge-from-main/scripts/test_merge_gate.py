@@ -428,7 +428,9 @@ def test_require_merge_gate_pass_returns_outcome_on_pass():
     from merge_gate import require_merge_gate_pass
 
     pass_runners = _make_gate_runners_pass()
-    outcome = require_merge_gate_pass(PR_URL, runners=pass_runners)
+    # config={} pins the unconfigured trust arm (self login + extras), so the digest verdict
+    # never depends on the repo's own config naming a bot (review-proof-ambient-gh-identity 1.6).
+    outcome = require_merge_gate_pass(PR_URL, runners=pass_runners, config={})
     assert outcome.verdict == deterministic_gate.GateVerdict.PASS, (
         f"a PASS runners set must return a PASS outcome without raising; "
         f"got {outcome.verdict!r}"

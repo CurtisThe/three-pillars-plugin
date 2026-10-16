@@ -222,6 +222,12 @@ class _Outside(Sequence):
     def __init__(self, lines: tuple, lo: int, hi: int) -> None:
         self._lines, self._lo, self._hi = lines, lo, hi
 
+    @property
+    def whole(self) -> tuple:
+        """Every content line of the file, this region's own included: the ONE shared tuple, so a
+        per-file computation (`keyed_rows._file_keys`) can be done once and recognised by `is`."""
+        return self._lines
+
     def __len__(self) -> int:
         return len(self._lines) - (self._hi - self._lo)
 

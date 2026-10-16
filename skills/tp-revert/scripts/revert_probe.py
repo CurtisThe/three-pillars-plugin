@@ -4,7 +4,10 @@ Classify only; always exits 0; performs no writes.
 gh_fn injection seam for hermetic tests (pattern: merged_pr_number in
 reconcile_docs.py, derive_base_ref in diff_balloon_guard.py).
 
-CLI: revert_probe.py --repo . (--pr N | --sha SHA) [--base master] --json
+CLI: revert_probe.py --repo . (--pr N | --sha SHA) [--base BASE] --json
+
+`--base` defaults to the repo's resolved default branch (via
+`skills/_shared/default_branch.py`) when omitted.
 """
 
 from __future__ import annotations
@@ -16,6 +19,27 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# The shared default-branch resolver lives in skills/_shared; put it on
+# sys.path so a missing --base can delegate to it (same idiom used by
+# gc_residue_fetch.py and fleet_plan.py's _resolve_base).
+_HERE = Path(__file__).parent
+_SHARED = str(_HERE.parents[1] / "_shared")
+if _SHARED not in sys.path:
+    sys.path.insert(0, _SHARED)
+
+
+def _resolve_base(base: str | None, repo: str) -> str:
+    """`base` verbatim when set, else `repo`'s default branch via the shared
+    resolver, or `"master"` (today's value) on `DefaultBranchError` / import
+    failure — fail-open, never raise."""
+    if base:
+        return base
+    try:
+        from default_branch import resolve_default_branch
+        return resolve_default_branch(repo)
+    except Exception:
+        return "master"
 
 
 def _run(repo: str, *args: str) -> str:
@@ -59,8 +83,11 @@ class MergeTarget:
 
 
 def resolve_target(repo: str, pr: int | None = None, sha: str | None = None,
-                   base: str = "master", gh_fn=None) -> MergeTarget:
-    """Resolve --pr or --sha into a MergeTarget; error field set on failure."""
+                   base: str | None = None, gh_fn=None) -> MergeTarget:
+    """Resolve --pr or --sha into a MergeTarget; error field set on failure.
+
+    `base=None` resolves to `repo`'s default branch via `_resolve_base`."""
+    base = _resolve_base(base, repo)
     if gh_fn is None:
         gh_fn = lambda cmd, **kw: subprocess.run(cmd, **kw)
 
@@ -172,7 +199,9 @@ def main(argv: list[str] | None = None, gh_fn=None, runner=None) -> int:
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--pr", type=int)
     g.add_argument("--sha")
-    p.add_argument("--base", default="master")
+    p.add_argument("--base", default=None,
+                   help="Base branch name (default: the repo's resolved default "
+                        "branch, via skills/_shared/default_branch.py)")
     p.add_argument("--json", dest="json_out", action="store_true")
     args = p.parse_args(argv)
     repo = str(Path(args.repo).resolve())

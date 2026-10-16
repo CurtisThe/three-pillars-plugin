@@ -109,6 +109,25 @@ class TestCheckActionTable:
         assert result.action == "needs-prompt"
         assert result.config_updated is False
 
+    def test_github_com_origin_never_consults_the_resolver(self, tmp_path, monkeypatch):
+        """Task 1.8 — a github.com origin keeps every existing outcome and never
+        reaches the forge resolver for a probe."""
+        import github_auth_check
+
+        def forbidden(_repo):
+            raise AssertionError("github.com must not reach the forge resolver")
+
+        repo = _init_repo(tmp_path)  # https://github.com/Acme/widget.git
+        monkeypatch.setattr(github_auth_check.shutil, "which", lambda name: "/usr/bin/gh")
+        assert github_auth_check.check(repo, resolver=forbidden).action == "needs-prompt"
+        monkeypatch.setattr(github_auth_check.shutil, "which", lambda name: None)
+        assert github_auth_check.check(repo, resolver=forbidden).action == "skip-gh-missing"
+        monkeypatch.setattr(github_auth_check.shutil, "which", lambda name: "/usr/bin/gh")
+        decisions = tmp_path / "decisions.md"
+        result = github_auth_check.check(repo, auto=True, decisions_file=decisions,
+                                         resolver=forbidden)
+        assert result.action == "auto-skip"
+
     def test_module_importable(self):
         import github_auth_check  # noqa: F401
 

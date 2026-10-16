@@ -1,0 +1,43 @@
+{
+ "provenance": "Hand-written LOCAL-STATS v1 / client-reset lines for the attempt_watchdog breach rules; same shapes as fixtures/router_stats/router.log (local-llm-skills README \u00a7Router log contract). Agent ids are the 8-char router prefix; tests use a0000001-rest-of-id. The reset_* bundles (M48) follow a mid-response reset with the line shapes of the 2026-09-30 fragile-test-prevention router log: a healthy LOCAL-STATS (wall_s 222, the post-reset median), the hung backend's retry POST then stop_reason=error (wall_s 1800.11) or UPSTREAM-UNREACHABLE (timed out).",
+ "end_turn": [
+  "[2026-09-28 10:00:09] LOCAL-STATS v=1 sess=aaaa1111 agent=a0000001 model=qwen-local output_tokens=500 stop_reason=end_turn wall_s=20.00 clamped=0"
+ ],
+ "max_tokens": [
+  "[2026-09-28 10:00:09] LOCAL-STATS v=1 sess=aaaa1111 agent=a0000001 model=qwen-local output_tokens=24576 stop_reason=max_tokens wall_s=812.40 clamped=1"
+ ],
+ "max_tokens_other": [
+  "[2026-09-28 10:00:11] LOCAL-STATS v=1 sess=aaaa1111 agent=b0000002 model=qwen-local output_tokens=24576 stop_reason=max_tokens wall_s=812.40 clamped=1"
+ ],
+ "big_end_turn": [
+  "[2026-09-28 10:00:10] LOCAL-STATS v=1 sess=aaaa1111 agent=a0000001 model=qwen-local output_tokens=1000 stop_reason=end_turn wall_s=20.00 clamped=0"
+ ],
+ "mid_response_local": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local"
+ ],
+ "idle": [
+  "[2026-09-28 10:00:02] client-reset idle sess=aaaa1111 agent=a0000001 route=-"
+ ],
+ "reset_then_stats": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local",
+  "[2026-09-28 10:03:45] LOCAL-STATS v=1 sess=aaaa1111 agent=a0000001 model=qwen-local output_tokens=8498 stop_reason=tool_use wall_s=222.00 clamped=1"
+ ],
+ "reset_then_error": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local",
+  "[2026-09-28 10:00:11] POST /v1/messages  model=qwen-local  sess=aaaa1111  agent=a0000001  effort=medium  -> local (model resident) owner=aaaa1111  (54214B)",
+  "[2026-09-28 10:30:11] LOCAL-STATS v=1 sess=aaaa1111 agent=a0000001 model=qwen-local output_tokens=0 stop_reason=error wall_s=1800.11 clamped=1"
+ ],
+ "reset_then_unreachable": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local",
+  "[2026-09-28 10:00:11] POST /v1/messages  model=qwen-local  sess=aaaa1111  agent=a0000001  effort=medium  -> local (model resident) owner=aaaa1111  (54214B)",
+  "[2026-09-28 10:30:11] UPSTREAM-UNREACHABLE route=local sess=aaaa1111 agent=a0000001 (timed out)"
+ ],
+ "reset_then_request": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local",
+  "[2026-09-28 10:00:11] POST /v1/messages  model=qwen-local  sess=aaaa1111  agent=a0000001  effort=medium  -> local (model resident) owner=aaaa1111  (54214B)"
+ ],
+ "reset_then_other_agent": [
+  "[2026-09-28 10:00:03] client-reset mid-response sess=aaaa1111 agent=a0000001 route=local",
+  "[2026-09-28 10:00:30] LOCAL-STATS v=1 sess=aaaa1111 agent=b0000002 model=qwen-local output_tokens=300 stop_reason=tool_use wall_s=5.50 clamped=0"
+ ]
+}

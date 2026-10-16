@@ -18,6 +18,12 @@ silent pass is why `verify()` returns a three-state `VerifyResult` rather than a
 reports that a mechanical resolution was actually applied to the file (`mechanical_applied=True`)
 AND zero atoms were parsed; a deferred or hand-resolved prose file legitimately has no atoms and
 is not blocked.
+
+With a `base` (the merge base), `verify()` is a three-way check: the atoms `excused_atoms` names
+(a base atom one side retitled in place while the other left it alone, or one both sides lack)
+are skipped, because the zero-drop rule would otherwise read a one-side retitle as a drop. The
+changing side's NEW atoms are never excused, so they must still survive. `base=None` is the
+two-way check, unchanged.
 """
 from __future__ import annotations
 
@@ -41,6 +47,7 @@ from verify_atoms import (  # noqa: E402,F401
     _norm,
     atoms,
 )
+from verify_three_way import excused_atoms  # noqa: E402
 
 VERIFIED = "VERIFIED"
 DROPS_DETECTED = "DROPS_DETECTED"
@@ -69,6 +76,7 @@ class VerifyResult:
     post_atoms: int = 0
     ours_lines: int = 0
     theirs_lines: int = 0
+    excused: list = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -78,18 +86,27 @@ class VerifyResult:
         return self.ok
 
 
-def verify(ours: str, theirs: str, resolved: str, *, mechanical_applied: bool) -> VerifyResult:
+def verify(ours: str, theirs: str, resolved: str, *, base: str | None,
+           mechanical_applied: bool) -> VerifyResult:
     """Inventory ours∪theirs and assert each atom survives into `resolved`.
 
-    `mechanical_applied` is **keyword-only with no default**: an unmigrated positional call raises
-    `TypeError` at the call site rather than silently choosing a verdict policy (the same fail-loud
-    device `resolve_conflict_bytes` uses). Pass the per-file fact "the resolver actually applied a
+    `base` and `mechanical_applied` are **keyword-only with no default**: an unmigrated positional
+    call raises `TypeError` at the call site rather than silently choosing a verdict policy (the
+    same fail-loud device `resolve_conflict_bytes` uses). `base=None` is the two-way check; a text
+    is the merge base, and `excused_atoms(base, ours, theirs)` is then skipped (listed, in `pre`
+    order, in `VerifyResult.excused`). Pass the per-file fact "the resolver actually applied a
     mechanical resolution to this file" — an OR across the file's hunks.
+
+    `UNVERIFIABLE` keys on the atoms of ours and theirs themselves, not on what is left after the
+    excuse. `pre` stays an insertion-ordered dict, never a set, so `dropped` keeps document order
+    (ours' atoms first, then theirs-only ones).
     """
-    pre = {**atoms(ours), **atoms(theirs)}
+    union = {**atoms(ours), **atoms(theirs)}
+    skip = excused_atoms(base, ours, theirs) if base is not None else set()
+    pre = {k: v for k, v in union.items() if k not in skip}
     post = atoms(resolved)
     dropped = [k for k in pre if k not in post]
-    if mechanical_applied and not pre:
+    if mechanical_applied and not union:
         verdict = UNVERIFIABLE
     elif dropped:
         verdict = DROPS_DETECTED
@@ -97,13 +114,17 @@ def verify(ours: str, theirs: str, resolved: str, *, mechanical_applied: bool) -
         verdict = VERIFIED
     return VerifyResult(verdict=verdict, dropped=dropped, pre_atoms=len(pre),
                         post_atoms=len(post), ours_lines=_nonblank(ours),
-                        theirs_lines=_nonblank(theirs))
+                        theirs_lines=_nonblank(theirs), excused=[k for k in union if k in skip])
 
 
-def verify_paths(ours_p, theirs_p, resolved_p, *, mechanical_applied: bool) -> VerifyResult:
+def verify_paths(ours_p, theirs_p, resolved_p, *, mechanical_applied: bool,
+                 base_p=None) -> VerifyResult:
+    """`verify` over files. `base_p` is the merge base's path: given, the check is three-way;
+    `None` is the two-way check. An unreadable `base_p` raises like the other three paths do."""
     return verify(Path(ours_p).read_text(encoding="utf-8"),
                   Path(theirs_p).read_text(encoding="utf-8"),
                   Path(resolved_p).read_text(encoding="utf-8"),
+                  base=None if base_p is None else Path(base_p).read_text(encoding="utf-8"),
                   mechanical_applied=mechanical_applied)
 
 
@@ -133,10 +154,13 @@ def _main(argv: list[str]) -> int:
     ap.add_argument("--mechanical-applied", action="store_true",
                     help="the resolver actually applied a mechanical resolution to this file; "
                          "zero parsed atoms is then UNVERIFIABLE, not a pass")
+    ap.add_argument("--base", metavar="PATH",
+                    help="the merge base; a base atom one side retitled in place is then excused "
+                         "(three-way check). Omitted: the two-way check")
     args = ap.parse_args(argv)
     try:
         r = verify_paths(args.ours, args.theirs, args.resolved,
-                         mechanical_applied=args.mechanical_applied)
+                         mechanical_applied=args.mechanical_applied, base_p=args.base)
     except (OSError, UnicodeDecodeError) as e:
         # An unreadable/undecodable input is NOT "drops detected" (1) and NOT "unverifiable" (2) —
         # the verifier never ran. Distinct status so a caller cannot conflate the two.

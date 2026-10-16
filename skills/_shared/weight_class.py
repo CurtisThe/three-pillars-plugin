@@ -60,6 +60,25 @@ def read_class(design_dir: Path) -> tuple:
     return ("full", "default")
 
 
+def read_review_weight(design_dir: Path) -> tuple:
+    """Return ``(weight, source)`` — how much review a design carries.
+
+    A frontmatter ``review-weight`` naming a valid class wins
+    (``(value, "review-weight")``). Anything else — key absent, unknown value,
+    no design.md — falls back to ``read_class``, which fails safe to
+    ``("full", "default")`` (more review, never less).
+    """
+    design_md = Path(design_dir) / "design.md"
+    try:
+        text = design_md.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return read_class(design_dir)
+    weight = parse_frontmatter(text).get("review-weight")
+    if weight in VALID_CLASSES:
+        return (weight, "review-weight")
+    return read_class(design_dir)
+
+
 _AXIS_LEVELS = ("low", "medium", "high")
 
 
@@ -182,6 +201,9 @@ def main(argv=None) -> int:
     rd = sub.add_parser("read", help="print design.md's class and its source")
     rd.add_argument("design_dir")
 
+    rw = sub.add_parser("review-weight", help="print the review weight alone")
+    rw.add_argument("design_dir")
+
     chk = sub.add_parser("check", help="cross-artifact consistency findings")
     chk.add_argument("design_dir")
 
@@ -195,6 +217,10 @@ def main(argv=None) -> int:
     if args.command == "read":
         klass, source = read_class(Path(args.design_dir))
         print(f"{klass} ({source})")
+        return 0
+    if args.command == "review-weight":
+        weight, _ = read_review_weight(Path(args.design_dir))
+        print(weight)
         return 0
     findings = check_consistency(Path(args.design_dir))
     for finding in findings:

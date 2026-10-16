@@ -20,6 +20,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import loop_itest as it  # noqa: E402
+import evidence_complete  # noqa: E402
 import round_budget  # noqa: E402
 
 
@@ -104,8 +105,12 @@ def test_mismatched_state_refused(pr, tmp_path):
     wt1, wt2, base, head, loop = pr
     rd = _clean_round(loop, wt1, base, head)
     proc = loop.converge(rd, wt2, "--state", str(tmp_path / "elsewhere.json"))
-    assert proc.returncode == 2
+    # review-convergence 5.7 (pr-loop §D8): a bookkeeping refusal on a clean round whose
+    # evidence is in ends `evidence-complete` (exit 4), never converged and never seeded.
+    assert proc.returncode == evidence_complete.EXIT_EVIDENCE
     assert it.last_json(proc)["reason"] == "state-path-mismatch"
+    assert it.last_json(proc)["terminal"] == "evidence-complete"
+    assert it.last_json(proc)["converged"] is False
     assert not loop.state.exists() and not (tmp_path / "elsewhere.json").exists()
 
 
@@ -116,8 +121,9 @@ def test_round_two_absent_state_both_refuse_and_seed_nothing(pr):
     rd2 = _clean_round(loop, wt2, base, head)
     assert it.manifest(rd2)["round"] == 2
     conv = loop.converge(rd2, wt2)
-    assert conv.returncode == 2
+    assert conv.returncode == evidence_complete.EXIT_EVIDENCE  # §D8, as above
     assert it.last_json(conv)["reason"] == "state-bootstrapped-mid-loop"
+    assert it.last_json(conv)["terminal"] == "evidence-complete"
     rr = loop.run_round(rd2, wt1, it.tail_findings(rd2))
     assert rr.returncode == 2
     assert it.last_json(rr)["event_token"] == "state-bootstrapped-mid-loop"

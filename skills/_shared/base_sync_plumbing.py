@@ -1,5 +1,5 @@
 """base_sync_plumbing.py -- pure parsers for git plumbing output, split out of
-`base_sync_cert.py` (`CLAUDE.md` §File Size Limits: split by responsibility rather than grow a
+`base_sync_cert.py` (`skills/_shared/file-size-caps.md`: split by responsibility rather than grow a
 file past its cap).
 
 ONE responsibility: turn raw `git` plumbing stdout into structured values, or `None`. Nothing

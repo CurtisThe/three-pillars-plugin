@@ -1,7 +1,7 @@
 ---
 name: tp-pr-fix
 description: "One-shot PR-fix worker — classify review comments, gate by reviewer identity, generate ONE structural-fix commit per round, push, and label. Composes into the `tp-pr-iterate` loop or runs standalone."
-argument-hint: "{design} [--pr-url <url>] [--iteration N]"
+argument-hint: "{design} [--pr-url <url>] [--iteration N] [--cheap-tier[=ab]]"
 ---
 
 # tp-pr-fix — Single-Round Worker
@@ -33,6 +33,9 @@ Two callers:
 - `--iteration N` — the iteration index recorded in the envelope and the commit
   prefix. Defaults to `1` when invoked standalone; the loop driver passes its
   current counter.
+- `--cheap-tier[=ab]` (deprecated, always on) — the cheap-tier attempts at the step 3 and step 5 stubs
+  (`skills/_shared/cheap-dispatch.md`) run in every invocation, so the flag changes nothing.
+  The stubs pass `--cheap-tier <mode>`; `<mode>` is `on`.
 
 ## Prerequisites
 
@@ -54,8 +57,10 @@ Two callers:
 - The repo's `.three-pillars/config.json` is populated. The only config
   surface the worker honors today is **`pdw.comment_url_allowlist`** — extra
   netlocs (beyond `github.com` and the repo origin host) that reviewer comments
-  may reference. The `tp:do-not-merge-yet` label name and the
-  `claude-sonnet-4-6` model are hardcoded; there is no `pr_fix` config block.
+  may reference. The `tp:do-not-merge-yet` label name is hardcoded; the
+  classifier and fix-generation models come from `model_policy.py` roles
+  (`fix` default model `opus`, `classifier` default `sonnet`; override via
+  `models.fix` / `models.classifier`). There is no `pr_fix` config block.
 
 ## Run sequence
 
@@ -76,6 +81,10 @@ The dispatch is linear — no subcommands, one body.
 
 ### 2. First-pass classification (deterministic)
 
+First drop the explainer's own comments: `from skills._shared.explainer_marker
+import drop_marked`, and pass the comment list through `drop_marked` before
+`classify`, so the brief and rulings comments are never classified.
+
 Call `_shared/classifier_heuristic.py:classify(comment, diff_hunk)` for every
 comment. The heuristic returns `{"verdict": "structural"|"minor"|"unclear", "reason": ...}`
 from keyword + file-scope rules and never touches the network. Split into:
@@ -83,17 +92,23 @@ from keyword + file-scope rules and never touches the network. Split into:
 - **decided** — `verdict ∈ {"structural", "minor"}` from the heuristic.
 - **borderline** — `verdict == "unclear"` (the heuristic abstained).
 
-### 3. Borderline classification via Sonnet (Agent invocation)
+### 3. Borderline classification via the classifier judge (Agent invocation)
 
-For the borderline subset only, call the Sonnet judge — **this is the only
+For the borderline subset only, call the classifier judge — **this is the only
 LLM call in the round, and it lives in this prose, not in any helper**, per
 audit C1 (no `import anthropic` in helpers, no `subprocess.run(["claude", ...])`
 in helpers; the model invocation is one orchestration step the SKILL owns).
+
+<!-- cheap-tier:classifier_judge -->
+**Cheap-tier classifier (the loop is `skills/_shared/cheap-dispatch.md`).** Run `python3 "$TP_ROOT"/skills/_shared/cheap_tier_cli.py spec --slot classifier_judge --root . --cheap-tier <mode>`. A null rung means today's call below; today every run gets one, because the rung also needs a matching verdict file and a route (`skills/tp-run-full-design/cheap-tier.md` §Reach). Otherwise spawn `Agent(subagent_type=<spec.agent_ref>, model=<spec.model>, …)` with the same `build_prompt` text, to write one scratch file: its raw response.
+Check it with the `classifier_schema` oracle: `python3 "$TP_ROOT"/skills/_shared/cheap_oracle_run.py check --slot classifier_judge --artifact <A.json> --ctx <C.json>` (artifact `response`; ctx `borderline_ids`, the borderline comment ids). Only on `accept` does `parse_response` of that response become `classified_borderline`, and the call below is skipped. `escalate`, or any failure, runs today's `model_for("classifier")` call below unchanged. Record each attempt per the dispatch doc; under `ab`, run its pure-slot pair and use only today's call.
+<!-- /cheap-tier -->
 
 ```
 build_prompt  = scripts.classifier_judge.build_prompt(borderline, diff_context)
 response_text = Agent(
     subagent_type="general-purpose",
+    model=model_policy.model_for("classifier", config),
     prompt=build_prompt,
     description="classify-borderline-pr-comments",
 )
@@ -102,8 +117,9 @@ classified_borderline = scripts.classifier_judge.parse_response(response_text)
 
 `classifier_judge` lives under `tp-pr-iterate/scripts/` (built in Phase 5)
 and exposes ONLY prompt construction + schema-validated response parsing.
-The Sonnet model `claude-sonnet-4-6` is hardcoded in this prose; the
-`pdw.runner_backend.type` config field (currently constrained to `"claude"`)
+The model comes from the `classifier` role in `skills/_shared/model_policy.py`
+(default `sonnet`; override via `models.classifier` in `.three-pillars/config.json`);
+the `pdw.runner_backend.type` config field (currently constrained to `"claude"`)
 exists as the future routing seam — `local-run-auto-sessions` will broaden
 it. No environment variable selects the model today.
 
@@ -122,18 +138,25 @@ arguments downstream. URLs that survive are only followed when on the
 
 ### 5. Generate the fix
 
+<!-- cheap-tier:pr_fix_reproducer -->
+**Cheap-tier reproducer fix (the loop is `skills/_shared/cheap-dispatch.md`).** For each structural+gated finding that carries a `reproducer`, run `python3 "$TP_ROOT"/skills/_shared/cheap_tier_cli.py spec --slot pr_fix_reproducer --root . --cheap-tier <mode>`; a null rung means today's generation below. Otherwise write the finding to a scratch `<F.json>` and run `python3 "$TP_ROOT"/skills/tp-pr-fix/scripts/cheap_fix_cli.py scratch --repo . --head <PR head sha> --finding <F.json>`. It re-runs the reproducer on head in a detached scratch worktree under the gitignored `.tp-scratch/` (the dispatch doc's Scratch rule); `eligible: false` means today's generation.
+Else spawn `Agent(subagent_type=<spec.agent_ref>, model=<spec.model>, …)` to write one file, the fixed `<scratch>/<finding file>`, then run `python3 "$TP_ROOT"/skills/tp-pr-fix/scripts/cheap_fix_cli.py adopt --scratch <scratch> --fix-worktree . --finding <F.json>`. It first checks the fix worktree against the snapshot `scratch` took: a drafter write there escalates `drafter-wrote-live-tree`, and only those paths are undone. Then it checks the scope (only the finding's file and new test files; an existing test or a `conftest.py` escalates) and runs the `reproducer_fixed` oracle in the scratch: the reproducer must pass there, and so must pytest over the fix's own tests (never `ci.gate_command`). Then it removes the scratch. `accept` means its one diff is now in the working tree: skip today's generation for that finding. `escalate` runs today's `model_for("fix")` generation unchanged. Nothing here commits or pushes; step 6 does.
+Record each attempt per the dispatch doc. Under `ab` this site takes today's generation and logs `[cheap-tier] pr_fix_reproducer: ab has no shadow arm here`, because `adopt` applies its diff and so cannot run as a shadow.
+<!-- /cheap-tier -->
+
 For each structural+gated comment, the SKILL prose calls Agent() again to
 generate the actual file changes (one Agent invocation per comment or one
 combined call — the worker is flexible; the only contract is that the
 working tree contains all the proposed edits before `run_round` is invoked).
-Use `subagent_type="general-purpose"` **with `model="opus"` pinned explicitly**
-and brief the agent with: the comment, its diff hunk, the surrounding file
-contents, the injected `{project_context_block}`, and an instruction to ONLY
-modify files and not commit, push, or interact with `gh`. **Pin the model** —
-fix generation is implementation/write work (the tiered opus-by-default rule),
-and this dispatch can run standalone (outside the loop driver); without an
-explicit pin it would silently inherit whatever ambient model is in effect,
-including a stale local override.
+Use `subagent_type="general-purpose"` **with `model=model_policy.model_for("fix",
+config)` pinned explicitly** (default model `opus`; see `model_policy.py`) and brief
+the agent with: the comment, its diff hunk, the surrounding file contents, the
+injected `{project_context_block}`, and an instruction to ONLY modify files
+and not commit, push, or interact with `gh`. **Pin the model** — fix generation
+is implementation/write work (the tiered opus-by-default rule), and this
+dispatch can run standalone (outside the loop driver); without an explicit pin
+it would silently inherit whatever ambient model is in effect, including a
+stale local override.
 
 Fill `{project_context_block}` from `skills/_shared/project_context.py`
 (`load_context_block()`, resolved at `"$TP_ROOT"/skills/_shared/project_context.py`) so this write-capable fix worker matches the project's
@@ -224,9 +247,20 @@ prints the envelope's `verdict` and a one-line summary, then exits.
   and the human author share a `git log --format=%ce`, which breaks the
   "non-loop commit means human intervention" detector in `tp-pr-iterate`'s
   loop driver (Phase 5 Task 5.5).
-- **The label `tp:do-not-merge-yet` is applied every round.** Removing it is a
-  human action; the worker never removes it. Pair with `tp:needs-human-attention`
+- **The label `tp:do-not-merge-yet` is applied every round.** The worker never removes it;
+  the `tp-pr-iterate` loop removes it when it converges at two-stable (the fixes were
+  re-reviewed clean) and adds `tp:ready-for-human-merge`. Pair with `tp:needs-human-attention`
   on terminal cap-exhausted / convergence-failure transitions in the loop driver.
+
+## Structural-fix routing (fragility)
+
+Per `../_shared/test-fragility.md` and `../_shared/finding_fields.py`'s `FRAGILITY_CLASSES`, a
+finding whose `fragility_class` is `open-ended` or `blocklist` — or whose summary takes the
+"another input breaks it" form — routes step 5's fix generation to a **structural fix**: delete
+the assertion, build the missing input, add a structured field, derive the allowlist from the
+system's own registry, or write a property test. The fix commit names which kind it applied.
+Adding one more pattern, needle or list entry is **refused** as a fix for these findings; the
+Agent brief in step 5 carries this instruction alongside the comment and diff hunk.
 
 ## Standalone usage
 

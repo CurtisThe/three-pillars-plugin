@@ -51,8 +51,31 @@ and it now names WHICH KEYS it covers as well as what it permits (S-K2):
 |                              | identical to ours' tail (a re-run).     | else cross-side on BASE   |
 |                              |                                         | keys only, exact on the   |
 |                              |                                         | rest                      |
-| `log-entry-insertion`        | nothing — verbatim concatenation.       | exact, every key          |
+| `log-entry-insertion`        | emit ONCE the lines both blocks open or | cross-side on the shared  |
+|                              | close with (whole shared entries).      | prefix/suffix keys; exact |
+|                              |                                         | on every other key        |
 | `decision-entry-insertion`   | nothing — verbatim concatenation.       | exact, every key          |
+| `keyed-row-insertion`        | nothing — verbatim concatenation.       | exact, every key          |
+| `last-updated-preamble`      | two one-line sides become ONE line: the | cross-side on the one     |
+|                              | later one, or a union of the two        | `*Last updated:` key      |
+|                              | summaries (see below).                  | only                      |
+| `shaped-line-merge`          | per-line merge against BASE: a shaped   | BASE-AWARE: exact, but a  |
+|                              | base line a side changed or removed is  | let-go shaped base line   |
+|                              | let go; a shared add is placed once.    | and a shared add collapse |
+
+**`last-updated-preamble`** is the one class whose output may be a line NEITHER side wrote: when the
+two summaries differ the merge emits `*Last updated: <later date><later summary>; <other summary>*`.
+Every `*Last updated:` line keys on ONE constant, so the output must carry at least one such line
+(the cross-side `max` of two lines of one key is one); and `overproduced` exempts the result only
+when it is exactly one `LAST_UPDATED` line, so a second line or a different invented line is still
+reported.
+
+**`shaped-line-merge`** is the FIRST BASE-AWARE licence. A side's change to a base line makes the old
+line rightly absent from the output, so the count is `(C(ours) & C(theirs) & C(base)) + ((C(ours) -
+C(base)) | (C(theirs) - C(base)))`. Only a SHAPED base line (an ID or slug row, never a delimiter row,
+or a log bullet, by this module's own predicates) is let go; an unshaped one keeps exact `ours +
+theirs`, so `unplaceable` reports it and nothing here raises. The BASE-excluded rule above still holds
+for every OTHER class: no other label reads base.
 
 **"Cross-side"** is `max(ours_count, theirs_count)`, and it is the precise statement of the two
 collapsing licences (S-J4). `append-only-log` exists to fold a re-run that appended the SAME entry
@@ -111,6 +134,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from conflict_parse import (  # noqa: E402
     Hunk, MARK_BASE, MARK_CLOSE, MARK_OPEN, MARK_SEP,
 )
+from keyed_classes import LAST_UPDATED  # noqa: E402
+from line_shapes import LOG_ENTRY  # noqa: E402
 
 ID_HEADING = re.compile(r"^### ([A-Z])(\d+):")
 # `[0-9]`, not `\d` (m-M1) — m-L1's defect moved one question along. m-L1 reconciled the two lanes
@@ -123,6 +148,7 @@ ID_HEADING = re.compile(r"^### ([A-Z])(\d+):")
 # collapsible. (Widening the ORACLE instead makes it a ROW theirs' replaces wholesale — both
 # collapse, that one discards more.) `classify.INV_ROW`, `resolve_inventory`'s row-ID oracle, agrees.
 INV_ROW = re.compile(r"^\|\s*([A-Z][0-9]+)\s*\|")
+SLUG_ROW = re.compile(r"^\|\s*`([a-z0-9][a-z0-9-]*)`")   # | `slug` | ...  (own copy; shaped-line-merge)
 DELIM_CELL = re.compile(r"^:?-+:?$")
 MARKERS = (MARK_OPEN, MARK_BASE, MARK_SEP, MARK_CLOSE)
 
@@ -235,6 +261,16 @@ def _row_key(line: str) -> str:
     return f"<row {m.group(1)}>" if m else line
 
 
+LAST_UPDATED_KEY = "<last-updated>"
+
+
+def _last_updated_key(line: str) -> str:
+    """Every `*Last updated:` line keys on ONE constant: the class emits one line for its two
+    one-line sides (the later, or a union of both summaries), so a key on the text would see a
+    drop. Any other line keys on itself."""
+    return LAST_UPDATED_KEY if line.startswith("*Last updated:") else line
+
+
 def _is_delimiter_row(line: str) -> bool:
     """`| --- | --- |` — a markdown table's delimiter row: every cell is dashes, optionally
     colon-aligned, and nothing else. `|||||||` has no cells and is not one."""
@@ -274,15 +310,42 @@ def key_for(label: str, renumbered: dict[str, str] | None = None):
         return _renumber_key(renumbered or {})
     if label == "design-inventory-row-merge":
         return _row_key
+    if label == "last-updated-preamble":
+        return _last_updated_key
     return lambda line: line
 
 
-# The ONLY two classes licensed to emit FEWER copies of a key than they were handed, and the
+# The ONLY four classes licensed to emit FEWER copies of a key than they were handed, and the
 # only form that licence takes: `max(ours, theirs)` — a duplicate ACROSS the two sides may
 # collapse, a duplicate WITHIN one side may not. Named explicitly rather than left implicit in a
 # `set()` comparison, because that implicitness is what hid S-J3 and S-J4. Every other class —
 # including any class added later, which is not in this set — is held to exact multiplicity.
-CROSS_SIDE_DEDUPE = frozenset({"append-only-log", "design-inventory-row-merge"})
+CROSS_SIDE_DEDUPE = frozenset(
+    {"append-only-log", "design-inventory-row-merge", "last-updated-preamble",
+     "log-entry-insertion"})
+
+
+def shared_entry_affix(h: Hunk) -> tuple[int, int]:
+    """`(k, m)`: ours and theirs both START with the same `k` lines and both END with the same `m`
+    lines (`k + m` fits inside the shorter side), each cut at an entry boundary so the affix is
+    whole log entries: the line after the prefix is a `LOG_ENTRY` start (or the side's end) on
+    BOTH sides, and the suffix's first line is one. A body line two sides share only by
+    coincidence (`  Approved-by: operator` under two distinct entries) is never an affix.
+    `resolvers.resolve_log_entry_insertion` emits exactly these lines once."""
+    ours, theirs = list(h.ours), list(h.theirs)
+    limit = min(len(ours), len(theirs))
+    k = 0
+    while k < limit and ours[k] == theirs[k]:
+        k += 1
+    while k and not all(i == len(side) or LOG_ENTRY.match(side[i])
+                        for side, i in ((ours, k), (theirs, k))):
+        k -= 1
+    m = 0
+    while m < limit - k and ours[-1 - m] == theirs[-1 - m]:
+        m += 1
+    while m and not LOG_ENTRY.match(ours[-m]):
+        m -= 1
+    return k, m
 
 
 def licensed_keys(h: Hunk, key, label: str) -> frozenset[str] | None:
@@ -303,13 +366,33 @@ def licensed_keys(h: Hunk, key, label: str) -> frozenset[str] | None:
         rows = {key(line) for line in sides if INV_ROW.match(line)}
         frame = table_frame_lines(list(h.ours)) | table_frame_lines(list(h.theirs))
         return frozenset(rows | {key(line) for line in frame})
+    if label == "last-updated-preamble":
+        return frozenset({LAST_UPDATED_KEY})       # the one key, and nothing else
+    if label == "log-entry-insertion":
+        k, m = shared_entry_affix(h)          # the whole shared entries, emitted once
+        ours = list(h.ours)
+        return frozenset(key(line) for line in ours[:k] + ours[len(ours) - m:])
     return frozenset()
+
+
+def _is_shaped_line(line: str) -> bool:
+    """An ID row, a slug row or a log bullet, never a delimiter row: `shaped-line-merge`'s shape set,
+    read here independently (this module must not import `shaped_merge`)."""
+    return not _is_delimiter_row(line) and bool(
+        INV_ROW.match(line) or SLUG_ROW.match(line) or LOG_ENTRY.match(line))
 
 
 def required_counts(h: Hunk, key, label: str) -> Counter:
     """How many lines of each key the output must carry, per the licence table's `counts` column."""
     ours = Counter(key(line) for line in h.ours)
     theirs = Counter(key(line) for line in h.theirs)
+    if label == "shaped-line-merge":
+        base = Counter(key(line) for line in h.base)
+        counts = (ours & theirs & base) + ((ours - base) | (theirs - base))
+        for line in h.base:
+            if not _is_shaped_line(line):           # a base line the licence cannot name: exact
+                counts[key(line)] = ours[key(line)] + theirs[key(line)]
+        return counts
     if label not in CROSS_SIDE_DEDUPE:
         return ours + theirs
     covered = licensed_keys(h, key, label)
@@ -332,9 +415,12 @@ def overproduced(h: Hunk, label: str, out_lines: list[str]) -> list[str]:
     all, which is `unplaceable`'s job. `id-renumber-collision` is exempt because it is the only
     class licensed to REWRITE a line's text, so its output lines legitimately are not input lines;
     every other class is a pure rearrangement, base included (`append-only-log` re-emits the base
-    prefix, which is a prefix of both sides anyway).
+    prefix, which is a prefix of both sides anyway). `last-updated-preamble` may emit a union line
+    neither side wrote, so its result is exempt ONLY when it is exactly one `LAST_UPDATED` line.
     """
     if label == "id-renumber-collision":
+        return []
+    if label == "last-updated-preamble" and len(out_lines) == 1 and LAST_UPDATED.match(out_lines[0]):
         return []
     surplus = Counter(out_lines) - Counter(list(h.ours) + list(h.base) + list(h.theirs))
     return list(surplus.elements())

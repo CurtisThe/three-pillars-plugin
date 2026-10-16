@@ -103,11 +103,21 @@ if len(argv) >= 2 and argv[0] == "api" and "/reviews" in argv[1]:
     sys.exit(0)
 
 if argv[:2] == ["pr", "view"]:
-    print(json.dumps({{
+    payload = {{
         "url": PR_URL, "state": "OPEN", "mergeable": "MERGEABLE",
         "headRefOid": "0" * 40, "baseRefName": "main",
         "statusCheckRollup": [], "commits": [],
-    }}))
+    }}
+    # Optional PR-state overlay: $GH_SHIM_PR_STATE names a JSON file whose
+    # headRefOid / baseRefName replace the canned ones (unset = unchanged).
+    state_file = os.environ.get("GH_SHIM_PR_STATE")
+    if state_file:
+        with open(state_file, encoding="utf-8") as fh:
+            overlay = json.load(fh)
+        for key in ("headRefOid", "baseRefName"):
+            if key in overlay:
+                payload[key] = overlay[key]
+    print(json.dumps(payload))
     sys.exit(0)
 
 if argv[:2] == ["pr", "create"]:
@@ -175,6 +185,7 @@ def build_foreign_repo(
     )
     if with_config:
         cfg: dict = {
+            "schema_version": 1,
             "ci": {"expects_github_checks": False},
             "review": {"expects_copilot": False},
         }
@@ -200,18 +211,26 @@ def build_foreign_repo(
         except TypeError:  # pragma: no cover — pre-3.12 tarfile without filter=
             tf.extractall(cache_root)  # nosec B202 — archive is this repo's own HEAD
 
-    # --- gh PATH shim ------------------------------------------------------
-    bin_dir.mkdir(parents=True)
+    write_gh_shim(bin_dir, login=gh_login)
+    return ForeignRepo(root=root, home=home, cache_root=cache_root, bin_dir=bin_dir)
+
+
+def write_gh_shim(bin_dir, *, login: str = "fixture-bot") -> Path:
+    """Write the executable ``gh`` PATH shim into ``bin_dir`` (created if absent).
+
+    Every call is appended to ``bin_dir/gh-calls.log``. ``pr view`` honours the
+    optional ``$GH_SHIM_PR_STATE`` overlay. Shared with the consumer fixture
+    (``consumer_repo.py`` imports it; never copies it).
+    """
+    bin_dir = Path(bin_dir)
+    bin_dir.mkdir(parents=True, exist_ok=True)
     shim = bin_dir / "gh"
     shim.write_text(
-        _GH_SHIM_TEMPLATE.format(
-            login=gh_login, log_path=str(bin_dir / "gh-calls.log")
-        ),
+        _GH_SHIM_TEMPLATE.format(login=login, log_path=str(bin_dir / "gh-calls.log")),
         encoding="utf-8",
     )
     shim.chmod(0o755)
-
-    return ForeignRepo(root=root, home=home, cache_root=cache_root, bin_dir=bin_dir)
+    return shim
 
 
 def env_for(fx: ForeignRepo, *, plugin_mode: bool) -> dict:
@@ -221,9 +240,12 @@ def env_for(fx: ForeignRepo, *, plugin_mode: bool) -> dict:
     shim intercepts before any real gh). ``plugin_mode=True`` adds
     ``CLAUDE_PLUGIN_ROOT=cache_root`` (resolve_root probe 1);
     ``plugin_mode=False`` strips it, forcing probe 3 through the fake HOME.
+    Ambient ``GH_TOKEN``/``GITHUB_TOKEN`` are dropped, so the shim's
+    ``[GH_TOKEN=set]`` marker only appears for a token the caller injected.
     ``os.environ`` itself is never mutated.
     """
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
     env["HOME"] = str(fx.home)
     env["PATH"] = f"{fx.bin_dir}{os.pathsep}{env.get('PATH', '')}"
     if plugin_mode:

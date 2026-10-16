@@ -20,6 +20,11 @@ sys.path.insert(0, str(HERE))
 import review_proof  # noqa: E402
 import review_merge  # noqa: E402
 
+_DEV_ROOT = Path(__file__).resolve().parents[3]
+_needs_dev_gitignore = pytest.mark.skipif(
+    not (_DEV_ROOT / "framework-check.sh").exists(),
+    reason="asserts on the dev repo's own .gitignore (dev-repo only)")
+
 
 # ============================================================
 # Task 1.4 — empty_diff_sentinel + format_proof_digest
@@ -153,6 +158,7 @@ def test_review_proof_c1_clean():
 # ============================================================
 
 
+@_needs_dev_gitignore
 def test_gitignore_ignores_review_proof():
     """Shipped .gitignore must contain the .three-pillars/review-proof/ pattern
     on its own line, with the comment on its own separate line above it.
@@ -188,6 +194,7 @@ def test_gitignore_ignores_review_proof():
     )
 
 
+@_needs_dev_gitignore
 def test_gitignore_check_ignore(tmp_path):
     """git check-ignore must match a path under .three-pillars/review-proof/."""
     import subprocess

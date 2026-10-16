@@ -25,7 +25,7 @@ _PR = "https://github.com/o/r/pull/1"
 
 
 def _angle(findings) -> str:
-    return "Notes.\n\n```json\n" + json.dumps(findings) + "\n```\n"
+    return json.dumps({"findings": findings}, indent=2) + "\n"
 
 
 def _carry_off_config(author="tp-bot") -> dict:
@@ -113,6 +113,7 @@ def test_post_failure_blocks(tmp_path):
     assert rc != 0
     result = json.loads(out.getvalue().strip().splitlines()[-1])
     assert result["converged"] is False
+    assert result["reason"] == "post-failed"
     assert not (tmp_path / "state.json").exists()  # blocked before seeding state
 
 

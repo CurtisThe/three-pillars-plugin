@@ -1,0 +1,10 @@
+[2026-09-28 10:05:48] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=399 stop_reason=tool_use wall_s=4.27 clamped=1
+[2026-09-28 10:05:54] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=413 stop_reason=tool_use wall_s=4.67 clamped=1
+[2026-09-28 10:05:56] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=240 stop_reason=tool_use wall_s=1.71 clamped=1
+[2026-09-28 10:05:58] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=387 stop_reason=tool_use wall_s=2.35 clamped=1
+[2026-09-28 10:06:00] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=235 stop_reason=tool_use wall_s=1.61 clamped=1
+[2026-09-28 10:06:03] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=290 stop_reason=tool_use wall_s=1.88 clamped=1
+[2026-09-28 10:06:05] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=250 stop_reason=tool_use wall_s=1.89 clamped=1
+[2026-09-28 10:06:08] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=294 stop_reason=tool_use wall_s=2.11 clamped=1
+[2026-09-28 10:06:13] LOCAL-STATS v=1 sess=5e550009 agent=a0000009 model=local-model output_tokens=438 stop_reason=tool_use wall_s=3.25 clamped=1
+[2026-09-28 10:06:14] client-reset mid-response sess=5e550009 agent=a0000009 route=local

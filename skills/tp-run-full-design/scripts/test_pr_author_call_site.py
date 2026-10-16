@@ -11,13 +11,18 @@ Run with: pytest skills/tp-run-full-design/scripts/test_pr_author_call_site.py -
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
 
 
 def _read() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
+    return skill_text.read_skill_text("tp-run-full-design")
 
 
 def _tier6_region() -> str:
@@ -29,36 +34,44 @@ def _tier6_region() -> str:
 
 
 def test_step2_invokes_chokepoint_with_autonomous_context() -> None:
-    """Tier 6 Step 2 must open the PR through github_pr_author.py create
+    """Tier 6 Step 2 must open the PR through forge.py pr-create
     --context autonomous, not a bare `gh pr create`.
 
-    RE-ANCHORED (shared-script-path-resolution): the call site no longer names
-    the chokepoint as a bare literal path — it resolves `github_pr_author.py`
-    through `resolve_script.py` into `$GHPA` (git-toplevel-first FREE _shared
-    resolution) and then invokes `python3 "$GHPA" create --context autonomous`.
-    The assertions pin that NEW contract: the resolve step, the GHPA capture,
-    and the create invocation with the right `--context` and `--` arg separator,
-    in that order."""
+    RE-ANCHORED (forge-interface 1.6): the call site resolves `forge.py`
+    through `resolve_script.py` into `$FORGE` (git-toplevel-first FREE _shared
+    resolution) and then invokes `python3 "$FORGE" pr-create --context
+    autonomous --`. forge.py hands a GitHub origin to github_pr_author.py
+    underneath. The assertions pin that contract: the resolve step, the FORGE
+    capture, and the pr-create invocation with the right `--context` and `--`
+    arg separator, in that order; and the compare-URL fallback goes through
+    `forge.py compare-url` (no hard-coded github.com literal)."""
     region = _tier6_region()
     # 1. The chokepoint is resolved through resolve_script.py, not hard-pathed.
     #    `resolve_script.py` lands in $RS via the git-toplevel-first snippet,
-    #    then github_pr_author.py is resolved through it into $GHPA.
+    #    then forge.py is resolved through it into $FORGE.
     assert 'resolve_script.py' in region, (
         "Tier 6 Step 2 must resolve the chokepoint through resolve_script.py"
     )
-    resolve_idx = region.find('GHPA="$(python3 "$RS" github_pr_author.py)"')
+    resolve_idx = region.find('FORGE="$(python3 "$RS" forge.py)"')
     assert resolve_idx != -1, (
-        "Tier 6 Step 2 must capture the resolved chokepoint path into $GHPA"
+        "Tier 6 Step 2 must capture the resolved forge.py path into $FORGE"
     )
     # 2. The resolved chokepoint is invoked with --context autonomous and the
     #    `--` positional-args separator, preserving the create semantics.
-    create_idx = region.find('python3 "$GHPA" create --context autonomous --')
+    create_idx = region.find('python3 "$FORGE" pr-create --context autonomous --')
     assert create_idx != -1, (
-        "Tier 6 Step 2 must invoke `python3 \"$GHPA\" create --context autonomous --`"
+        "Tier 6 Step 2 must invoke `python3 \"$FORGE\" pr-create --context autonomous --`"
     )
     # 3. Ordering: resolve the chokepoint BEFORE invoking it.
     assert resolve_idx < create_idx, (
-        "the $GHPA resolve must precede the create invocation"
+        "the $FORGE resolve must precede the pr-create invocation"
+    )
+    # 4. The fail-open compare URL comes from the forge, not a github.com literal.
+    assert "compare-url" in region, (
+        "Tier 6 fail-open must print the forge's own URL via `forge.py compare-url`"
+    )
+    assert "https://github.com/{owner}" not in _read(), (
+        "no hard-coded https://github.com/{owner}/{repo}/compare literal may remain"
     )
 
 

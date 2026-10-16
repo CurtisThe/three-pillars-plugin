@@ -9,7 +9,9 @@ so it can be exhaustively tested in both directions:
 ANY of six clauses hold:
   1. path under three-pillars-docs/completed-tp-designs/** or superseded-tp-designs/**;
   2. path under three-pillars-docs/tp-designs/** (in-flight, append-only design logs);
-  3. path is three-pillars-docs/known_issues_resolved.md;
+  3. path is a three-pillars-docs/ append-only archive
+     (known_issues_resolved.md, known_issues_archive.md, product_roadmap_archive.md,
+     architecture_archive.md);
   4. in_history (inside a `## …History…` H2 section) — caller-tracked;
   5. line is a date-prefixed history bullet (leading optional bullet + YYYY-MM-DD);
   6. in_fence (inside a fenced code block) — caller-tracked.
@@ -21,6 +23,12 @@ is the positive scan set the scanner iterates.
 stdlib-only: re. Reuses citation_liveness._in_history.
 
 design: invariant-citation-coherence
+
+Ships because citation_scan.py / citation_liveness.py import is_frozen as
+part of the invariant-cite scan, but that scan itself is a framework-dev
+helper (dev-repo only); no-op in user repos — its only meaningful caller,
+citation_liveness.run_citation_checks, is reached only from the dev-only
+invariant_check.py.
 """
 
 from __future__ import annotations
@@ -36,6 +44,7 @@ if str(_SHARED_DIR) not in sys.path:
 
 # Reuse the History-boundary predicate CODE — do NOT re-implement it.
 from citation_liveness import _in_history  # noqa: E402  (re-export for callers)
+from certify_issues import COLD_ISSUE_DOCS, LIVE_ISSUE_DOCS  # noqa: E402  (shared tuples)
 
 __all__ = ["is_frozen", "LIVE_GLOBS", "DATE_PREFIX_RE", "_in_history"]
 
@@ -48,7 +57,11 @@ DATE_PREFIX_RE = re.compile(r"^\s*[-*]?\s*\d{4}-\d{2}-\d{2}")
 _COMPLETED_PREFIX = "three-pillars-docs/completed-tp-designs/"
 _SUPERSEDED_PREFIX = "three-pillars-docs/superseded-tp-designs/"
 _TP_DESIGNS_PREFIX = "three-pillars-docs/tp-designs/"
-_KNOWN_ISSUES_RESOLVED = "three-pillars-docs/known_issues_resolved.md"
+_ARCHIVES = frozenset({
+    *COLD_ISSUE_DOCS,  # known_issues_resolved.md, known_issues_archive.md
+    "three-pillars-docs/product_roadmap_archive.md",
+    "three-pillars-docs/architecture_archive.md",
+})
 
 # The positive scan set — the live surfaces the number-cite scan walks. Living
 # History sections are excised by the in_history clause, not by the glob.
@@ -64,7 +77,7 @@ LIVE_GLOBS: tuple[str, ...] = (
     "skills/**/*.sh",
     "three-pillars-docs/architecture.md",
     "three-pillars-docs/product_roadmap.md",
-    "three-pillars-docs/known_issues.md",
+    *LIVE_ISSUE_DOCS,  # known_issues.md, known_issues_low.md (live ID docs)
 )
 
 
@@ -88,8 +101,8 @@ def is_frozen(rel_path: str, line: str, *, in_history: bool, in_fence: bool) -> 
     # Clause 2: in-flight tp-designs design logs (append-only).
     if p.startswith(_TP_DESIGNS_PREFIX):
         return True
-    # Clause 3: the resolved known-issues archive.
-    if p == _KNOWN_ISSUES_RESOLVED:
+    # Clause 3: the append-only doc archives.
+    if p in _ARCHIVES:
         return True
     # Clause 4: inside a `## …History…` section.
     if in_history:

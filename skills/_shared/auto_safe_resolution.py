@@ -65,18 +65,30 @@ _MERGE_SCRIPTS = _HERE.parent / "tp-merge-from-main" / "scripts"
 if str(_MERGE_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_MERGE_SCRIPTS))
 
+from decisions_union import union_decisions  # noqa: E402
 from resolve import resolve_file, RESOLVED, DEFER  # noqa: E402,F401
 
-# The exact-membership AUTO-SAFE set -- exactly merge_driver.DEFAULT_LIVING_DOCS' 5 paths. This is
+# The exact-membership AUTO-SAFE set -- exactly merge_driver.DEFAULT_LIVING_DOCS. This is
 # the set `base_sync_cert._cond3_allowlist` tests directly; the producer tests the WIDER
 # `is_auto_safe_path` instead. See the header + M20 -- the asymmetry is deliberate.
+#
+# `product_roadmap_archive.md` is an append-only living doc (its rows and `Recent completions`
+# bullets are the DONE rows rolled out of `product_roadmap.md`, and base-syncs keep inserting
+# keyed log-entry / slug bullets into it), so it earns the same AUTO-SAFE treatment as the
+# live roadmap. It is deliberately NOT a `decisions.md`-style extension of the lane: the lane
+# is an exact path list, and widening it here is a documented design choice (the seed's step 2:
+# `*_archive.md` / `known_issues_resolved.md` are append-only living docs too).
 # merge_driver imports THIS as DEFAULT_LIVING_DOCS once it refactors onto this module; a
 # single-definition-guard test pins the equality regardless of which side owns the literal.
 AUTO_SAFE_PATHS = frozenset({
     "three-pillars-docs/known_issues.md",
     "three-pillars-docs/known_issues_resolved.md",
+    "three-pillars-docs/known_issues_low.md",      # live Low issues (skill-context-diet D5b)
+    "three-pillars-docs/known_issues_archive.md",  # cold open-issue bodies (append-only)
     "three-pillars-docs/product_roadmap.md",
+    "three-pillars-docs/product_roadmap_archive.md",
     "three-pillars-docs/architecture.md",
+    "three-pillars-docs/architecture_archive.md",
     "three-pillars-docs/vision.md",
 })
 
@@ -230,7 +242,7 @@ def check_conflict_count(d: Diff3, parsed_hunks: int) -> None:
             f"{parsed_hunks} -- a region was not read whole, so the file is not trusted")
 
 
-def resolve_conflict_bytes(*, base: str, ours: str, theirs: str) -> tuple[str, str]:
+def resolve_conflict_bytes(*, base: str, ours: str, theirs: str, path=None) -> tuple[str, str]:
     """The byte-production path BOTH producer (`merge_driver`) and verifier (`base_sync_cert`,
     Phase 2) execute -- the single shared definition RME condition 5 certifies against. Scope note:
     what is shared here is the BYTES, not the admission predicate. Condition 3 decides *whether a
@@ -249,16 +261,22 @@ def resolve_conflict_bytes(*, base: str, ours: str, theirs: str) -> tuple[str, s
     call -- and hence any positional swap -- raises `TypeError` immediately at the call site
     rather than silently miscomputing.
 
-    A pure delegate to `resolve_conflict_bytes_detail` -- the RME-certified byte path and this
-    signature are UNCHANGED, so the producer/verifier byte-identity proof is untouched.
+    A pure delegate to `resolve_conflict_bytes_detail`, forwarding `path` (its docstring names the
+    one lane `path` opens); with `path=None` the certified byte path is UNCHANGED.
     """
-    status, merged, _mechanical = resolve_conflict_bytes_detail(base=base, ours=ours, theirs=theirs)
+    status, merged, _mechanical = resolve_conflict_bytes_detail(
+        base=base, ours=ours, theirs=theirs, path=path)
     return status, merged
 
 
-def resolve_conflict_bytes_detail(*, base: str, ours: str, theirs: str) -> tuple[str, str, bool]:
+def resolve_conflict_bytes_detail(
+        *, base: str, ours: str, theirs: str, path=None) -> tuple[str, str, bool]:
     """`resolve_conflict_bytes` plus the per-file fact "the verifier must NOT read zero atoms as a
     pass on this file".
+
+    `path` opens ONE lane: a design-dir `decisions.md` (`_DESIGN_DECISIONS_RE`, slug not `.`/`..`)
+    first tries `union_decisions`; text back is `(RESOLVED, text, True)` before diff3, None falls
+    through. Every other path, and `path=None`, takes the diff3 route unchanged.
 
     The third element is `any(r.status == RESOLVED for r in results) or not conflict.strip()` --
     a per-file **OR across the file's hunks**, not per-hunk, plus one narrow blank-input arm:
@@ -293,6 +311,11 @@ def resolve_conflict_bytes_detail(*, base: str, ours: str, theirs: str) -> tuple
     `verify.verify(..., mechanical_applied=<this fact>)` needs it to tell "I examined atoms and
     none were lost" from "I examined nothing".
     """
+    m = _DESIGN_DECISIONS_RE.fullmatch(path) if isinstance(path, str) else None
+    if m and m.group(1) not in (".", ".."):
+        union = union_decisions(base, ours, theirs)
+        if union is not None:
+            return RESOLVED, union, True
     d = _diff3_conflict(base=base, ours=ours, theirs=theirs)
     conflict = d.text
     status, lines, results = resolve_file(conflict, labels=d.labels)

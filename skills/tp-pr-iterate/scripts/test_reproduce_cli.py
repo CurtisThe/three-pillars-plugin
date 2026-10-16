@@ -48,7 +48,7 @@ def _finding(summary, repro, file="src/a.py"):
 
 
 def _reply(findings):
-    return "```json\n" + json.dumps(findings) + "\n```\n"
+    return "```json\n" + json.dumps({"findings": findings}) + "\n```\n"
 
 
 @pytest.fixture()
@@ -144,7 +144,9 @@ def test_outputs_findings_log_and_summary(setup, capsys):
     assert [f["verdict"] for f in findings] == ["minor", "minor"]
     lines = log.read_text(encoding="utf-8").splitlines()
     assert lines[0].startswith("[tp-pr-iterate/downgrade] round 2 not-reproduced src/a.py:1")
-    assert lines[1].startswith("[tp-pr-iterate/note] round 2 C src/a.py:2")
+    note_tokens = lines[1].split()
+    assert note_tokens[:4] == ["[tp-pr-iterate/note]", "round", "2", "C"]
+    assert "src/a.py:2" in note_tokens
     assert not _git(repo, "status", "--porcelain")
 
 

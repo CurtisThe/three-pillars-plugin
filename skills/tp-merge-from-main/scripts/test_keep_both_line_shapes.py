@@ -11,9 +11,15 @@ definition, with no carriage return inside a line.
 
 Every real-git case also runs its blobs with the allowlist lifted (`_lifted`), which reproduces
 the swallowed entry, so each fails without the fix.
+
+The design-dir decisions.md lane (basesync-three-way-verifier) unions pure appends before diff3, so
+on that path the real-git keep-both guard is checked with the lane off (`_lane_off`), and a second
+merge with the lane on pins the union (`_real_git_defers`).
 """
+import contextlib
 import os
 import sys
+from unittest import mock
 
 import pytest
 
@@ -25,6 +31,7 @@ from test_merge_driver import git  # noqa: E402
 from test_resolve_three_way import _merge  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "_shared"))
+import auto_safe_resolution  # noqa: E402
 from auto_safe_resolution import RESOLVED, deferred_hunk_reasons, resolve_conflict_bytes  # noqa: E402
 from living_doc_carry import _mechanical_resolution  # noqa: E402
 
@@ -41,13 +48,38 @@ def _lifted(monkeypatch):
     monkeypatch.setattr(classify, "keep_both_refusal", lambda side, entry: None)
 
 
+def _lane_off():
+    """The design-dir decisions.md lane switched off: its union is None, so diff3 alone decides."""
+    return mock.patch.object(auto_safe_resolution, "union_decisions", lambda *a, **k: None)
+
+
+def _real_git_defers(tmp_path, path, base, ours, theirs):
+    """The real-git leg of "defers". On the design-dir decisions.md path the lane would union a pure
+    append first, so the keep-both guard is checked with the lane off; a second merge in
+    `tmp_path/lane-on` then pins the lane: the union, byte for byte, or the same deferral."""
+    lane = auto_safe_resolution._DESIGN_DECISIONS_RE.fullmatch(path)
+    with _lane_off() if lane else contextlib.nullcontext():
+        repo, report = _merge(tmp_path, path, base, ours, theirs)
+    assert path not in report.auto_resolved and report.needs_human, report.to_json()
+    assert git(repo, "ls-files", "-u", "--", path).stdout.strip(), "must stay unmerged"
+    if not lane:
+        return
+    union = auto_safe_resolution.union_decisions(base, ours, theirs)
+    (tmp_path / "lane-on").mkdir()
+    repo, report = _merge(tmp_path / "lane-on", path, base, ours, theirs)
+    unmerged = git(repo, "ls-files", "-u", "--", path).stdout.strip()
+    if union is None:
+        assert path not in report.auto_resolved and unmerged, report.to_json()
+    else:
+        assert path in report.auto_resolved and not unmerged, report.to_json()
+        assert (repo / path).read_bytes() == union.encode("utf-8")
+
+
 def _defers_on_every_path(tmp_path, path, base, ours, theirs):
     assert deferred_hunk_reasons(base=base, ours=ours, theirs=theirs) == SEMANTIC
     assert resolve_conflict_bytes(base=base, ours=ours, theirs=theirs)[0] != RESOLVED
     assert _mechanical_resolution(base, ours, theirs) is None          # the carry lane
-    repo, report = _merge(tmp_path, path, base, ours, theirs)
-    assert path not in report.auto_resolved and report.needs_human, report.to_json()
-    assert git(repo, "ls-files", "-u", "--", path).stdout.strip(), "must stay unmerged"
+    _real_git_defers(tmp_path, path, base, ours, theirs)
 
 
 # ---- the reviewer's repros, on real git -----------------------------------------------------------

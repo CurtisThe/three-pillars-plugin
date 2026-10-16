@@ -233,3 +233,60 @@ class TestRenderRoster:
         combined = "\n".join(lines)
         assert "FAIL" in combined
         assert "human_approved" in combined
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: the stamp predicate's activation rule (default-OFF)
+# ---------------------------------------------------------------------------
+
+_STAMP_RUNNERS = {
+    "pr_state_fn": lambda url: {
+        "mergeable": "MERGEABLE",
+        "headRefOid": "deadbeef",
+        "statusCheckRollup": [],
+    },
+    "threads_fn": lambda url: [],
+}
+
+_STAMP_CONFIG = {
+    "review": {"expects_copilot": False, "require_human_approval": False},
+    "ci": {"expects_github_checks": False},
+}
+
+
+class TestStampActivation:
+    """The stamp predicate is ACTIVE only when required; its active path threads
+    the declared `ci.gate_command` into the refusal text (part B §H1)."""
+
+    def test_command_declared_no_stamp_fails_with_command(self, monkeypatch, tmp_path):
+        """With `ci.gate_command` declared and NO stamp, the predicate FAILs and its
+        detail contains the declared command string (the configured value).
+
+        We inject `stamp=None` (the key-present, stamp-absent case) so the active
+        branch evaluates hermetically and FAILs, with the refusal text naming the
+        declared command ("run make ci (or ... ci_gate_run.py)").
+        """
+        import gate_roster
+
+        monkeypatch.setattr(gate_roster, "find_project_root", lambda: tmp_path, raising=False)
+        from deterministic_gate import evaluate_gate
+
+        config = {
+            **_STAMP_CONFIG,
+            "ci": {"expects_github_checks": False, "gate_command": "make ci"},
+        }
+        runners = dict(_STAMP_RUNNERS)
+        runners["stamp"] = None
+        outcome = evaluate_gate(
+            "https://github.com/o/r/pull/1",
+            runners=runners,
+            config=config,
+        )
+        entry = next(e for e in outcome.roster if e.name == "ci_local_stamp")
+        assert entry.status == "FAIL", (
+            f"declared command + no stamp must FAIL ci_local_stamp; "
+            f"got {entry.status}: {entry.detail}"
+        )
+        assert "make ci" in entry.detail, (
+            f"FAIL detail must contain the declared command 'make ci'; got {entry.detail!r}"
+        )

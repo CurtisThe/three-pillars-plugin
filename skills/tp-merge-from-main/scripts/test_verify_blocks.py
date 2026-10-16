@@ -87,7 +87,7 @@ def test_a_heading_inside_a_body_cannot_orphan_the_tail():
             "tail content that matters\n")
     cut = full.replace("REAL_SECRET_LINE=keep-me\n", "")
     assert _de(full) != _de(cut)
-    assert verify(full, full, cut, mechanical_applied=True).verdict == DROPS_DETECTED
+    assert verify(full, full, cut, base=None, mechanical_applied=True).verdict == DROPS_DETECTED
 
 
 def test_collision_pair_with_sub_headings_stays_two_atoms():
@@ -98,7 +98,7 @@ def test_collision_pair_with_sub_headings_stays_two_atoms():
     theirs = "### [x] clip\n#### Decided\nkept finding 2\n"
     assert len(_de(ours + theirs)) == 2
     # ...and dropping one is now REPORTED.
-    r = verify(ours, theirs, ours, mechanical_applied=True)
+    r = verify(ours, theirs, ours, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED
     assert r.dropped == [("decision-entry", next(iter(_de(theirs))))]
 
@@ -138,7 +138,7 @@ def test_an_unclosed_fence_does_not_swallow_the_rest_of_the_file():
     # ...and the drop is now REPORTED rather than invisible.
     ours = "### [a] one\nbody\n```\n"
     theirs = "### [b] two\nmore\n"
-    r = verify(ours + theirs, theirs, ours, mechanical_applied=True)
+    r = verify(ours + theirs, theirs, ours, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED
 
 
@@ -200,7 +200,7 @@ def test_editing_a_fenced_example_IS_reported_as_a_drop():
     edited = _FENCED_EXAMPLES.replace("Example entry", "Reworded example") \
                              .replace("example row", "reworded row") \
                              .replace("example log", "reworded log")
-    r = verify(_FENCED_EXAMPLES, _FENCED_EXAMPLES, edited, mechanical_applied=True)
+    r = verify(_FENCED_EXAMPLES, _FENCED_EXAMPLES, edited, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED, r.verdict
     assert len(r.dropped) == 3, r.dropped
 
@@ -257,7 +257,7 @@ def test_marker_wrapped_entry_is_now_an_ACCEPTED_phantom_drop():
     theirs = "### [b] u\nbody theirs\n"
     resolved = ("<<<<<<< ours\n### [a] t\nbody ours\n=======\n### [b] u\nbody theirs\n"
                 ">>>>>>> theirs\n")
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert r.verdict == DROPS_DETECTED
     assert r.pre_atoms == 2
     # The atoms are not LOST — every dropped key is a decision-entry whose body gained marker
@@ -266,7 +266,7 @@ def test_marker_wrapped_entry_is_now_an_ACCEPTED_phantom_drop():
     # ... and the phantom disappears the moment the blob is marker-free, which is the only state
     # in which the driver ever stages a mechanical resolution.
     clean = "### [a] t\nbody ours\n### [b] u\nbody theirs\n"
-    assert verify(ours, theirs, clean, mechanical_applied=True).verdict == VERIFIED
+    assert verify(ours, theirs, clean, base=None, mechanical_applied=True).verdict == VERIFIED
 
 
 def test_diff3_base_marker_is_ordinary_content_too():
@@ -277,11 +277,11 @@ def test_diff3_base_marker_is_ordinary_content_too():
     theirs = "### [b] u\nbody theirs\n"
     resolved = ("<<<<<<< ours\n### [a] t\nbody ours\n||||||| base\n=======\n"
                 "### [b] u\nbody theirs\n>>>>>>> theirs\n")
-    assert verify(ours, theirs, resolved, mechanical_applied=True).verdict == DROPS_DETECTED
+    assert verify(ours, theirs, resolved, base=None, mechanical_applied=True).verdict == DROPS_DETECTED
     # And the diff3 base line is COVERED: deleting it alone is reported.
     text = "### [a] t\nbody\n||||||| base\ntail\n"
     assert verify(text, text, _drop_line(text, "||||||| base"),
-                  mechanical_applied=True).verdict == DROPS_DETECTED
+                  base=None, mechanical_applied=True).verdict == DROPS_DETECTED
 
 
 def test_no_line_is_eaten_before_a_body_is_digested():
@@ -314,7 +314,7 @@ def test_marker_shaped_body_content_is_not_silently_droppable():
     row = ("### [tp-plan] a decision\n| h | h |\n|||||||\nreal content\n"
            "### [tp-plan] next\nbody two\n")
     for text, needle in ((setext, "======="), (row, "|||||||"), (setext, "real content")):
-        r = verify(text, text, _drop_line(text, needle), mechanical_applied=True)
+        r = verify(text, text, _drop_line(text, needle), base=None, mechanical_applied=True)
         assert r.verdict == DROPS_DETECTED, (needle, r.verdict)
 
 
@@ -324,7 +324,7 @@ def test_an_unterminated_conflict_region_keeps_its_content():
     removed anywhere."""
     text = "### [a] t\n<<<<<<< ours\nours side\n=======\ntheirs side\n"
     assert verify(text, text, _drop_line(text, "======="),
-                  mechanical_applied=True).verdict == DROPS_DETECTED
+                  base=None, mechanical_applied=True).verdict == DROPS_DETECTED
 
 
 # ---- S-F1 (round 9): the region rule that replaced the unconditional strip, and its two holes --
@@ -338,7 +338,7 @@ def test_conflict_brackets_do_not_pair_across_an_entry_boundary():
     text = ADVERSARIAL["conflict-brackets-spanning-entries"]
     without = _drop_line(text, "=======")
     assert atoms(text) != atoms(without), "the `=======` left no trace in any signature"
-    assert verify(text, text, without, mechanical_applied=True).verdict == DROPS_DETECTED
+    assert verify(text, text, without, base=None, mechanical_applied=True).verdict == DROPS_DETECTED
 
 
 def test_prose_that_merely_illustrates_a_conflict_is_not_a_region():
@@ -350,7 +350,7 @@ def test_prose_that_merely_illustrates_a_conflict_is_not_a_region():
     whole reason the strip is gone rather than narrowed a fourth time."""
     text = ADVERSARIAL["coincidental-conflict-brackets-in-prose"]
     for needle in ("=======", "Some Section", "real tail that matters"):
-        r = verify(text, text, _drop_line(text, needle), mechanical_applied=True)
+        r = verify(text, text, _drop_line(text, needle), base=None, mechanical_applied=True)
         assert r.verdict == DROPS_DETECTED, (needle, r.verdict)
 
 
@@ -362,7 +362,7 @@ def test_pipe_in_tag_or_title_does_not_collide():
     one = "### [a|b] c\nbody\n"
     two = "### [a] b|c\nbody\n"
     assert len(_de(one + two)) == 2
-    assert verify(one, two, one, mechanical_applied=True).verdict == DROPS_DETECTED
+    assert verify(one, two, one, base=None, mechanical_applied=True).verdict == DROPS_DETECTED
 
 
 # ---- Minor: VerifyResult must fail closed in a bool context ----------------------------------

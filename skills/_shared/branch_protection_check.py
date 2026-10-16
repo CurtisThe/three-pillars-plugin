@@ -4,6 +4,11 @@ Handles the three programmable branches of the §Branch-protection detection flo
 
 - **no-origin silent skip**: `git remote get-url origin` fails → no prompt, no
   config write, no stdout. Re-checks on the next invocation.
+- **non-GitHub forge skip**: the origin is not GitHub → `skip-non-github` from the
+  gate shared with `github_auth_check.forge_skip` (Task 1.8), answered BEFORE
+  `--auto` and before the `gh` probe — a Gitea repo gets no decisions entry, no
+  `branch_protection` block and no `gh api` line, and its `forge.kind` is recorded
+  once.
 - **gh missing fail-open**: `gh` not on PATH → write fail-open config
   (declined=false, applied_at=null, offered_at=now), print the manual command
   from `branch-protection.md` to stdout. The user has the literal command in
@@ -27,6 +32,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+# The one forge gate, shared with the GitHub PR-author offer (Task 1.8). It lives
+# in github_auth_check (this task may not add a new module); github_auth_check
+# imports nothing from here, so the direction is not a cycle. Its `CheckResult`
+# stands in for this module's — same three fields, same `action` vocabulary.
+from github_auth_check import forge_skip
 
 
 # Single-line summary mirrors `branch-protection.md` §The gh api call.
@@ -52,8 +63,8 @@ _GH_API_FULL_TEMPLATE = """gh api -X PUT \\
 class CheckResult:
     """What the helper decided to do.
 
-    `action`: one of "skip-no-origin", "fail-open-gh-missing", "auto-skip",
-              "needs-prompt".
+    `action`: one of "skip-no-origin", "skip-non-github", "fail-open-gh-missing",
+              "auto-skip", "needs-prompt".
     `reason`: short human string for logs / handoffs.
     `config_updated`: True iff `.three-pillars/config.json` was written.
     """
@@ -71,6 +82,18 @@ def _has_origin(repo: Path) -> bool:
         text=True,
     )
     return result.returncode == 0
+
+
+def _read_config(repo: Path) -> dict:
+    """The raw config or a fresh shell — mirrors `github_auth_check._read_config`
+    (the two helpers mirror each other by design)."""
+    config_path = repo / ".three-pillars" / "config.json"
+    if not config_path.exists():
+        return {"schema_version": 1}
+    try:
+        return json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {"schema_version": 1}
 
 
 def _gh_available() -> bool:
@@ -193,11 +216,13 @@ def check(
     repo: Path,
     auto: bool = False,
     decisions_file: Optional[Path] = None,
+    resolver=None,
 ) -> CheckResult:
     """Run the branch-protection preflight branches that don't need user input.
 
     Returns a CheckResult; `action == "needs-prompt"` means the caller (the
     agent) must run the interactive yes/no/skip prompt itself.
+    `resolver` is the `forge.resolve` seam behind the shared forge gate (tests).
     """
     if not _has_origin(repo):
         return CheckResult(
@@ -205,6 +230,12 @@ def check(
             reason="git remote get-url origin failed",
             config_updated=False,
         )
+    # Branch protection is a GitHub rule: on a non-GitHub origin the forge gate
+    # answers before `--auto` and before the `gh` probe, so a Gitea repo gets no
+    # decisions entry, no `branch_protection` block and no `gh api` line printed.
+    skip = forge_skip(repo, _read_config(repo), resolver)
+    if skip is not None:
+        return skip
     if auto:
         target = decisions_file if decisions_file is not None else (repo / "decisions.md")
         _append_auto_decision(target)

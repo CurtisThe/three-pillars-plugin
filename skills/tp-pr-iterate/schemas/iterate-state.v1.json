@@ -82,6 +82,25 @@
         }
       }
     },
+    "reproduced_blockers": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "review_weight": {
+      "type": "string",
+      "enum": [
+        "just-do-it",
+        "light",
+        "spike",
+        "full"
+      ]
+    },
+    "frozen_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "cumulative_diff_lines": {
       "type": "integer",
       "minimum": 0
@@ -222,6 +241,45 @@
         "boolean",
         "null"
       ]
+    },
+    "budget_active_elapsed_sec": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "budget_round_started_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budget_extensions": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "limit",
+          "key",
+          "at"
+        ],
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

@@ -7,7 +7,7 @@ have been archived to `completed-tp-designs/`. Seed-only / design-only dirs (sti
 in flight) are exempt.
 
 One detector, several surfaces (all read this same module):
-  1. framework-check.sh invariant #27 — the HARD CI gate (default-branch only;
+  1. framework-check.sh invariant #27 (dev-repo only) — the HARD CI gate (default-branch only;
      the enforcement guard lives in the caller, not here).
   2. /tp-guide + /tp-session-restore — the SOFT, non-blocking closeout nudges
      (callers pass --exclude {current-design} so you aren't nagged about your

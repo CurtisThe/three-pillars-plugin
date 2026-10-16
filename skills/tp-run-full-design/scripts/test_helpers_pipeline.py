@@ -101,4 +101,7 @@ def test_tier_3_5_pipeline_end_to_end(tmp_path):
     assert "[tp-run-full-design/tier-3.5] worktree-cleanup-locked" in log_contents, (
         f"decisions.md missing tier-3.5 forced-lock line; got:\n{log_contents!r}"
     )
-    assert str(worktree_path) in log_contents
+    assert worktree_path.name in log_contents
+    # Committed artifacts carry the portable form, never the absolute host path.
+    assert str(worktree_path) not in log_contents
+    assert str(worktree_path) not in (candidate_dir / "telemetry.json").read_text(encoding="utf-8")

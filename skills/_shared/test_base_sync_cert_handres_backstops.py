@@ -32,11 +32,15 @@ _HAND_KEEP_ALL = (
     "# Fixture Living Doc\n\n### Z0: seed entry\nseed body line.\n"
     "- **2026-01-01** — base-side change\n- **2026-01-02** — design-side change\n"
 )
-# The whole approval carry ENABLED (outer gate on) — the handres inner flag is default-ON:
+# The whole approval carry ENABLED (outer gate on) — the handres inner flag is default-ON.
+# `ci.gate_command` is declared to keep the stamp predicate ACTIVE: since Task 2.2 the
+# stamp default is OFF, so a repo that wants the stamp conjunct declares a command
+# (the dev repo does — `scripts/ci-local.sh`). This is what the carry config models.
 _CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {"approval_survives_safe_base_sync": True,
                "require_human_approval": False, "expects_copilot": False},
-    "ci": {"expects_github_checks": False},
+    "ci": {"expects_github_checks": False, "gate_command": "scripts/ci-local.sh"},
 }
 
 
@@ -52,7 +56,9 @@ def _seat(s, monkeypatch):
 def test_ci_local_stamp_still_required_under_carry(monkeypatch):
     from deterministic_gate import FailureClass
 
-    # (1) Direct: the carry config does not disable the stamp requirement (default True).
+    # (1) Direct: the carry config REQUIRES the stamp (it declares ci.gate_command, the
+    # dev-repo posture; since Task 2.2 the stamp default is OFF and only a declared
+    # command / explicit true activates it).
     assert gate_roster._require_ci_local_stamp(_CARRY_CONFIG) is True
 
     # (2) Via the roster: with the carry enabled, ci_local_stamp is EVALUATED (live path), not

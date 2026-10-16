@@ -11,6 +11,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parent
 AUDIT = SCRIPTS / "audit_plan.py"
 ARTIFACT = ".plan-audit-pass.json"
@@ -88,19 +90,49 @@ def test_clean_writes_artifact_and_warn_exits_0(tmp_path):
 
     d1 = audit_artifact.plan_digest(tmp_path / "plan.md")
     assert record["plan_digest"] == d1
+    # A clean run carries zero WARNs; the gate is current.
+    assert record["warn_count"] == 0
+    assert audit_artifact.artifact_status(tmp_path)[0] == "ok"
 
-    # WARN-only currency pin: edit plan.md to a WARN state (drop the phase
-    # header's (~Nk) annotation) -> still exit 0, but the on-disk artifact digest
-    # must STILL be D1 (a WARN-only run must NOT refresh a stale artifact).
+    # H4: a WARN-only run still exits 0 AND refreshes the artifact to the NEW
+    # plan's digest, now carrying the WARN count (so `--check` reports it).
     warn_plan = CLEAN_PLAN.replace("## Phase 1: do it (~50k)", "## Phase 1: do it")
     assert warn_plan != CLEAN_PLAN
     _plan(tmp_path, warn_plan)
     r = _run(tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "WARN" in r.stdout
+    assert "RESULT: PASS (1 WARN)" in r.stdout
+    d2 = audit_artifact.plan_digest(tmp_path / "plan.md")
+    assert d2 != d1
     record2 = json.loads(art.read_text(encoding="utf-8"))
-    assert record2["plan_digest"] == d1  # untouched, still D1 (now stale vs D2)
-    assert audit_artifact.artifact_status(tmp_path)[0] == "stale"
+    assert record2["plan_digest"] == d2  # refreshed to the new plan's digest
+    assert record2["warn_count"] >= 1
+    assert len(record2["warnings"]) >= 1
+    assert audit_artifact.artifact_status(tmp_path) == ("ok", "1 WARN(s)")
+    rc = _check(tmp_path)
+    assert rc.returncode == 0, rc.stdout + rc.stderr
+    assert "plan-audit: current pass (1 WARN(s))" in rc.stdout
+
+    # Result class FAIL (claim g-h4-warn-artifact's other half): a failing run
+    # exits 1 and writes NO artifact in a fresh dir, and never refreshes the
+    # prior WARN pass artifact in this one.
+    fresh = tmp_path / "failing_fresh"
+    fresh.mkdir()
+    _design(fresh, "")
+    _plan(fresh, INCOMPLETE_PLAN)
+    r = _run(fresh)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert not (fresh / ARTIFACT).exists(), (
+        "FAIL-NO-ARTIFACT: a failing plan audit wrote a pass artifact"
+    )
+    _plan(tmp_path, INCOMPLETE_PLAN)
+    r = _run(tmp_path)
+    assert r.returncode == 1, r.stdout + r.stderr
+    record3 = json.loads(art.read_text(encoding="utf-8"))
+    assert record3["plan_digest"] == d2, (
+        "FAIL-NO-ARTIFACT: a failing plan audit refreshed the prior pass artifact"
+    )
 
 
 SKILL = (
@@ -108,12 +140,16 @@ SKILL = (
 )
 
 
-def test_skill_documents_artifact_preflight():
-    text = SKILL.read_text(encoding="utf-8")
-    # (a) invokes audit_artifact.py --check in a preflight step.
-    assert "audit_artifact.py --check" in text
-    # (b) names /tp-plan-audit as the remedy.
-    assert "/tp-plan-audit" in text
+def test_skill_references_resolve(tmp_path):
+    """The phase-implement SKILL.md's references (audit_artifact.py, /tp-plan-audit) resolve
+    and parse through invariant 46's check, run in-suite."""
+    repo_root = SCRIPTS.parents[2]
+    shared = str(repo_root / "skills" / "_shared")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(repo_root, [SKILL], cache_dir=tmp_path)
+    assert report.issues == []
 
 
 ARTIFACT_SCRIPT = SCRIPTS / "audit_artifact.py"

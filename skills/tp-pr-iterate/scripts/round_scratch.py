@@ -14,29 +14,41 @@ string, so a clobbered sibling becomes a sentinel and blocks (fail-closed).
 `r<N>` dir inside its owner; `tail_check` validates `tail/envelope.json`
 against `schemas/round-tail.v1.json`.
 
-CLI: `prepare | flush | remove | tail-check` (exit 2 + one JSON line on refusal).
-Stdlib only.
+CLI: `prepare | flush | remove | tail-check | put` (exit 2 + one JSON line on
+refusal; `put`, the sub-agents' only write path, is `round_put.py`). The CLI itself
+is `round_scratch_cli.py` — `main` here is the thin wrapper its entry point calls,
+so `round_scratch.py prepare …` and `rs.main([...])` both keep working. Stdlib only.
 """
 
 from __future__ import annotations
 
-import argparse
+import contextlib
 import json
 import re
 import shutil
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-import angles as angles_mod  # noqa: E402
+import angles as angles_mod  # noqa: E402 — first: it puts skills/_shared on sys.path
+import agent_ref  # noqa: E402,I001 — the one spawn-reference resolver
+import budget_clock  # noqa: E402
+import finder_segments  # noqa: E402
+import proof_reap  # noqa: E402
+import review_instructions  # noqa: E402
+import review_prep  # noqa: E402
+from repo_config_load import load_repo_config  # noqa: E402
 
 SCHEMA_PATH = _HERE.parent / "schemas" / "round-tail.v1.json"
 MANIFEST = "angles.json"
 REPLY = "reply.md"
 TAIL = "tail"
+PREP = "prep"
 ENVELOPE = "envelope.json"
 TAIL_FAILED = {"terminal": "needs-human-attention", "reason": "tail-failed"}
 
@@ -55,6 +67,33 @@ class TailFailed(RuntimeError):
 
 class RemoveRefused(ValueError):
     """`safe_remove` target is not an `r<N>` dir inside its owner."""
+
+
+_EXEC_NOTE = (
+    "\n\nExec dir: run code, archives and repros in `{exec_dir}` through Bash. Never put "
+    "them under the reply dir, and never create them with the Write or Edit tool.\n")
+
+
+def _strip_round(round_dir: Path) -> list[str]:
+    """Strip every real angle subdir of `round_dir` to its reply; never raises."""
+    gone = []
+    try:
+        subs = sorted(p for p in Path(round_dir).iterdir()
+                      if p.is_dir() and not p.is_symlink() and p.name not in (TAIL, PREP))
+    except OSError as exc:
+        print(f"strip skipped {round_dir}: {exc}", file=sys.stderr)
+        return gone
+    for sub in subs:
+        try:
+            removed = proof_reap.strip_angle_dir(sub)
+        except OSError as exc:
+            print(f"strip failed {sub.name}: {exc}", file=sys.stderr)
+            continue
+        for p in removed:
+            rel = Path(p).relative_to(sub).as_posix()
+            print(f"stripped {sub.name}/{rel}", file=sys.stderr)
+            gone.append(f"{sub.name}/{rel}")
+    return gone
 
 
 def _pr_number(pr_url: str) -> str:
@@ -92,31 +131,90 @@ def _next_ordinal(rounds_dir: Path) -> tuple[int, str]:
     return n + 1, f"r{n + 1}"
 
 
-def prepare(root, pr_url, angles, *, base, head, effort, state_path, log_path) -> Path:
-    """Create the next round dir with per-angle subdirs and write its manifest."""
+def prepare(root, pr_url, angles, *, base, head, effort, state_path, log_path,
+            repo=".", plugin_root=None, now=None, prep_dir=None,
+            config=None, meta=None) -> Path:
+    """Create the next round dir with per-angle subdirs and write its manifest.
+
+    `meta` (the round plan's own keys — `mode`, `pr_base`, `security`,
+    `diff_lines`) is merged into the manifest beside `started_at`, so a later round
+    can tell the base it reviewed (`base`) from the PR base it grew against
+    (`pr_base`). `None` leaves today's bytes exactly.
+
+    `prep_dir` (a prep work dir W whose `meta.json` head is `head`) is moved to
+    `R/prep/work` and rendered; each angle with a prep file gets one prompt line.
+    `None` leaves today's bytes (the golden in `test_round_scratch_prep.py`).
+
+    `repo` is the reviewed repo (default `.` — the CLI runs from the repo root,
+    the same cwd its `--config .three-pillars/config.json` default is relative
+    to). Its instructions status is computed once and feeds every angle's
+    prompt: the file is named only when it actually exists in that repo. Each entry's
+    `agent` is `angles.entry_agent(round, angle)` (the Strata `-medium` variant for a
+    `local` angle on a later round) and `agent_ref` its spawn reference
+    (`agent_ref.resolve` against `plugin_root`, once per distinct name; unresolvable →
+    `AgentRefError`).
+
+    The round start is stamped as `budget_round_started_at` into the existing
+    iterate-state file (`budget_clock.stamp_round_start`; a missing file stays
+    absent) and recorded as the manifest's `started_at`. `now` is a test seam
+    (aware datetime).
+    """
+    # a diff past the segment threshold: one Strata finder per segment (inert under it / off Strata)
+    angles = finder_segments.apply_to_round(angles, config, repo=repo, base=base, head=head)
     for a in angles:
-        if not _SAFE_NAME.match(str(a.get("name", ""))) or a["name"] == TAIL:
+        if not _SAFE_NAME.match(str(a.get("name", ""))) or a["name"] in (TAIL, PREP):
             raise ValueError(f"unsafe angle name for a scratch dir: {a.get('name')!r}")
+    instructions_present = (
+        review_instructions.status(repo, load_repo_config(repo).config) == "present")
     root = Path(root).absolute()
     rounds_dir = root / "rounds" / _pr_number(pr_url)
     n, ordinal = _next_ordinal(rounds_dir)
+    previous = _latest(rounds_dir)
+    started_at = (now or datetime.now(tz=timezone.utc)).isoformat()
+    budget_clock.stamp_round_start(state_path, started_at)  # after the refusals, before any dir
     rounds_dir.mkdir(parents=True, exist_ok=True)
     round_dir = rounds_dir / ordinal
     round_dir.mkdir()  # never reused: FileExistsError if it somehow exists
     (round_dir / TAIL).mkdir()
+    if previous is not None:  # superseded now: reap its exec dirs + strip its angle dirs, never fail
+        cleanup_round(previous[2], strip=True)  # a round that aborted before tail-check leaks none
+    prep = {}
+    if prep_dir is not None:
+        try:  # fail-open by contract (D11): a prep error never refuses the round
+            prep_meta = json.loads((Path(prep_dir) / "meta.json").read_text(encoding="utf-8"))
+            if prep_meta.get("head") != head:
+                raise ValueError(f"meta.json head {prep_meta.get('head')!r} is not {head!r}")
+            review_prep.move_work(prep_dir, round_dir)
+            prep = review_prep.render(round_dir, angles)
+        except Exception as exc:  # noqa: BLE001
+            prep, why = {}, " ".join(f"{type(exc).__name__}: {exc}".split())
+            with contextlib.suppress(OSError), open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(f"[cheap-tier] prep not applied: {why}\n")
+    agents = [angles_mod.entry_agent(n, a) for a in angles]
+    refs = {name: agent_ref.resolve(name, plugin_root)
+            for name in dict.fromkeys(agents)}  # each distinct name resolves once
     entries = []
-    for a in angles:
+    for a, agent in zip(angles, agents):
         (round_dir / a["name"]).mkdir()
         reply = str(round_dir / a["name"] / REPLY)
+        exec_dir = tempfile.mkdtemp(prefix=f"tp-angle-{a['name']}-")  # outside the proof root
         entries.append({
             "name": a["name"], "role": a["role"], "model": a["model"],
-            "tier": angles_mod.tier(a), "reply_path": reply,
+            "agent": agent, "agent_ref": refs[agent],
+            "dispatch_model": angles_mod.dispatch_model(a, config, root=repo),
+            "tier": angles_mod.tier(a), "reply_path": reply, "exec_dir": exec_dir,
+            **{k: a[k] for k in ("skipped", "advisory", "segment") if a.get(k)},
             "prompt": angles_mod.build_prompt(a, base=base, head=head, effort=effort,
-                                              reply_path=reply),
+                                              reply_path=reply, round_dir=str(round_dir),
+                                              put_script=str(_HERE / "round_scratch.py"),
+                                              instructions_present=instructions_present)
+            + _EXEC_NOTE.format(exec_dir=exec_dir)
+            + review_prep.prompt_suffix(prep.get(a["name"])),
         })
     manifest = {
         "pr_url": pr_url, "round": n, "ordinal": ordinal, "base": base, "head": head,
-        "effort": effort,
+        "effort": effort, "started_at": started_at,
+        **(meta or {}),
         "paths": {"proof_root": str(root), "state_path": str(Path(state_path).absolute()),
                   "log_path": str(Path(log_path).absolute())},
         "angles": entries,
@@ -126,11 +224,15 @@ def prepare(root, pr_url, angles, *, base, head, effort, state_path, log_path) -
 
 
 def read_replies(round_dir) -> list[str]:
-    """Each manifest angle's reply text; missing/empty → an unparseable marker."""
+    """Each manifest angle's reply text; missing/empty → an unparseable marker, and a
+    skipped (never dispatched) angle → `angles.SKIPPED_REPLY`."""
     round_dir = Path(round_dir)
     manifest = json.loads((round_dir / MANIFEST).read_text(encoding="utf-8"))
     out = []
     for e in manifest.get("angles") or ():
+        if e.get("skipped"):
+            out.append(angles_mod.SKIPPED_REPLY)
+            continue
         path = Path(e["reply_path"])
         path = path if path.is_absolute() else round_dir / path
         try:
@@ -227,6 +329,41 @@ def tail_check(round_dir):
     return dict(TAIL_FAILED) if envelope_errors(env) else None
 
 
+def cleanup_round(round_dir, *, strip) -> dict:
+    """Delete every manifest angle's exec dir; strip the angle dirs when `strip`.
+
+    Never raises: a failed deletion is one stderr line and an `exec_failed` entry.
+    """
+    round_dir = Path(round_dir)
+    res = {"exec_failed": [], "stripped": []}
+    try:
+        entries = json.loads((round_dir / MANIFEST).read_text(encoding="utf-8")).get("angles") or []
+    except (OSError, ValueError, AttributeError):
+        entries = []
+    for e in entries:
+        d = e.get("exec_dir") if isinstance(e, dict) else None
+        if not isinstance(d, str) or not d:
+            continue
+        try:
+            shutil.rmtree(d, ignore_errors=False)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"exec dir not deleted {d}: {exc}", file=sys.stderr)
+            res["exec_failed"].append(d)
+    if strip:
+        res["stripped"] = _strip_round(round_dir)
+    return res
+
+
+def _closing(round_dir) -> bool:
+    try:
+        env = json.loads((Path(round_dir) / TAIL / ENVELOPE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(env, dict) and env.get("terminal") is not None
+
+
 def _load_config(path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -239,69 +376,15 @@ def _refuse(payload) -> int:
     return 2
 
 
-def _cmd_prepare(a) -> int:
-    try:
-        declared = angles_mod.load_angles(_load_config(a.config))
-    except (ValueError, OSError) as exc:
-        return _refuse({"terminal": "needs-human-attention", "reason": "angles-invalid",
-                        "detail": str(exc)})
-    try:
-        r = prepare(a.root, a.pr_url, declared, base=a.base, head=a.head, effort=a.effort,
-                    state_path=a.state, log_path=a.log)
-    except RerunLimit as exc:
-        return _refuse({"terminal": "needs-human-attention", "reason": "rerun-limit",
-                        "detail": str(exc)})
-    except TailFailed as exc:
-        return _refuse({**TAIL_FAILED, "detail": str(exc)})
-    except (ValueError, OSError) as exc:  # unsafe angle name, non-PR url, unwritable root
-        return _refuse({"terminal": "needs-human-attention", "reason": "prepare-refused",
-                        "detail": str(exc)})
-    print(r)
-    return 0
-
-
-def _cmd_remove(a) -> int:
-    try:
-        safe_remove(a.target, a.owner)
-    except RemoveRefused as exc:
-        return _refuse({"refused": str(exc)})
-    print(json.dumps({"removed": str(a.target)}))
-    return 0
-
-
-def _cmd_tail_check(a) -> int:
-    failed = tail_check(a.round_dir)
-    if failed:
-        return _refuse(failed)
-    print(json.dumps({"ok": True}))
-    return 0
-
-
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Per-round scratch dirs for /tp-pr-iterate.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("prepare")
-    for flag in ("--root", "--pr-url", "--base", "--head", "--state", "--log"):
-        p.add_argument(flag, required=True)
-    p.add_argument("--effort", default="high")
-    p.add_argument("--config", default=".three-pillars/config.json")
-    f = sub.add_parser("flush")
-    f.add_argument("--log", required=True)
-    f.add_argument("--decisions", required=True)
-    r = sub.add_parser("remove")
-    r.add_argument("--target", required=True)
-    r.add_argument("--owner", required=True)
-    t = sub.add_parser("tail-check")
-    t.add_argument("--round-dir", required=True)
-    a = ap.parse_args(argv)
-    if a.cmd == "prepare":
-        return _cmd_prepare(a)
-    if a.cmd == "flush":
-        print(json.dumps({"appended": flush_log(a.log, a.decisions)}))
-        return 0
-    if a.cmd == "remove":
-        return _cmd_remove(a)
-    return _cmd_tail_check(a)
+    """The CLI entry point — `round_scratch_cli.main`, imported lazily.
+
+    `round_scratch.py prepare …` runs as a subprocess and tests call `rs.main([...])`,
+    so this name stays here; the commands themselves (and the `round_plan` delegation)
+    live in `round_scratch_cli`, which reaches back through this module's attributes.
+    """
+    import round_scratch_cli  # noqa: PLC0415 — lazy: it imports this module at module level
+    return round_scratch_cli.main(argv)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 """test_trace_wiring.py — Wiring tests for Phase 6 (Tasks 6.1, 6.2, 6.3).
 
 Tests that verify the integration plumbing — gitignore entry, companion doc,
-and SKILL.md pointer — read from the SHIPPED files via git rev-parse so they
-test actual committed content, not in-memory copies.
+and SKILL.md pointer — read the files on disk, not in-memory copies. The
+companion doc and SKILL.md pointer are shipped, so they are read from the
+framework root this file ships in (a plugin install has no git checkout); the
+.gitignore entry is the dev repo's own and is checked there only.
 """
 
 from __future__ import annotations
@@ -13,21 +15,23 @@ from pathlib import Path
 
 import pytest
 
+import skill_text
+
 
 # ---------------------------------------------------------------------------
-# Helper: repo root from git
+# Helper: the framework root
 # ---------------------------------------------------------------------------
+
+_FRAMEWORK_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_gitignore = pytest.mark.skipif(
+    not (_FRAMEWORK_ROOT / ".gitignore").is_file(),
+    reason="asserts on the dev repo's own .gitignore (dev-repo only)")
 
 
 def _repo_root() -> Path:
-    """Return the repo root by asking git (works from any worktree)."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return Path(result.stdout.strip())
+    """The framework root this file ships in (works from any worktree, and from a
+    plugin install, which is not a git checkout; consumer-repo-parity L4)."""
+    return _FRAMEWORK_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +42,7 @@ def _repo_root() -> Path:
 class TestTraceGitignored:
     """Task 6.1 — .gitignore contains the trace dir pattern."""
 
+    @_needs_dev_gitignore
     def test_trace_dir_gitignored(self):
         """The .gitignore line 'three-pillars-docs/tp-designs/*/.trace/' must exist."""
         root = _repo_root()
@@ -61,6 +66,7 @@ class TestTraceGitignored:
             f"fnmatch({sample_path!r}, {pattern!r}) is False — pattern mismatch"
         )
 
+    @_needs_dev_gitignore
     def test_git_check_ignore_flags_trace_path(self):
         """git check-ignore confirms a sample .trace/ path is ignored."""
         root = _repo_root()
@@ -142,11 +148,14 @@ class TestSkillPointer:
         root = _repo_root()
         return root / "skills" / "tp-run-full-design" / "SKILL.md"
 
+    def _skill_lines(self) -> list[str]:
+        return skill_text.read_skill_text("tp-run-full-design").splitlines()
+
     def test_skill_pointer(self):
         """SKILL.md has exactly one reference to record-replay.md AND ≤1089 lines."""
         path = self._skill_path()
         assert path.exists(), f"SKILL.md not found at {path}"
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = self._skill_lines()
 
         # Absolute line-count cap (1079 grandfathered + 2 pointer lines + 1
         # --mode argument + 2 worktree-agent-branch-cleanup exit-hook lines
@@ -174,7 +183,7 @@ class TestSkillPointer:
         path = self._skill_path()
         if not path.exists():
             pytest.skip("SKILL.md not found")
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = self._skill_lines()
 
         # Find the '## Return clipping' heading (must start with '##')
         clipping_idx = next(

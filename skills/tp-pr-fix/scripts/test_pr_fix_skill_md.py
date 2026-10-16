@@ -1,69 +1,74 @@
-"""Grep-style invariants for `/tp-pr-fix` SKILL.md.
+"""Structured checks for `/tp-pr-fix` SKILL.md and the contracts it documents.
 
-Asserts the prose carries the five contract-level tokens that downstream
-code and design audits rely on:
-
-- `[tp-pr-fix iter-` — commit-prefix convention (paired with `fix_round._commit_message`).
-- `tp:do-not-merge-yet` — label name (paired with `fix_round._FIX_LABEL`).
-- `GIT_COMMITTER_EMAIL` — committer-email override is documented for auditors.
-- `standalone` — the worker is callable outside the loop driver.
-- `structured-extraction` — the sanitization step is named so reviewers
-  can map prose ↔ `structured_extract.extract`.
+The old prose pins (commit prefix, label name, committer email, standalone,
+structured-extraction, trusted-bot gate, head-ref) are gone: the code side of each
+is checked on the module's own API below, the behaviour is owned by test_fix_round.py
+and test_label_manager.py, and any path/skill reference is covered by invariant 46
+(`skill_refs`). SKILL.md is read only through shipped parsers.
 
 Run with: pytest skills/tp-pr-fix/scripts/test_pr_fix_skill_md.py -q
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+import pytest
+
 SKILL_MD = Path(__file__).parent.parent / "SKILL.md"
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parents[2] / "_shared"))
+
+import fix_round  # noqa: E402
 
 
-def _read() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
+def test_commit_prefix_and_label_contract():
+    # owner: test_fix_round.py::test_end_to_end_with_stub_gh (prefix on a real commit)
+    assert fix_round._commit_message(3, "x").startswith("[tp-pr-fix iter-3]")
+    assert fix_round._FIX_LABEL == "tp:do-not-merge-yet"
 
 
-def test_iter_n_prefix_named():
-    assert "[tp-pr-fix iter-" in _read(), "commit-prefix `[tp-pr-fix iter-N]` must be documented"
+def test_committer_identity_override_contract(monkeypatch):
+    # owner: test_fix_round.py::test_commit_uses_orchestrator_committer_email
+    env = fix_round._resolve_committer_env()
+    assert set(env) == {"GIT_COMMITTER_EMAIL", "GIT_COMMITTER_NAME"}
 
 
-def test_label_name_present():
-    assert "tp:do-not-merge-yet" in _read(), "label `tp:do-not-merge-yet` must be documented"
+def test_trusted_bot_env_extends_allowlist(monkeypatch):
+    # owner: test_fix_round.py::test_trusted_bots_env_var_extends_allowlist
+    monkeypatch.setenv("TP_PR_FIX_TRUSTED_BOTS", "MyBot")
+    assert "mybot" in fix_round._trusted_reviewer_bots()
 
 
-def test_committer_email_override_documented():
-    assert "GIT_COMMITTER_EMAIL" in _read(), "committer-email override must be documented"
+def test_skill_frontmatter_and_refs_clean():
+    skill_frontmatter = pytest.importorskip("skill_frontmatter")
+    skill_refs = pytest.importorskip("skill_refs")
+    assert skill_frontmatter.check(SKILL_MD) == []
+    fields, issues = skill_frontmatter.parse(SKILL_MD.read_text(encoding="utf-8"))
+    assert not issues and fields["name"][1] == "tp-pr-fix"
+    report = skill_refs.check(SKILL_MD.parents[2], [SKILL_MD])
+    assert not report.issues, report.issues
 
 
-def test_standalone_usage_documented():
-    assert "standalone" in _read().lower(), "standalone-use guidance must be present"
+def test_cheap_tier_stubs_leave_todays_calls_intact():
+    """cheap-tier-offload 6.4: the two stubs fence around today's classifier and fix
+    dispatches, never inside them, so both recorded exemption needles still match."""
+    import json
+    import re
 
+    import pytest
 
-def test_structured_extraction_language_present():
-    assert "structured-extraction" in _read().lower(), "structured-extraction step must be named"
+    exemptions_path = SKILL_MD.parents[1] / "_shared" / "dispatch_exemptions.json"
+    if not exemptions_path.is_file():  # dev-only: never in the core ship
+        pytest.skip("no dispatch_exemptions.json in this tree")
 
-
-def test_trusted_bot_gate_documented():
-    """F3: the step-6 prose documents the trusted-reviewer-bot short-circuit and
-    the TP_PR_FIX_TRUSTED_BOTS env var (the gate is as-built in fix_round)."""
-    body = _read()
-    assert "TP_PR_FIX_TRUSTED_BOTS" in body, (
-        "the trusted-bot env-var extension must be documented"
-    )
-    assert "trusted-reviewer-bot" in body.lower() or "trusted requested-reviewer" in body.lower(), (
-        "the trusted-reviewer-bot gate must be named"
-    )
-    # The stale 'Copilot 404 → defer non-collaborator' framing must be gone:
-    # the Copilot login is now gated THROUGH, not deferred.
-    assert "gated through" in body.lower(), (
-        "step 6 must state the requested bot is gated through, not deferred"
-    )
-
-
-def test_head_ref_documented():
-    """F1: the step-6 prose documents head-ref resolution + refuse-vs-checkout."""
-    body = _read()
-    assert "headRefName" in body, "head-ref resolution via gh pr view --json headRefName"
-    assert "refus" in body.lower(), "standalone refuse-on-mismatch must be documented"
-    assert "git checkout" in body.lower(), "loop auto-checkout must be documented"
+    body = SKILL_MD.read_text(encoding="utf-8")
+    stubs = [m.span() for m in re.finditer(
+        r"<!-- cheap-tier:(\w+) -->.*?<!-- /cheap-tier -->", body, re.S)]
+    assert len(stubs) == 2
+    exemptions = json.loads(exemptions_path.read_text(encoding="utf-8"))[
+        "skills/tp-pr-fix/SKILL.md"]
+    for entry in exemptions:
+        at = body.index(entry["needle"])
+        assert not any(s <= at < e for s, e in stubs), entry["needle"]

@@ -9,7 +9,7 @@ driven through an injected `run_git`.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -29,8 +29,9 @@ def test_limits_none_is_defaults():
 
 
 def test_limits_defaults_values():
-    assert DEFAULTS == {"round_cap": 6, "growth_multiplier": 1.5, "test_code_ratio": 3.0,
-                        "ratio_floor_lines": 100, "k_consecutive": 3, "wall_clock_sec": 14400}
+    assert DEFAULTS == {"round_cap": 3, "growth_multiplier": 1.5, "test_code_ratio": 3.0,
+                        "ratio_floor_lines": 100, "growth_floor_lines": 300,
+                        "k_consecutive": 3, "wall_clock_sec": 14400}
 
 
 def test_limits_config_overlays():
@@ -55,7 +56,7 @@ def test_limits_state_max_fields_never_read():
 def test_limits_returns_fresh_copy():
     got = limits(None)
     got["round_cap"] = 99
-    assert DEFAULTS["round_cap"] == 6
+    assert DEFAULTS["round_cap"] == 3
 
 
 # ---------- split ----------
@@ -231,21 +232,20 @@ def test_started_at_z_suffix_accepted():
 
 
 def test_wall_clock():
-    started = (NOW - timedelta(seconds=14401)).isoformat()
-    st, term, detail = run(S(started_at=started))
+    st, term, detail = run(S(budget_active_elapsed_sec=14401))
     assert term == "cap-exhausted"
     assert st["termination_reason"] == "wall-clock"
     assert detail["signal"] == "wall-clock" and detail["limit"] == 14400
-    _, term, _ = run(S(started_at=(NOW - timedelta(seconds=14400)).isoformat()))
+    _, term, _ = run(S(budget_active_elapsed_sec=14400))
     assert term is None
 
 
 def test_round_cap_blocking_at_cap_fires():
-    st, term, detail = run(S(iteration=5, budget_last_head="h5"), head="h6", tally=T(blocking=1))
-    assert st["iteration"] == 6
+    st, term, detail = run(S(iteration=2, budget_last_head="h2"), head="h3", tally=T(blocking=1))
+    assert st["iteration"] == 3
     assert term == "budget-exhausted" and st["termination_reason"] == "round-cap"
-    assert detail == {**detail, "iteration": 6, "round_cap": 6, "signal": "round-cap",
-                      "measured": 6, "limit": 6}
+    assert detail == {**detail, "iteration": 3, "round_cap": 3, "signal": "round-cap",
+                      "measured": 3, "limit": 3}
     assert "round-cap" in detail["holding"]
 
 
@@ -257,8 +257,8 @@ def test_round_cap_clean_or_degraded_at_cap_no_terminal(tally):
 
 
 def test_round_cap_below_cap_blocking_no_terminal():
-    st, term, _ = run(S(iteration=4, budget_last_head="h4"), head="h5", tally=T(blocking=2))
-    assert st["iteration"] == 5 and term is None
+    st, term, _ = run(S(iteration=1, budget_last_head="h1"), head="h2", tally=T(blocking=2))
+    assert st["iteration"] == 2 and term is None
 
 
 def test_round_cap_from_config():

@@ -68,6 +68,11 @@ from test_resolve_script_sweep import (  # noqa: E402
     _offenders,
 )
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_conftest = pytest.mark.skipif(
+    not (_DEV_ROOT / "skills/_shared/conftest.py").exists(),
+    reason="copies the dev-only conftest.py (dev-repo only)")
+
 
 def _scanned_sources() -> list[tuple[Path, str]]:
     """Every in-scope test module as ``(path, source text)`` — read, not imported."""
@@ -207,6 +212,7 @@ def _run_probe(directory: Path) -> subprocess.CompletedProcess:
     )
 
 
+@_needs_conftest
 def test_autouse_fixture_strips_the_ambient_plugin_root(tmp_path):
     """conftest.py's `_strip_ambient_plugin_root` really does remove the var.
 

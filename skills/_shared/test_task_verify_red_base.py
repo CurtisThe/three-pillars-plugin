@@ -3,7 +3,8 @@
 design: local-implement-and-review (Behavior 5)
 
 After a PASS with step 6 run, ``check`` re-runs the Test's nodes in a scratch worktree
-at ``base_sha`` with HEAD's test file overlaid: a failing assertion is ``meaningful``,
+at the attempt's red commit (``commit_pair``: the test, then the implementation), or at
+``base_sha`` with HEAD's test file overlaid: a failing assertion is ``meaningful``,
 a pass is ``green-at-base`` (a weak or trivial test), an import or collection error
 alone is ``import-only``, a file-level spec is ``n/a``. Real tmp repos only (M23).
 """
@@ -17,7 +18,7 @@ from pathlib import Path
 import task_attempts
 import task_verify
 import task_verify_red_base
-from attempt_fixture import DD, branches, commit, git, make_seat, task_row
+from attempt_fixture import DD, branches, commit_pair, git, make_seat, task_row
 
 RUNNER = f"{shlex.quote(sys.executable)} -m pytest -q"  # the interpreter with pytest (#21)
 GENUINE = "import a\n\n\ndef test_a():\n    assert a.A == 2\n"
@@ -30,8 +31,8 @@ FILE_ONLY = "`skills/test_a.py`"
 
 def _attempt(wt: Path, task: str, test_text: str, extra: dict | None = None) -> dict:
     att = task_attempts.open_attempt(wt, task, DD)
-    commit(Path(att["attempt_dir"]),
-           {"skills/a.py": "A = 2\n", "skills/test_a.py": test_text, **(extra or {})})
+    commit_pair(Path(att["attempt_dir"]), {"skills/test_a.py": test_text},
+                {"skills/a.py": "A = 2\n", **(extra or {})})
     return att
 
 
@@ -67,7 +68,7 @@ def test_red_at_base_scratch_removed(tmp_path, monkeypatch):
     monkeypatch.setattr(task_verify, "run", spy)
     res = _verify(att)
     assert res["red_at_base"] == "meaningful"
-    parent = os.path.join(os.path.realpath(wt), ".claude", "worktrees")
+    parent = os.path.join(os.path.realpath(wt), task_attempts.ATTEMPT_PARENT)
     scratch = [c for c in seen if c != att["attempt_dir"]]
     assert scratch and all(os.path.dirname(c) == parent for c in scratch)
     assert all(not os.path.exists(c) for c in scratch)

@@ -24,9 +24,20 @@ import sys
 import tempfile
 from typing import Mapping, Optional, Sequence, Tuple
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import model_policy  # noqa: E402
+
 MARKER = "TP_DESIGN_RUN"
-DEFAULT_MODEL = "opus"
+# The session-level effort pin that must not leak into a launched run.
+EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
+# The config-free design-run default; model_policy is the one model source.
+DEFAULT_MODEL = model_policy.model_for("design_run", None)
+# The design-run effort (model_policy is the one source): a `--effort` flag.
+DEFAULT_EFFORT = model_policy.effort_for("design_run")
 _SLUG_RE = re.compile(r"^[a-z0-9-]+$")
+# The stages a run can be resumed at; `resume_command` refuses anything else.
+RESUME_STAGES = ("plan", "implement", "review")
+CHEAP_TIER_MODES = ("on", "ab")  # `--cheap-tier` modes (cheap-tier.md); bare flag = on
 
 
 def resolve_config_dir(env: Mapping[str, str]) -> Tuple[Optional[str], Optional[str]]:
@@ -40,12 +51,26 @@ def resolve_config_dir(env: Mapping[str, str]) -> Tuple[Optional[str], Optional[
     )
 
 
-def env_prefix(config_dir: Optional[str]) -> str:
-    """Env assignments (with trailing space) placed right before `claude`."""
-    prefix = f"{MARKER}=1 "
+def env_prefix(config_dir: Optional[str], backend_env: str = "", extra_env=(), unset=()) -> str:
+    """Env words (trailing space) before `claude`: `env -u CLAUDE_CODE_EFFORT_LEVEL` (a session
+    effort pin must not leak; the run's effort is `--effort`), one `-u` per `unset` name, the
+    marker, `backend_env` (a seat-role `NAME=value`), the profile dir, then `extra_env` pairs."""
+    unsets = "".join(f"-u {shlex.quote(n)} " for n in dict.fromkeys((EFFORT_ENV, *unset)))
+    prefix = f"env {unsets}{MARKER}=1 "
+    if backend_env:
+        prefix += f"{backend_env} "
     if config_dir:
         prefix += f"CLAUDE_CONFIG_DIR={shlex.quote(config_dir)} "
-    return prefix
+    return prefix + "".join(f"{name}={shlex.quote(value)} " for name, value in extra_env)
+
+
+def effort_args(effort: str = DEFAULT_EFFORT) -> str:
+    """The `--effort <effort>` flag; `ValueError` outside `model_policy.EFFORTS`."""
+    if not isinstance(effort, str) or effort not in model_policy.EFFORTS:
+        raise ValueError(
+            f"invalid effort {effort!r}; allowed: {' '.join(model_policy.EFFORTS)}"
+        )
+    return f"--effort {effort}"
 
 
 def _require_slug(slug: str) -> str:
@@ -54,14 +79,20 @@ def _require_slug(slug: str) -> str:
     return slug
 
 
-def _require_model(model: str) -> str:
-    if not model or "fable" in model.lower():
-        raise ValueError(f"model {model!r} is not allowed for a design run")
+def _require_model(model: str, *, configured: Optional[str] = None) -> str:
+    """Validate a design-run model; returns it. Refuses an empty/None value and
+    `inherit` (case-insensitive). A value containing `fable` is the rare-exception
+    model: refused unless the seat's `models.design_run` is exactly this string."""
+    msg = f"model {model!r} is not allowed for a design run"
+    if not model or model.strip().lower() == "inherit":
+        raise ValueError(msg)
+    if "fable" in model.lower() and configured != model:
+        raise ValueError(msg)
     return model
 
 
 def slash_command(slug: str, mode: Optional[str] = None, skip_design: bool = False,
-                  local: bool = False) -> str:
+                  local: bool = False, cheap_tier: Optional[str] = None) -> str:
     """The `/tp-run-full-design` invocation typed into the new session."""
     parts = ["/tp-run-full-design", _require_slug(slug)]
     if mode:
@@ -70,7 +101,32 @@ def slash_command(slug: str, mode: Optional[str] = None, skip_design: bool = Fal
         parts.append("--skip-design")
     if local:
         parts.append("--local")
+    if cheap_tier is not None:  # after --local; "on" is the bare flag
+        if not isinstance(cheap_tier, str) or cheap_tier not in CHEAP_TIER_MODES:
+            raise ValueError(f"invalid cheap-tier mode {cheap_tier!r}; allowed: on ab")
+        parts.append("--cheap-tier" + ("" if cheap_tier == "on" else f"={cheap_tier}"))
     return " ".join(parts)
+
+
+def resume_command(argv_tail: str, stage: str) -> str:
+    """`/tp-run-full-design <tail> --resume-stage <stage>`, keeping the tail verbatim.
+
+    `argv_tail` is the exact text a run was invoked with after the slash command
+    (slug first). Every earlier `--resume-stage X` or `--resume-stage=X` is
+    removed with a regex on the raw string — never shlex, which would re-quote
+    values like `copilot-pull-request-reviewer[bot]` — then whitespace runs are
+    collapsed. `stage` must be in `RESUME_STAGES`; the tail must keep at least
+    the slug or `ValueError` is raised.
+    """
+    if stage not in RESUME_STAGES:
+        raise ValueError(
+            f"invalid resume stage {stage!r}; allowed: {' '.join(RESUME_STAGES)}"
+        )
+    rest = re.sub(r"(?:^|\s)--resume-stage(?:=\S+|\s+\S+)", " ", argv_tail)
+    rest = " ".join(rest.split())
+    if not rest:
+        raise ValueError("resume tail is empty after removing --resume-stage")
+    return f"/tp-run-full-design {rest} --resume-stage {stage}"
 
 
 def window_command(
@@ -81,14 +137,26 @@ def window_command(
     skip_design: bool = False,
     config_dir: Optional[str] = None,
     model: str = DEFAULT_MODEL,
+    configured: Optional[str] = None,
     local: bool = False,
+    effort: str = DEFAULT_EFFORT,
+    cheap_tier: Optional[str] = None,
+    backend_env: str = "",
+    mcp: str = "",
+    extra_env: Sequence[Tuple[str, str]] = (), unset: Sequence[str] = (),
 ) -> str:
-    """Full shell command for a tmux window (or manual paste)."""
-    model = _require_model(model)
-    slash = slash_command(slug, mode=mode, skip_design=skip_design, local=local)
+    """Full shell command for a tmux window (or manual paste). `mcp` (a `design_run_mcp` argv
+    fragment, empty = none) goes before `--model`: `--mcp-config` is variadic and would swallow
+    a slash prompt after it as a second config file. `extra_env`/`unset`: see `env_prefix`. `--name` = RC label."""
+    model = _require_model(model, configured=configured)
+    args = effort_args(effort)
+    lead = f"{mcp} " if mcp else ""
+    slash = slash_command(slug, mode=mode, skip_design=skip_design, local=local,
+                          cheap_tier=cheap_tier)
     return (
-        f"cd {shlex.quote(worktree)} && {env_prefix(config_dir)}"
-        f"claude --model {shlex.quote(model)} {shlex.quote(slash)}; exec bash"
+        f"cd {shlex.quote(worktree)} && {env_prefix(config_dir, backend_env, extra_env, unset)}"
+        f"claude {lead}--model {shlex.quote(model)} {args} --name {shlex.quote(slug)} "
+        f"{shlex.quote(slash)}; exec bash"
     )
 
 

@@ -19,6 +19,9 @@ Hunk classes (see three-pillars-docs/completed-tp-designs/worktree-merge-conflic
     log-entry-insertion            both sides concurrently insert bold-lead-bullet log entries —
                                    dated `- **YYYY-MM-DD** —` or name-keyed `- **`slug`** —`
                                    (empty-base pure insertion — the real newest-first-log shape)
+    keyed-heading-insertion        both sides insert whole keyed entries (`### M48:`, `### M-new-x:`,
+                                   `### M27 (RESOLVED …):`, `` ### `slug` (date) ``), distinct keys
+    keyed-row-insertion            both sides append `| slug | … |` table rows, keys found nowhere else
     decision-entry-insertion       both sides concurrently insert decision-log entries —
                                    `### [{skill-name}] <title>` plus its body (empty-base pure
                                    insertion; the shape every `/tp-run-full-design` fold produces
@@ -57,13 +60,16 @@ from conflict_parse import (  # noqa: E402,F401
 # The entry and heading shapes live in `line_shapes` since round 23 (re-exported here).
 from line_shapes import (  # noqa: E402,F401
     ATX_HEADING, DECISION_ENTRY, ENTRY_SECTION_END, FOREIGN_ATX, LOG_ENTRY, SETEXT_UNDERLINE,
-    keep_both_refusal,
+    focus_context, keep_both_refusal,
 )
 from table_run import table_run_refusal  # noqa: E402
+import keyed_classes, keyed_rows  # noqa: E401,E402
+import shaped_merge  # noqa: E402
 
 MECHANICAL = frozenset(
     {"id-renumber-collision", "design-inventory-row-merge", "append-only-log",
-     "log-entry-insertion", "decision-entry-insertion"}
+     "log-entry-insertion", "decision-entry-insertion", "keyed-heading-insertion",
+     "last-updated-preamble", "keyed-row-insertion", "shaped-line-merge"}
 )
 SEMANTIC = frozenset({"preamble", "current-focus-reprioritization", "generic-prose"})
 # GATED: mechanical-by-structure classes that are labelled but NEVER auto-applied. `resolve.
@@ -73,10 +79,13 @@ SEMANTIC = frozenset({"preamble", "current-focus-reprioritization", "generic-pro
 # lane's clean-merge comparison (`living_doc_carry._mechanical_resolution`, the same byte path),
 # and `stage_oracle`, which cross-checks only the hunks `resolve_hunk` RESOLVED.
 #
-# `id-renumber-collision` is gated since round 20, because its merge is unsound in principle:
+# `id-renumber-collision` is gated since round 20 (its merge is unsound in principle). Disjoint keyed
+# entries (`### M48:` / `### M49:`) are `keyed-heading-insertion` now (keep-both, no renumber), so
+# only a SAME-ID collision reaches this class:
 #   * its reference and ID scope is the one conflicted FILE (`Hunk.context`). Living-doc IDs are
 #     cited from the OTHER living docs — a `product_roadmap.md` bullet `Filed **L67** (...)`, an ID
-#     already spent in `known_issues_resolved.md` — which it cannot see: it can pick a "free" ID
+#     already spent in `known_issues.md`, `known_issues_low.md` or
+#     `known_issues_resolved.md` — which it cannot see: it can pick a "free" ID
 #     another doc already uses, and it leaves every cross-doc citation of the old number pointing at
 #     the other side's entry;
 #   * it renumbers THEIRS, and on a base-sync (`merge_driver.merge_back`) theirs is the BASE
@@ -98,6 +107,7 @@ ID_HEADING = re.compile(r"^### ([A-Z])(\d+):")   # ### L4:  ### D12:
 # split the two lanes the same way it split the checker from `licence_oracle`.
 INV_ROW = re.compile(r"^\|\s*([A-Z][0-9]+)\s*\|")    # | D12 | ...
 FOCUS_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*\S")   # | 3 | design | ...  (priority table)
+SLUG_ROW = re.compile(r"^\|\s*`([a-z0-9][a-z0-9-]*)`")   # | `slug` | ...  (own copy; see `verify_atoms`)
 PREAMBLE = re.compile(r"^\*Last updated:")
 
 
@@ -366,19 +376,17 @@ def _is_log_entry_insertion(h: Hunk) -> bool:
     return _is_log_insertion_block(h.ours) and _is_log_insertion_block(h.theirs)
 
 
-def _focus_context(pre_context: str) -> bool:
-    """`pre_context` names a Current-Focus / priority section: the table-type disambiguator."""
-    return any(k in pre_context for k in ("Current Focus", "Priority", "Next Action"))
-
-
 def classify_hunk(h: Hunk, focus_ctx: bool | None = None) -> str:
-    """The class of `h`. `focus_ctx` is `_focus_context(h.pre_context)`, computed here when None;
+    """The class of `h`. `focus_ctx` is `focus_context(h.pre_context)`, computed here when None;
     `classify_file` passes it in so a context line shared by many regions is searched once."""
     sides = h.ours + h.theirs
+    extra = keyed_classes.extra_label(h) or keyed_rows.extra_label(h)   # the insert-only classes
+    if extra is not None:
+        return extra
     if _any(h.ours, PREAMBLE) or _any(h.theirs, PREAMBLE):
         return "preamble"
     if focus_ctx is None:
-        focus_ctx = _focus_context(h.pre_context)
+        focus_ctx = focus_context(h.pre_context)
     if _any(sides, FOCUS_ROW) and not _any(sides, INV_ROW):
         return "current-focus-reprioritization"
     if focus_ctx and _any(sides, FOCUS_ROW):
@@ -386,8 +394,9 @@ def classify_hunk(h: Hunk, focus_ctx: bool | None = None) -> str:
     # Inventory rows, and NOTHING BUT inventory-table lines on either side. The bare
     # `_any(sides, INV_ROW)` this replaces had no purity gate at all — one row anywhere claimed
     # the whole hunk for a MECHANICAL class whose resolver keeps rows and discarded the rest
-    # (known-issue H8). A mixed hunk now falls through to a semantic class and DEFERS.
-    if _is_inventory_row_merge(h):
+    # (known-issue H8). A mixed hunk now falls through to a semantic class and DEFERS. A slug-keyed
+    # row is no inventory row: `resolve_inventory` keys by design ID and cannot place it.
+    if _is_inventory_row_merge(h) and not _any(sides, SLUG_ROW):
         return "design-inventory-row-merge"
     if _is_id_renumber_collision(h):
         return "id-renumber-collision"
@@ -410,6 +419,8 @@ def classify_hunk(h: Hunk, focus_ctx: bool | None = None) -> str:
     # Mutually exclusive with the arm above: one block starts with `- **`, the other with `### [`.
     if _is_decision_entry_insertion(h):
         return "decision-entry-insertion"
+    if shaped_merge.is_shaped_line_merge(h):
+        return "shaped-line-merge"
     return "generic-prose"
 
 
@@ -424,6 +435,9 @@ def is_confident(h: Hunk) -> bool:
     """
     if h.label not in MECHANICAL:
         return True
+    keyed = (keyed_rows if h.label == keyed_rows.LABEL else keyed_classes).extra_confident(h)
+    if keyed is not None:
+        return keyed
     sides = h.ours + h.theirs
     has_heading = _any(sides, ID_HEADING)
     has_inv = _any(sides, INV_ROW)
@@ -463,13 +477,12 @@ def classify_file(text: str, labels: tuple[str, str, str] | None = None) -> Pars
         if isinstance(seg, Hunk):
             key = id(seg.pre_context)
             if key not in focus:
-                focus[key] = _focus_context(seg.pre_context)
+                focus[key] = focus_context(seg.pre_context)
             seg.label = classify_hunk(seg, focus[key])
     return pf
 
 
 def _main(argv: list[str]) -> int:
-    from pathlib import Path
     for path in argv:
         pf = classify_file(Path(path).read_text(encoding="utf-8"))
         hunks = [s for s in pf.segments if isinstance(s, Hunk)]

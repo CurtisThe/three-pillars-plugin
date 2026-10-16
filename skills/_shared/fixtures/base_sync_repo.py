@@ -7,7 +7,10 @@ always an ancestor-or-equal of the fixture's `origin/<base>` tip, which is exact
 independent-oracle guard (wired at task 3.4, `oracle_root` hard-derived from
 `base_sync_cert.__file__`, non-injectable) requires to accept a happy-path fixture. A
 scratch-init'd fixture would make every Phase-2/5 happy-path test refuse as an
-unrelated-origin oracle (rc 128) the instant 3.4 lands.
+unrelated-origin oracle (rc 128) the instant 3.4 lands. The one exception is a plugin
+install, where the framework is not a git checkout at all: there the fixture clones a
+one-commit snapshot of the installed tree, and the oracle, running from outside any
+repo, is the accepted external install (consumer-repo-parity L4).
 
 Topology-zoo builders (worktrees, distinct clones, bare hubs, ...) are task 3.1's job, not
 this module's -- this file only builds the CORE two-repo (origin + repo) scenario plus the
@@ -16,8 +19,12 @@ hooks Phase 2 needs.
 """
 from __future__ import annotations
 
+import atexit
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +33,7 @@ if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
 from auto_safe_resolution import RESOLVED, resolve_conflict_bytes  # noqa: E402
+from base_sync_oracle import _is_genuinely_outside_any_repo  # noqa: E402 — the oracle's own signal
 
 LIVING_DOC_PATH = "three-pillars-docs/known_issues.md"
 
@@ -47,15 +55,54 @@ def _run(args: list[str], cwd: Path, check: bool = True) -> subprocess.Completed
 
 
 def _this_repo_root() -> Path:
+    """The framework checkout to clone. In a plugin install the framework is a plain
+    directory (no git checkout: git reports no repository in any parent), so the fixture
+    clones a one-commit snapshot repo of the installed tree instead. The oracle then
+    runs from a directory outside any repo, which it accepts as an external install."""
     here = Path(__file__).resolve().parent
     r = subprocess.run(["git", "-C", str(here), "rev-parse", "--show-toplevel"],
-                       capture_output=True, text=True, check=True)
-    return Path(r.stdout.strip())
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        return Path(r.stdout.strip())
+    if not _is_genuinely_outside_any_repo(r.returncode, r.stderr):
+        r.check_returncode()  # an ambiguous git error still fails loudly
+    return _snapshot_repo(here.parents[2])
 
 
-def _current_branch(repo_root: Path) -> str:
-    r = subprocess.run(["git", "-C", str(repo_root), "symbolic-ref", "--short", "HEAD"],
-                       capture_output=True, text=True, check=True)
+_SNAPSHOT: list = []
+
+
+def _snapshot_repo(tree: Path) -> Path:
+    """A one-commit repo holding `tree` (the installed framework), built once per process
+    in a temp dir removed at exit (rebuilt if a per-test temp sandbox already removed
+    it). Repo-local git env vars are dropped for these calls."""
+    if _SNAPSHOT and not _SNAPSHOT[0].exists():
+        _SNAPSHOT.clear()
+    if not _SNAPSHOT:
+        tmp = Path(tempfile.mkdtemp(prefix="tp-base-sync-snapshot-"))
+        atexit.register(shutil.rmtree, tmp, True)
+        dest = tmp / "framework"
+        shutil.copytree(tree, dest, ignore=shutil.ignore_patterns(
+            "__pycache__", "*.pyc", ".pytest_cache"))
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                     ["-c", "user.name=fixture", "-c", "user.email=fixture@test",
+                      "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+                      "commit", "-q", "-m", "fixture: installed framework snapshot"]):
+            subprocess.run(["git", "-C", str(dest), *args], capture_output=True, text=True,
+                           check=True, env=env)
+        _SNAPSHOT.append(dest)
+    return _SNAPSHOT[0]
+
+
+def _current_branch(repo_root: Path) -> str | None:
+    """The checked-out branch, or None on a detached HEAD (a CI or certify-pole checkout).
+    `-q` makes a detached HEAD exit 1 quietly; any other git failure still raises."""
+    r = subprocess.run(["git", "-C", str(repo_root), "symbolic-ref", "-q", "--short", "HEAD"],
+                       capture_output=True, text=True)
+    if r.returncode == 1:
+        return None
+    r.check_returncode()
     return r.stdout.strip()
 
 
@@ -94,11 +141,21 @@ def build_scenario(tmp_path, *, base_ref: str = "main", design_branch: str = "de
     repo_dir = root / "repo"
     src = _this_repo_root()
     src_branch = _current_branch(src)
-    _run(["clone", "--quiet", "--single-branch", "--branch", src_branch, str(src), str(origin_dir)],
+    # One clone for both shapes; a detached source (CI / certify-pole checkout) clones its HEAD.
+    pick = ["--branch", src_branch] if src_branch is not None else ["--no-checkout"]
+    _run(["clone", "--quiet", "--shared", "--single-branch", *pick, str(src), str(origin_dir)],
          root, check=True)
-    _run(["checkout", "--quiet", "-B", base_ref], origin_dir, check=True)
-    if src_branch != base_ref:
-        _run(["branch", "-D", src_branch], origin_dir, check=False)
+    if src_branch is not None:
+        _run(["checkout", "--quiet", "-B", base_ref], origin_dir, check=True)
+        if src_branch != base_ref:
+            _run(["branch", "-D", src_branch], origin_dir, check=False)
+    else:
+        sha = _run(["rev-parse", "HEAD"], src, check=True).stdout.strip()
+        _run(["checkout", "--quiet", "-B", base_ref, sha], origin_dir, check=True)
+        # git names a branch whose tip equals the detached HEAD; keep base_ref alone
+        heads = _run(["for-each-ref", "--format=%(refname:short)", "refs/heads"], origin_dir).stdout
+        for other in (h for h in heads.split() if h != base_ref):
+            _run(["branch", "-D", other], origin_dir, check=True)
     _write_and_commit(origin_dir, living_doc_path, _SEED_LIVING_DOC, "fixture: seed living doc")
     _write_and_commit(origin_dir, OTHER_PATH, _SEED_OTHER, "fixture: seed non-AUTO-SAFE doc")
     _run(["clone", "--quiet", str(origin_dir), str(repo_dir)], root, check=True)

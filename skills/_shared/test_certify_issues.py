@@ -4,9 +4,11 @@ design: audit-pass-does-not-bind (Task 9.4; detailed-design.md §Interfaces [B])
 
 `render` files every `not-binding` / `false-red` sweep claim and every self
 claim that is not `binds` / `known-bypass` (a B15 miss is filed, never silent).
-`apply` re-derives the next free Medium id over `known_issues.md` ∪
-`known_issues_resolved.md` at apply time and is re-runnable (an entry already
-filed under its key is skipped).
+`apply` files each entry under a placeholder ID `M-new-<slug>` (never a number:
+the numbering pass assigns it at landing, L162), with the slug derived from the
+claim key and kept collision-free over `known_issues.md` ∪
+`known_issues_resolved.md`; it is re-runnable (an entry already filed under its
+key is skipped).
 """
 from __future__ import annotations
 
@@ -84,23 +86,40 @@ def _files(tmp_path: Path) -> tuple[Path, Path]:
     return known, resolved
 
 
-def test_apply_allocates_past_both_files_under_medium(tmp_path):
+def test_apply_files_placeholder_ids_under_medium(tmp_path):
+    """L162: `issues apply` files `M-new-<slug>` placeholders, never a next-free number."""
     known, resolved = _files(tmp_path)
     ids = certify_issues.apply(certify_issues.render([SWEEP], SELF), known, resolved)
-    assert ids == ["M10", "M11", "M12", "M13"]
+    assert ids == ["M-new-cert-sweep-01-s2", "M-new-cert-sweep-01-s3",
+                   "M-new-cert-self-c2", "M-new-cert-self-c4"]
     text = known.read_text(encoding="utf-8")
     medium = text.index("## Medium")
-    assert text.index("### M10:") > medium
-    assert text.index("### M13:") < text.index("### M3:")
+    assert text.index("### M-new-cert-sweep-01-s2:") > medium
+    assert text.index("### M-new-cert-self-c4:") < text.index("### M3:")
     assert "M?" not in text
+    assert "### M4:" not in text and "### M10:" not in text
 
 
-def test_apply_re_derives_the_id_at_apply_time(tmp_path):
+def test_apply_placeholder_slugs_match_the_numbering_pass(tmp_path):
+    """Every filed heading is one `number_issues.py` will number at landing."""
+    import number_issues
     known, resolved = _files(tmp_path)
-    pending = certify_issues.render([SWEEP], None)
-    resolved.write_text(RESOLVED + "\n### M40 (RESOLVED 2026-02-02): allocated meanwhile\n",
+    ids = certify_issues.apply(certify_issues.render([SWEEP], SELF), known, resolved)
+    defined = [f"{m.group(1)}-new-{m.group(2)}"
+               for m in number_issues.DEFINED.finditer(known.read_text(encoding="utf-8"))]
+    assert defined == ids
+
+
+def test_apply_placeholder_slug_is_collision_free(tmp_path):
+    known, resolved = _files(tmp_path)
+    resolved.write_text(RESOLVED + "\n### M-new-cert-sweep-01-s2: taken in the archive\n",
                         encoding="utf-8")
-    assert certify_issues.apply(pending, known, resolved) == ["M41", "M42"]
+    weird = _result("Sweep_01!", [_entry("S/2", "not-binding"), _entry("s-2", "false-red")])
+    pending = certify_issues.render([SWEEP, weird], None)
+    ids = certify_issues.apply(pending, known, resolved)
+    assert ids == ["M-new-cert-sweep-01-s2-2", "M-new-cert-sweep-01-s3",
+                   "M-new-cert-sweep-01-s-2", "M-new-cert-sweep-01-s-2-2"]
+    assert len(set(ids)) == len(ids)
 
 
 def test_apply_is_re_runnable(tmp_path):
@@ -130,5 +149,5 @@ def test_issues_cli_render_then_apply(tmp_path, capsys):
     assert certify_ledger.main(["issues", "apply", "--pending", str(pending),
                                 "--known-issues", str(known)]) == 0
     assert json.loads(capsys.readouterr().out.strip().splitlines()[-1]) == {
-        "applied": ["M10", "M11"]}
+        "applied": ["M-new-cert-sweep-01-s2", "M-new-cert-sweep-01-s3"]}
     assert "sweep-01#s3" in known.read_text(encoding="utf-8")

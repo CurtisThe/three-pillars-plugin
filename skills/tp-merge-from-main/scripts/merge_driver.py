@@ -8,6 +8,7 @@ Flow (design.md §Behavior):
   2. For each conflicted file:
        - living doc  -> reconstruct (base, ours, theirs) from index stages, build a diff3 block,
                         classify -> resolve -> verify.
+       - declared generated file (`merge_from_main.generators`) -> `resolve_generated`, last.
        - everything else (code/prose files) -> DEFER unconditionally.
   3. Staging policy (load-bearing safety): a file is staged ONLY when
        file_status == RESOLVED  AND  verifier reports zero drops  AND  no conflict marker remains.
@@ -28,8 +29,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from regenerate import load_generators, regenerate_file  # noqa: E402
 from stage_oracle import index_disagreement  # noqa: E402
-from verify import UNVERIFIABLE, verify  # noqa: E402
+from verify import UNVERIFIABLE  # noqa: E402
+from driver_moves import verify_living  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
 from auto_safe_resolution import (  # noqa: E402
@@ -70,7 +73,7 @@ def _still_conflicted(text: str) -> bool:
 @dataclass
 class FileOutcome:
     path: str
-    kind: str            # "living-doc" | "other"
+    kind: str            # "living-doc" | "generated" | "other"
     action: str          # "auto-resolved" | "partially-resolved" | "deferred"
     reason: str = ""
     classes: list = field(default_factory=list)
@@ -168,7 +171,7 @@ def resolve_living_doc(repo: str, path: str) -> FileOutcome:
     # ONE shared byte-production path — the same function the Phase-2 verifier re-runs.
     try:
         status, merged, mechanical_applied = resolve_conflict_bytes_detail(
-            base=base, ours=ours, theirs=theirs)
+            base=base, ours=ours, theirs=theirs, path=path)
     except (MergeFileError, OSError, UnicodeDecodeError) as e:
         # `MergeFileError`: `git merge-file` itself failed. Its stdout is EMPTY on failure, which
         # used to resolve to a RESOLVED, marker-free one-newline "merge" — total content loss
@@ -218,7 +221,7 @@ def resolve_living_doc(repo: str, path: str) -> FileOutcome:
                                   f"— left untouched for human")
 
     # Zero-drop is the hard gate — checked on whatever we are about to write to the worktree.
-    r = verify(ours, theirs, merged, mechanical_applied=mechanical_applied)
+    r = verify_living(repo, path, base, ours, theirs, merged, mechanical_applied=mechanical_applied)
     if r.verdict == UNVERIFIABLE:
         # The resolver DID mechanically resolve at least one hunk here, but the verifier parsed
         # zero atoms — this file's shape is unknown to it, so "no drops" would only mean "nothing
@@ -296,6 +299,50 @@ def _deferred_reasons(base: str, ours: str, theirs: str) -> str:
 
 def repo_path(repo: str, path: str) -> str:
     return str(Path(repo) / path)
+
+
+def _dirty(repo: str) -> dict:
+    """Tracked paths whose worktree differs from the index (unmerged ones too) -> their bytes."""
+    names = _git(repo, "diff", "--name-only", "-z", check=False).stdout.split("\0")
+    return {p: f.read_bytes() if (f := Path(repo, p)).is_file() else None for p in names if p}
+
+
+def resolve_generated(repo: str, gen) -> FileOutcome:
+    """Regenerate a declared generated file (`regenerate.py`) instead of text-merging it. Accept
+    only when both sides rebuild to the same bytes AND no other tracked file changed; else restore
+    what the generator wrote, put the conflict markers back and defer. Never raises."""
+    path, before, touched = gen.path, {}, []
+    try:
+        before = _dirty(repo)
+        ours, theirs = _stage_blob(repo, 2, path), _stage_blob(repo, 3, path)
+        text, why = ((None, "a side is absent (add/delete conflict)") if None in (ours, theirs)
+                     else regenerate_file(repo, gen, ours, theirs))
+        after = _dirty(repo)
+        touched = sorted(p for p in before.keys() | after.keys() if p != path
+                         and (p in before, before.get(p)) != (p in after, after.get(p)))
+        if text is not None and touched:
+            text, why = None, f"the generator also changed {', '.join(touched)}"
+        if text is not None:
+            _git(repo, "add", "--", path)
+            return FileOutcome(path, "generated", "auto-resolved", resolved_classes=["regenerate"])
+    except Exception as e:                             # noqa: BLE001 — deliberate totality
+        why = f"{type(e).__name__}: {e}"
+    for p in touched:       # dirty before -> its pre-run bytes; otherwise back to the index
+        if before.get(p) is not None:
+            Path(repo, p).write_bytes(before[p])
+        else:
+            _git(repo, "checkout", "--", p, check=False)
+    _git(repo, "checkout", "-m", "--", path, check=False)    # re-create the conflict markers
+    return FileOutcome(path, "generated", "deferred",
+                       reason=f"generated file could not be regenerated: {why}")
+
+
+def _load_generators(repo: str) -> list:
+    try:    # an unreadable or malformed config declares none
+        text = Path(repo, ".three-pillars", "config.json").read_text(encoding="utf-8")
+        return load_generators(json.loads(text))
+    except (OSError, ValueError):
+        return []
 
 
 def merge_back(repo: str, base_ref: str, living_docs=None,
@@ -384,8 +431,9 @@ def merge_back(repo: str, base_ref: str, living_docs=None,
     else:
         living = set(living_docs)
         _is_living = living.__contains__
-    for path in files:
-        if _is_living(path):
+    gens = {g.path: g for g in _load_generators(repo)}
+    for path in sorted(files, key=gens.__contains__):      # stable: generator paths go last
+        if path in gens or _is_living(path):
             # Outer backstop to the in-function guard: NOTHING may escape this loop. An escape
             # after earlier files were written and staged leaves a half-staged merge with no
             # `MergeReport` for the caller to act on — strictly worse than deferring one file.
@@ -393,9 +441,10 @@ def merge_back(repo: str, base_ref: str, living_docs=None,
             # ones (a `write_bytes`/`_git` OSError after the guards, say) and still produces a
             # total report.
             try:
-                outcome = resolve_living_doc(repo, path)
+                outcome = (resolve_generated(repo, gens[path]) if path in gens
+                           else resolve_living_doc(repo, path))
             except Exception as e:                     # noqa: BLE001 — deliberate totality
-                outcome = FileOutcome(path, "living-doc", "deferred",
+                outcome = FileOutcome(path, "generated" if path in gens else "living-doc", "deferred",
                                       reason=f"resolver raised — needs human "
                                              f"({type(e).__name__}: {e})")
         else:

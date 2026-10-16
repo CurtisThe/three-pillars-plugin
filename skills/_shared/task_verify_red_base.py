@@ -2,11 +2,12 @@
 
 design: local-implement-and-review (Behavior 5)
 
-For ``pytest-node`` Targets, a scratch worktree at ``base_sha`` (on a named throwaway
-``tp-redbase/`` branch, under the dispatcher's ``.claude/worktrees/``, removed in
-``finally``) gets HEAD's target files overlaid and runs the node targets through
-``task_scope.runner_argv``, **one run per node**, each judged by its own ``--junitxml``
-report (`junit_verdict`); the first most severe node wins (amendment A31):
+For ``pytest-node`` Targets, a scratch worktree (on a named throwaway ``tp-redbase/``
+branch, under the dispatcher's ``.tp-scratch/``, removed in ``finally``) at the
+attempt's red commit ``red_sha`` (the tests exist there, the implementation does not),
+or with no red commit at ``base_sha`` with HEAD's target files overlaid, runs the node
+targets through ``task_scope.runner_argv``, **one run per node**, each judged by its own
+``--junitxml`` report (`junit_verdict`); the first most severe node wins (amendment A31):
 
 * every node passed → ``green-at-base`` (suspect: a weak or trivial test; the phase review
   reads it first);
@@ -78,30 +79,34 @@ def _scratch(attempt: dict) -> tuple[str, str, str]:
     return owner, path, BRANCH_PREFIX + name.replace(f"{slug}-", f"{slug}/", 1)
 
 
-def logged(attempt: dict, row: dict, runner: str, timeout: int, *, run) -> dict:
+def logged(attempt: dict, row: dict, runner: str, timeout: int, *, run,
+           red_sha: str | None = None) -> dict:
     """``red_at_base`` that never raises: it runs after the PASS verdict, so any error
     (a failing ``git show`` / ``worktree add``, an OS error) is recorded as
     ``red_at_base: "error"`` with its stderr tail and the PASS stands."""
     try:
-        return red_at_base(attempt, row, runner, timeout, run=run)
+        return red_at_base(attempt, row, runner, timeout, run=run, red_sha=red_sha)
     except Exception as exc:  # noqa: BLE001 — evidence only, never gating
         detail = getattr(exc, "stderr", None) or str(exc)
         return {"red_at_base": "error", "red_at_base_tail": str(detail).strip()[-2000:]}
 
 
-def red_at_base(attempt: dict, row: dict, runner: str, timeout: int, *, run) -> dict:
-    """→ ``{red_at_base, red_at_base_tail}``; ``run(argv, cwd, timeout) -> (rc, tail)``."""
+def red_at_base(attempt: dict, row: dict, runner: str, timeout: int, *, run,
+                red_sha: str | None = None) -> dict:
+    """→ ``{red_at_base, red_at_base_tail}``; ``run(argv, cwd, timeout) -> (rc, tail)``.
+    ``red_sha`` set: the scratch is that commit as-is; else ``base_sha`` plus the overlay."""
     test = row.get("test") or {}
     specs = test.get("specs") or []
     if test.get("kind") != "pytest-node" or not specs:
         return {"red_at_base": "n/a", "red_at_base_tail": ""}
-    texts = {path: task_attempts._git(attempt["attempt_dir"], "show", f"HEAD:{path}").stdout
-             for path in test.get("files") or []}
+    texts = {} if red_sha else {
+        path: task_attempts._git(attempt["attempt_dir"], "show", f"HEAD:{path}").stdout
+        for path in test.get("files") or []}
     owner, scratch, branch = _scratch(attempt)
     try:
         os.makedirs(os.path.dirname(scratch), exist_ok=True)
         task_attempts._git(owner, "worktree", "add", "-q", "-b", branch, scratch,
-                           str(attempt["base_sha"]))
+                           red_sha or str(attempt["base_sha"]))
         for path, text in texts.items():
             target = os.path.join(scratch, path)
             os.makedirs(os.path.dirname(target), exist_ok=True)

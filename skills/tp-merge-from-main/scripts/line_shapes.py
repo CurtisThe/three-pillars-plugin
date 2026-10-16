@@ -197,3 +197,8 @@ def keep_both_refusal(side: list[str], entry: re.Pattern) -> str | None:
         if why is not None:
             return f"{line!r} {why}"
     return None
+
+
+def focus_context(pre_context: str) -> bool:
+    """`pre_context` names a Current-Focus / priority section: the table-type disambiguator."""
+    return any(k in pre_context for k in ("Current Focus", "Priority", "Next Action"))

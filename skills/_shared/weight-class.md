@@ -10,7 +10,11 @@ The executable companion is `skills/_shared/weight_class.py` (`recommend`,
 
 - `just-do-it` — trivial, reversible, well-understood change. A ~10-line
   mini design.md on a normal `tp/{slug}` branch; implement; `/code-review`.
-  No council, no plan.md.
+  No council, no plan.md. The stop path (implement, gate, one light review,
+  stop for the operator) runs `/tp-design-complete` (the PR is optional)
+  before the merge OK hand-off, so the archive lands with the merge.
+  Before the PR, step 6g runs the per-phase check once (`skills/_shared/phase-check.md`
+  §Just-do-it, phase `jdi`).
 - `light` — small but real production work. One `/tp-design` sitting
   produces a **collapsed design.md** (design + detail merged, ~60 lines)
   **and a thin plan.md**; `/tp-design-detail` and `/tp-plan` are skipped.
@@ -117,8 +121,9 @@ have no scope-time — the patch IS the scope.
 Use the hot-patch lane when: an urgent narrow fix cannot wait for a full branch +
 design cycle AND it meets eligibility (trailer self-declaration + hard exclusions +
 ≤150-line diff cap). See `commit-after-work.md` §Hot-patch lane for the full lane
-contract, trailer grammar, ledger obligation, and the eligibility checks enforced
-at commit time.
+contract, trailer grammar, ledger obligation, and the eligibility checks
+(`hot_patch_check.py`, run by the commit guard (`commit_guard.py`), only when
+installed) enforced at commit time.
 
 ## Composition contract: (weight-class × slice)
 

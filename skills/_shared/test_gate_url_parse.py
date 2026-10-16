@@ -60,6 +60,7 @@ _HERMETIC_RUNNERS_BASE = {
 }
 
 _RELAXED_CONFIG = {
+    "schema_version": 1,
     "ci": {"expects_github_checks": False},
     "review": {"expects_copilot": False, "require_human_approval": False},
 }

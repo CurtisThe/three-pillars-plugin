@@ -36,7 +36,7 @@ it shares nothing with the table.
 from __future__ import annotations
 
 from collections import Counter
-from string import ascii_uppercase
+from string import ascii_lowercase, ascii_uppercase
 
 _ANCHOR_BEFORE = ("#", "/", "[", "`")     # an ID preceded by one of these is an anchor/link/path
 _ANCHOR_AFTER = ("#", "/", "`", "-")      # ...or followed by one: `#L4-heading`
@@ -47,7 +47,12 @@ _ANCHOR_AFTER = ("#", "/", "`", "-")      # ...or followed by one: `#L4-heading`
 # two entries). Every other class is held to exact multiplicity — a deduped duplicate is a drop,
 # and under the SET containment this replaces it was invisible (S-J3 / S-J4). Membership here says
 # the class HAS the licence; `collapsible_keys` says which of the hunk's keys it reaches (S-K2).
-MAY_COLLAPSE_A_CROSS_SIDE_DUPLICATE = ("append-only-log", "design-inventory-row-merge")
+MAY_COLLAPSE_A_CROSS_SIDE_DUPLICATE = (
+    "append-only-log", "design-inventory-row-merge", "last-updated-preamble",
+    "log-entry-insertion")
+# `last-updated-preamble`: every `*Last updated:` line is one key, because two one-line sides become
+# one line (the later, or a union of the two summaries). Found by prefix, not by a pattern.
+_LAST_UPDATED_KEY = "<last-updated>"
 
 
 def mask_bare_ids(line: str, touched) -> str:
@@ -88,6 +93,20 @@ def row_id_by_field(line: str) -> str | None:
     if head and head in ascii_uppercase and digits and digits.isascii() and digits.isdigit():
         return token
     return None
+
+
+_SLUG_HEAD = ascii_lowercase + "0123456789"    # a slug opens with a lowercase letter or a digit
+
+
+def row_slug_by_field(line: str) -> str | None:
+    """A slug row's slug (`` | `a-b` | ... ``), found by splitting on the column delimiter: the
+    FIRST field, stripped, is a backtick-wrapped run of `a-z`, `0-9` and `-` opening with a letter
+    or digit. `| D1 |`, `` | `A` | `` and a delimiter row are not slug rows."""
+    fields = line.split("|") if line.startswith("|") else []
+    cell = fields[1].strip() if len(fields) >= 3 else ""
+    slug = cell[1:-1] if len(cell) > 2 and cell[0] == "`" == cell[-1] else ""
+    ok = slug and slug[0] in _SLUG_HEAD and all(c == "-" or c in _SLUG_HEAD for c in slug)
+    return slug if ok else None
 
 
 def _is_delimiter_cell(cell: str) -> bool:
@@ -137,6 +156,51 @@ def frame_lines(side) -> set:
     return out
 
 
+def is_log_entry_start(line: str) -> bool:
+    """`- **<date or `slug`>** —` read by walking the line, no pattern: a dash, spaces/tabs, a
+    bold key that is a `YYYY-MM-DD` date or a backticked lowercase slug, spaces/tabs, an em dash."""
+    if not line.startswith("-"):
+        return False
+    rest = line[1:]
+    body = rest.lstrip(" \t")
+    if body == rest or not body.startswith("**"):
+        return False
+    close = body.find("**", 2)
+    if close < 0:
+        return False
+    token, after = body[2:close], body[close + 2:]
+    date = (len(token) == 10 and token[4] == "-" and token[7] == "-"
+            and all(c.isascii() and c.isdigit() for i, c in enumerate(token) if i not in (4, 7)))
+    slug = token[1:-1]
+    sluggy = (len(token) > 2 and token[0] == "`" == token[-1] and (slug[0].isdigit() or
+              slug[0] in "abcdefghijklmnopqrstuvwxyz") and all(
+              c == "-" or (c.isascii() and (c.isdigit() or c.islower())) for c in slug))
+    tail = after.lstrip(" \t")
+    return (date or sluggy) and tail != after and tail.startswith("—")
+
+
+def shared_whole_entries(ours: list, theirs: list) -> list:
+    """The lines both sides open with, then the lines both close with, kept only as WHOLE log
+    entries: the opening run is walked back until what follows it on both sides starts an entry
+    (or ends the side), the closing run forward until it starts with an entry."""
+    lo = 0
+    for a, b in zip(ours, theirs):
+        if a != b:
+            break
+        lo += 1
+    while lo and not all(lo == len(side) or is_log_entry_start(side[lo])
+                         for side in (ours, theirs)):
+        lo -= 1
+    hi = 0
+    for a, b in zip(reversed(ours[lo:]), reversed(theirs[lo:])):
+        if a != b:
+            break
+        hi += 1
+    while hi and not is_log_entry_start(ours[len(ours) - hi]):
+        hi -= 1
+    return ours[:lo] + ours[len(ours) - hi:]
+
+
 def collapsible_keys(hunk, key, label):
     """The keys the class's cross-side licence covers — `None` meaning all of them.
 
@@ -158,6 +222,10 @@ def collapsible_keys(hunk, key, label):
         rows = {key(line) for line in sides if row_id_by_field(line) is not None}
         frame = frame_lines(list(hunk.ours)) | frame_lines(list(hunk.theirs))
         return rows | {key(line) for line in frame}
+    if label == "last-updated-preamble":
+        return {_LAST_UPDATED_KEY}
+    if label == "log-entry-insertion":
+        return {key(line) for line in shared_whole_entries(list(hunk.ours), list(hunk.theirs))}
     return set()
 
 
@@ -168,6 +236,7 @@ def oracle_key(label: str, renumbered: dict | None):
         bare prose cross-references — and nothing else on the line. IDs it did NOT renumber, and
         the anchor/link forms it deliberately leaves alone, are compared literally.
       * `design-inventory-row-merge` may emit ONE row per `| D<n> |` id — ours' or theirs'.
+      * `last-updated-preamble` may emit ONE `*Last updated:` line for the two it was handed.
       * every other class may change nothing at all: identity.
     """
     if label == "id-renumber-collision":
@@ -175,7 +244,28 @@ def oracle_key(label: str, renumbered: dict | None):
         return lambda line: mask_bare_ids(line, touched)
     if label == "design-inventory-row-merge":
         return lambda line: (f"<row {row_id_by_field(line)}>" if row_id_by_field(line) else line)
+    if label == "last-updated-preamble":
+        return lambda line: _LAST_UPDATED_KEY if line.startswith("*Last updated:") else line
     return lambda line: line
+
+
+def _is_shaped_line(line: str) -> bool:
+    """An ID row, a slug row or a log bullet, never a delimiter row (this module's predicates)."""
+    return not is_delimiter_row(line) and (
+        row_id_by_field(line) is not None or row_slug_by_field(line) is not None
+        or is_log_entry_start(line))
+
+
+def _lost_by_base_aware_count(hunk, result) -> list[str]:
+    """`shaped-line-merge`, the oracle's first read of `hunk.base`: the count over RAW lines is
+    `(O & T & B) + ((O - B) | (T - B))`, so an edited base line is rightly absent. Only a SHAPED
+    base line may be let go; an unshaped one keeps its exact `ours + theirs` multiplicity."""
+    o, t, b = Counter(hunk.ours), Counter(hunk.theirs), Counter(hunk.base)
+    need = (o & t & b) + ((o - b) | (t - b))
+    for line in b:
+        if not _is_shaped_line(line):
+            need[line] = o[line] + t[line]
+    return list((need - Counter(result.lines)).elements())
 
 
 def lost_lines(hunk, result) -> list[str]:
@@ -184,8 +274,10 @@ def lost_lines(hunk, result) -> list[str]:
     MULTISET containment: the per-key MAXIMUM where the class's licence covers that key (the
     cross-side collapse, exactly) and the SUM everywhere else (exact multiplicity), minus what the
     output carries. `result` need only carry `.label`, `.renumbered` and `.lines`, so a
-    counterfactual resolver can be checked by standing in for a `HunkResult`.
+    counterfactual resolver can stand in for a `HunkResult`. `shaped-line-merge` has its own arm.
     """
+    if result.label == "shaped-line-merge":
+        return _lost_by_base_aware_count(hunk, result)
     key = oracle_key(result.label, result.renumbered)
     ours = Counter(key(line) for line in hunk.ours)
     theirs = Counter(key(line) for line in hunk.theirs)

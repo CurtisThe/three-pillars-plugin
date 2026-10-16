@@ -7,12 +7,15 @@ with a scrubbed env and never read the ambient repository (M23).
 """
 from __future__ import annotations
 
+import json
+import random
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from task_scope import _git_env as clean_git_env  # shipped scrub; git_env is dev-only
 
 import task_scope
@@ -84,8 +87,10 @@ def test_resolve_runner_order(tmp_path, monkeypatch):
     ini = _repo_with(tmp_path / "ini", pytest__ini="[pytest]\n")
     assert task_scope.resolve_runner(ini, "python3 -m pytest -x") == (
         "python3 -m pytest -x", "override")
-    assert task_scope.resolve_runner(ini, None) == (_PYTEST, "pytest-config")
-    assert task_scope.resolve_runner(ini, "") == (_PYTEST, "pytest-config")
+    # consumer-repo-parity 6.1: discover_test_command's marker probe now resolves a
+    # marker-only repo, so the source is "discovered" (same runner).
+    assert task_scope.resolve_runner(ini, None) == (_PYTEST, "discovered")
+    assert task_scope.resolve_runner(ini, "") == (_PYTEST, "discovered")
     pyproject = _repo_with(tmp_path / "pp", pyproject__toml="[tool.pytest.ini_options]\n")
     _python_on_path(False)
     assert task_scope.resolve_runner(pyproject, None) == (_PYTEST, "discovered")
@@ -93,9 +98,9 @@ def test_resolve_runner_order(tmp_path, monkeypatch):
     _python_on_path(True)
     assert task_scope.resolve_runner(pyproject, None) == ("python -m pytest", "discovered")
     tox = _repo_with(tmp_path / "tox", tox__ini="[tox]\n\n[pytest]\naddopts = -q\n")
-    assert task_scope.resolve_runner(tox, None) == (_PYTEST, "pytest-config")
+    assert task_scope.resolve_runner(tox, None) == (_PYTEST, "discovered")
     cfg = _repo_with(tmp_path / "cfg", setup__cfg="[metadata]\n[tool:pytest]\n")
-    assert task_scope.resolve_runner(cfg, None) == (_PYTEST, "pytest-config")
+    assert task_scope.resolve_runner(cfg, None) == (_PYTEST, "discovered")
     tox_only = _repo_with(tmp_path / "tox2", tox__ini="[tox]\nenvlist = py3\n")
     assert task_scope.resolve_runner(tox_only, None) == (None, "no-runner")
     empty = _repo_with(tmp_path / "none")
@@ -122,3 +127,49 @@ def test_runner_argv_is_runner_plus_targets():
         sys.executable, "-m", "pytest", "-p", "no:xdist", "-x", "t.py::a", "t.py::test_b[x y]"]
     assert task_scope.runner_argv("make test", ["t.py"]) == ["make", "test", "t.py"]
     assert not hasattr(task_scope, "xdist_loaded")
+
+
+@pytest.mark.parametrize("command,token", [
+    ("python3 -m pytest -q && echo lint-ok", "&"), ("pytest -q; ruff check", ";"),
+    ("pytest -q | tee log", "|"), ("pytest -q > out.txt", ">"), ("pytest < in", "<"),
+    ("python3 -m pytest -q tests/test_*.py", "*"), ("pytest t/test_?.py", "?"),
+    ("pytest t/[ab].py", "["), ("python3 -m pytest $PYTEST_EXTRA", "$"),
+    ('pytest -k "$SEL"', "$"), ("pytest ~/tests", "~"), ("pytest `cat t`", "`"),
+    ("pytest -q  # fast", "#"), ("pytest -k 'a", "'"), ("pytest t/a#b.py", "#"),
+    ("pytest -q \\\n tests", "\\"), ("pytest -q tests \\", "\\"),
+    ("pytest\u00a0-q", "\u00a0"), ("pytest -q\nruff check", "\n"),
+    ('pytest -k "a\\"b"', "\\"), ('pytest -q "\\$x"', "\\"), ("pytest -k'a'", "'"),
+    ('pytest -k "a\nb"', "\n"),
+    ('pytest -k "a and b"', None), ("pytest -k 'test_* or x;y'", None),
+    ("python3 -m pytest -q\ttests --basetemp=x ''", None),
+])
+def test_resolve_runner_refuses_a_recorded_command_that_needs_a_shell(tmp_path, command, token):
+    """PR #170 r1-r4: `runner_argv` execs without a shell, so a command outside the argv-safe
+    allowlist (`shell_token`) fails closed, naming the first offending character, even with
+    a pytest config — recorded or given as the operator's override alike."""
+    repo = _repo_with(tmp_path, pytest__ini="[pytest]\n")
+    _write(repo, ".three-pillars/config.json", json.dumps(
+        {"schema_version": 1, "test": {"command": command, "runner": "pytest"}}))
+    for override, source in ((None, "discovered"), (command, "override")):
+        runner, why = task_scope.resolve_runner(repo, override)
+        if token is None:
+            assert (runner, why) == (command, source)
+        else:
+            assert (runner, why) == (None, f"runner-needs-shell: {token!r} in {command!r}")
+
+
+def test_every_accepted_command_splits_as_sh_does():
+    """PR #170 r4: closed by construction — for every command `shell_token` accepts,
+    `shlex.split` (what `runner_argv` execs) equals sh word-splitting. A leading
+    ``NAME=`` word (a sh assignment) is refused."""
+    rng = random.Random(170)
+    alphabet = "aaa--==   \t''\"\"\\$*#~;\n\u00a0"
+    accepted = sorted({c for c in ("".join(rng.choices(alphabet, k=rng.randint(1, 7)))
+                                   for _ in range(20000))
+                       if c.strip(" \t") and task_scope.shell_token(c) is None})
+    assert len(accepted) > 200 and any("'" in c for c in accepted), accepted
+    script = "".join(f"printf '%s\\0' {c}; printf '\\1'\n" for c in accepted)
+    out = subprocess.run(["sh", "-c", script], capture_output=True, text=True).stdout
+    for command, words in zip(accepted, out.split("\1")):
+        assert shlex.split(command) == words.split("\0")[:-1], command
+    assert task_scope.shell_token("A=1 pytest") == "="

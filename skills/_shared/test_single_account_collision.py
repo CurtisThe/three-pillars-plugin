@@ -19,6 +19,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import pytest
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_collision_advisory = pytest.mark.skipif(
+    not (_DEV_ROOT / "skills/_shared/collision_advisory.py").exists(),
+    reason="imports the dev-only collision_advisory.py (dev-repo only)")
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -299,6 +305,7 @@ class TestNoGateMessagePositive:
         from single_account_detect import single_account_collision_live  # noqa: F401
         assert callable(single_account_collision_live)
 
+    @_needs_collision_advisory
     def test_collision_advisory_fires_collision_token_on_single_account(self):
         """A8: collision_advisory.main() outputs a line containing 'COLLISION'
         when single_account_collision_live() returns True.
@@ -309,7 +316,7 @@ class TestNoGateMessagePositive:
         """
         import io
         from unittest import mock
-        import collision_advisory
+        collision_advisory = pytest.importorskip("collision_advisory")
 
         with mock.patch("single_account_detect.single_account_collision_live",
                         return_value=True), \
@@ -332,11 +339,12 @@ class TestNoGateMessagePositive:
             f"Advisory must include the self_login; got: {output!r}"
         )
 
+    @_needs_collision_advisory
     def test_no_collision_advisory_silent_on_two_account(self):
         """No collision -> advisory prints nothing (silent, no-gate message is absent)."""
         import io
         from unittest import mock
-        import collision_advisory
+        collision_advisory = pytest.importorskip("collision_advisory")
 
         with mock.patch("single_account_detect.single_account_collision_live",
                         return_value=False):

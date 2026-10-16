@@ -8,7 +8,8 @@ single load-bearing, order-sensitive call. It **composes** the existing primitiv
     read angle files → merge_codereview_angles  (B1 guard: refuse non-clean rounds)
     → review_proof.capture_proof
     → review_proof.format_proof_digest
-    → review_merge.post_codereview_comment   (trusted author; the LAST head-binding action)
+    → proof_post.post_proof_checked          (posts as the bot, reads the author back;
+                                              the LAST head-binding action)
     → seed the UNTRACKED iterate-state.v1.json (last_verdict="minor-only")
     → shell run_round.py (paths str()-ed, decisions_path OMITTED, config explicit)
     → convergence_proof.non_degraded_proof_on_head  (independent PASS oracle)
@@ -36,10 +37,14 @@ if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
 import iterate_state  # noqa: E402
+import proof_post  # noqa: E402
 import review_merge  # noqa: E402
 import review_proof  # noqa: E402
 import round_budget  # noqa: E402
+import severity  # noqa: E402
+import closeout_gate  # noqa: E402
 import convergence_proof  # noqa: E402 — skills/_shared, on path via the shim above
+import changed_tests_runs  # noqa: E402 — skills/_shared, on path via the shim above
 
 RUN_ROUND_PY = SCRIPTS_DIR / "run_round.py"
 
@@ -155,25 +160,38 @@ def _read_angle_texts(angle_files) -> "list[str]":
     return texts
 
 
+def _blocks(f: dict) -> bool:
+    """`severity.is_blocking` for a tagged finding; an untagged (legacy) finding keeps
+    its fail-closed `verdict` default — a MISSING tag must never read as "not blocking"."""
+    if "blocking" not in f:
+        return f.get("verdict") == "structural"
+    return severity.is_blocking(f)
+
+
 def guard_refusal(findings: "list[dict]") -> "str | None":
     """Return a refusal diagnostic when a round is NOT structurally clean, else None.
 
     B1 / B5: `converge.py` is the *finish*, not the fix loop. It proceeds ONLY on a
     genuinely clean round (`merge_codereview_angles(...) == []`). Any non-empty
     result refuses:
-      - real structural findings → point at the fix loop (`run_round.py` / `/tp-pr-fix`);
-      - degraded sentinels (`no-angles` / unparseable) → never a false convergence.
+      - degraded sentinels (`no-angles` / unparseable) → never a false convergence;
+      - real blocking findings → point at the fix loop (`run_round.py` / `/tp-pr-fix`).
+
+    Sentinels are checked FIRST: `severity.is_blocking` excludes a sentinel, so a
+    severity filter run first would return None on a degraded review and converge on it
+    (the L125/M27 class of hole, reached from the severity side).
     """
-    blocking = [f for f in findings if f.get("verdict") == "structural"]
-    if not blocking:
-        return None  # non-blocking notes never refuse the finish
-    if review_merge.is_degraded_review(findings):
+    real = [f for f in findings if not review_merge._is_sentinel(f)]
+    blocking = [f for f in real if _blocks(f)]
+    if len(real) < len(findings) and not blocking:  # sentinel-only, or sentinel + notes
         return (
             "converge.py refuses: the review is DEGRADED (no angles ran, or an angle "
             "failed to parse) — this is NOT a clean round. Re-run the review fan-out on "
             "this head and write real angle replies to the --angle-file paths, then "
             "converge; never converge on an unparseable/no-angles review."
         )
+    if not blocking:
+        return None  # non-blocking notes never refuse the finish
     return (
         f"converge.py refuses: {len(blocking)} structural finding(s) present — this is a "
         "FIX round, not a finish. Run the fix loop (run_round.py / /tp-pr-fix) until the "
@@ -190,6 +208,13 @@ def _emit(out, obj: dict) -> None:
 
 def _diag(err, msg: str) -> None:
     err.write(msg + "\n")
+
+
+def emit_head_refusal(doc: dict, out, err) -> int:
+    line = json.dumps(doc)
+    err.write(line + "\n")
+    out.write(line + "\n")
+    return _EXIT_BLOCKED
 
 
 def _git_head(run_git) -> "str | None":
@@ -233,6 +258,8 @@ def converge(
     now_iso=None,
     out=None,
     err=None,
+    runs_record_fn=None,
+    ready_ping_fn=None,
 ) -> int:
     """Finalize a structurally-clean round to two-stable `[code-review-only]`.
 
@@ -254,6 +281,10 @@ def converge(
         _diag(err, refusal)
         return _EXIT_REFUSED
 
+    gate = closeout_gate.head_refusal(run_git=run_git, repo_root=repo_root)
+    if gate is not None:  # un-archived design head: no digest, no ready label
+        return emit_head_refusal(gate, out, err)
+
     return _finish_clean(
         base=base, head=head, pr_url=pr_url, config=config, texts=texts,
         findings=findings, label_counts=label_counts, state_path=state_path,
@@ -261,6 +292,7 @@ def converge(
         comments_fn=comments_fn, self_login_fn=self_login_fn, run_git=run_git,
         run_round_fn=run_round_fn, derive_base_ref_fn=derive_base_ref_fn,
         repo_root=repo_root, now_iso=now_iso, out=out, err=err,
+        runs_record_fn=runs_record_fn, ready_ping_fn=ready_ping_fn,
     )
 
 
@@ -269,8 +301,11 @@ def _seed_state(state_path: Path, head: str, *, now_iso=None) -> None:
 
     Two-sided: always primes `last_verdict="minor-only"`, `last_codereview_head_sha=head`,
     empty findings and `phase`; from an existing state it preserves only `iteration`,
-    `started_at`, `original_diff_lines`, the k-counter and `budget_*`, and a budget
-    terminal phase (tick re-evaluates it). Absent → `iteration=0`, no baseline. Written
+    `started_at`, `original_diff_lines`, the k-counter, `review_weight`, `frozen_at`,
+    `reproduced_blockers` and `budget_*`, and a budget terminal phase (tick re-evaluates
+    it). The three Phase-5 keys are not optional bookkeeping: dropping `frozen_at` here
+    loses the clean-round freeze mark `round_tail` wrote, so the frozen-round partition
+    would never fire in a real loop. Absent → `iteration=0`, no baseline. Written
     via ``iterate_state.write_state_atomic``: a short file is a run_round.py wedge.
     """
     try:
@@ -295,7 +330,10 @@ def _seed_state(state_path: Path, head: str, *, now_iso=None) -> None:
         "last_codereview_head_sha": head,
         "last_codereview_findings": [],
     }
-    keep = ("iteration", "started_at", "original_diff_lines", round_budget.K_KEY)
+    # "frozen_at" is round_freeze.FROZEN_FIELD — literal here to keep the seed's
+    # import graph free of the forge path round_freeze pulls in.
+    keep = ("iteration", "started_at", "original_diff_lines", round_budget.K_KEY,
+            "review_weight", "frozen_at", "reproduced_blockers")
     state.update({k: v for k, v in prior.items() if k in keep or k.startswith("budget_")})
     if round_budget.is_budget_terminal(prior):
         state.update(phase=prior["phase"], termination_reason=prior["termination_reason"])
@@ -341,6 +379,7 @@ def _finish_clean(
     *, base, head, pr_url, config, texts, findings, label_counts, state_path,
     review_base, proof_root, post_fn, comments_fn, self_login_fn, run_git,
     run_round_fn, derive_base_ref_fn, repo_root, now_iso, out, err,
+    runs_record_fn=None, ready_ping_fn=None,
 ) -> int:
     """The clean-round finish: capture → digest → post → seed → run_round → oracle
     → terminal JSON. Post is the LAST head-binding action; HEAD is invariant."""
@@ -369,13 +408,18 @@ def _finish_clean(
                     "digest": digest})
         return _EXIT_BLOCKED
 
-    # 5. Post the proof comment BEFORE run_round — the LAST head-binding action.
-    posted = review_merge.post_codereview_comment(
-        pr_url, findings, head_sha=head, digest=digest, post_fn=post_fn)
-    if not posted:
-        _diag(err, "converge.py blocked: proof-comment post failed (gh).")
-        _emit(out, {"converged": False, "terminal": None, "head_sha": head,
-                    "proof_verified": False, "reason": "post-failed"})
+    # 5. Post the proof comment BEFORE run_round — the LAST head-binding action. It posts as
+    # the configured automation account and reads its author back against the gate's trust set.
+    posted = proof_post.post_proof_checked(
+        pr_url, findings, head=head, digest=digest, config=config, post_fn=post_fn,
+        comments_fn=comments_fn, self_login_fn=self_login_fn)
+    if posted["status"] != "ok":
+        _diag(err, f"converge.py blocked: proof-comment {posted['status']}.")
+        blocked = {"converged": False, "terminal": None, "head_sha": head,
+                   "proof_verified": False, "reason": posted["status"]}
+        if posted.get("author"):
+            blocked["author"] = posted["author"]
+        _emit(out, blocked)
         return _EXIT_BLOCKED
 
     # 6. Seed/update the UNTRACKED iterate-state.v1.json.
@@ -402,15 +446,31 @@ def _finish_clean(
     if not (rr_converged and proof_pass and head_stable):
         reason = _blocked_reason(rr_converged, proof_pass, head_stable, envelope)
         _diag(err, f"converge.py blocked: {reason}.")
-        _emit(out, {"converged": False, "terminal": envelope.get("terminal"),
-                    "head_sha": head, "proof_verified": bool(proof_pass),
-                    "reason": reason})
+        blocked = {"converged": False, "terminal": envelope.get("terminal"),
+                   "head_sha": head, "proof_verified": bool(proof_pass), "reason": reason}
+        if envelope.get("finalizer_stop") is not None:  # newly fired budget terminal
+            blocked["finalizer_stop"] = envelope["finalizer_stop"]
+        _emit(out, blocked)
         return _EXIT_BLOCKED
 
-    # 9. Terminal verdict — byproduct-only, proof-verified. HEAD unchanged throughout.
+    # 9. Fail-open changed-tests run record for this converged head (Task 9.4): an
+    # unresolvable / unwritable record is logged to err and never changes the verdict.
+    # The PR base (review_base), not `base`: a delta round's `base` is the prior head.
+    try:
+        (runs_record_fn or changed_tests_runs.record)(repo_root or ".", review_base, head)
+    except Exception as exc:  # noqa: BLE001 — fail-open, never blocks convergence
+        _diag(err, f"converge.py: changed_tests_runs.record failed: {exc}")
+
+    # 10. Terminal verdict — byproduct-only, proof-verified. HEAD unchanged throughout.
     terminal = envelope.get("terminal") or "two-stable [code-review-only]"
-    _emit(out, {"converged": True, "terminal": terminal, "head_sha": head,
-                "proof_verified": True})
+    doc = {"converged": True, "terminal": terminal, "head_sha": head,
+           "proof_verified": True}
+    if ready_ping_fn is not None:  # ready-ping (pr-ready-ping 1.3): fail-open —
+        try:                       # a ping never changes the converged verdict
+            doc["ready_ping"] = ready_ping_fn(pr_url, head)
+        except Exception as exc:  # noqa: BLE001
+            _diag(err, f"converge.py: ready_ping failed: {exc}")
+    _emit(out, doc)
     return _EXIT_CONVERGED
 
 

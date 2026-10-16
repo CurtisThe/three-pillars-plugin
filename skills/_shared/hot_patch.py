@@ -32,6 +32,13 @@ import re
 import sys
 from pathlib import Path
 
+# Ensure _shared/ is on sys.path for sibling imports (diff_balloon_guard.py pattern).
+_SHARED_DIR = Path(__file__).resolve().parent
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
+
+from default_branch import resolve_default_branch  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants (duplicated from hot_patch_check.py to avoid circular import
 # when this module is run as a subprocess; kept in sync by the test suite —
@@ -46,6 +53,7 @@ BRANCH_PREFIX = "hot-patch/"
 # Exclusion tuple (must match hot_patch_check.py exactly)
 EXCLUDED_PREFIXES = (
     ".three-pillars/",
+    "scripts/fc-selftest/",
 )
 
 EXCLUDED_FILES = frozenset({
@@ -60,17 +68,63 @@ EXCLUDED_FILES = frozenset({
     "skills/tp-merge-from-main/scripts/merge_gate.py",
     "skills/_shared/worktree_write_guard.py",
     "skills/_shared/worktree_isolation_guard.py",
+    "skills/_shared/scratch_root.py",
     "skills/_shared/detect_unarchived.py",
     "skills/_shared/detect_orphan_locks.py",
     "skills/_shared/hot_patch_check.py",
     "skills/_shared/hot_patch.py",
     "skills/_shared/hot_patch_ledger.py",
+    "skills/_shared/hot_patch_hook.py",
     "skills/_shared/test_hot_patch_check.py",
     "skills/_shared/test_hot_patch_ledger.py",
+    "skills/_shared/test_hot_patch_ledger_base.py",
     "skills/_shared/test_hot_patch_anomaly.py",
     "skills/_shared/test_hot_patch_nul_paths.py",
     "skills/_shared/test_hot_patch.py",
     "skills/_shared/test_hot_patch_stanza.py",
+    "skills/_shared/test_hot_patch_ledger_union.py",
+    "skills/_shared/test_hot_patch_refs.py",
+    "skills/_shared/test_hot_patch_commit_msg.py",
+    "skills/_shared/test_hot_patch_branch.py",
+    "skills/_shared/test_hot_patch_discharge.py",
+    "skills/_shared/test_hot_patch_excluded_closure.py",
+    # The lane cannot edit its own guard (consumer-repo-parity Task 5.7):
+    # commit_guard.py's own transitive import closure within skills/_shared/,
+    # the guard-adjacent modules the design names by hand (some of which the
+    # closure walk does not reach, e.g. ci_gate_run.py / ci_local_stamp.py),
+    # the sentinel body, and every one of their on-disk tests.
+    "skills/_shared/commit_guard.py",
+    "skills/_shared/commit_guard_settings.py",
+    "skills/_shared/commit_guard_hooks.py",
+    "skills/_shared/repo_config_load.py",
+    "skills/_shared/default_branch.py",
+    "skills/_shared/bootstrap_immunization.py",
+    "skills/_shared/ci_gate_run.py",
+    "skills/_shared/ci_local_stamp.py",
+    "skills/_shared/hooks/tp-commit-guard.sh",
+    "skills/_shared/test_commit_guard.py",
+    "skills/_shared/test_commit_guard_cli.py",
+    "skills/_shared/test_commit_guard_hook.py",
+    "skills/_shared/test_commit_guard_legacy.py",
+    "skills/_shared/test_commit_guard_msg_hook.py",
+    "skills/_shared/test_commit_guard_precommit_e2e.py",
+    "skills/_shared/test_commit_guard_status.py",
+    "skills/_shared/test_commit_guard_prose.py",
+    "skills/_shared/test_repo_config_load.py",
+    "skills/_shared/test_repo_config_load_committed.py",
+    "skills/_shared/test_ci_gate_run.py",
+    "skills/_shared/test_ci_local_stamp.py",
+    "skills/_shared/test_ci_local_stamp_cli.py",
+    "skills/_shared/test_ci_local_stamp_config_gate.py",
+    "skills/_shared/test_ci_local_stamp_gate_command.py",
+    "skills/_shared/test_ci_local_stamp_pred.py",
+    "skills/_shared/test_default_branch.py",
+    "skills/_shared/test_default_branch_callers.py",
+    "skills/_shared/test_default_branch_ref.py",
+    "skills/_shared/test_bootstrap_immunization.py",
+    "skills/_shared/test_bootstrap_immunization_cli.py",
+    "skills/_shared/test_bootstrap_immunization_r2.py",
+    "skills/_shared/test_bootstrap_immunization_worktree.py",
 })
 
 
@@ -96,6 +150,19 @@ def preflight_files(files: list[str]) -> list[str]:
                 _violation(f"pre-flight exclusion: touches protected file '{f_norm}'")
             )
     return violations
+
+
+def _resolve_base_branch(repo_root: str) -> str:
+    """Resolve the PR base branch for repo_root; "master" on any failure.
+
+    Any exception — including DefaultBranchError for a repo_root that isn't
+    a git repo yet (e.g. a --dry-run plan rendered before the worktree
+    exists) — falls back to "master" so build_plan always renders.
+    """
+    try:
+        return resolve_default_branch(repo_root)
+    except Exception:
+        return "master"
 
 
 def preflight_lines(estimated_lines: int | None) -> list[str]:
@@ -129,6 +196,7 @@ def build_plan(
       steps: list[str] — ordered steps to execute (if ok=True)
       worktree_path: str
       branch: str
+      base_branch: str — resolved PR base (resolve_default_branch; "master" on failure)
     """
     violations = preflight_files(files) + preflight_lines(estimated_lines)
     if violations:
@@ -138,8 +206,10 @@ def build_plan(
             "steps": [],
             "worktree_path": "",
             "branch": "",
+            "base_branch": "",
         }
 
+    base_branch = _resolve_base_branch(repo_root)
     worktree_path = f"{repo_root}/{WORKTREE_PREFIX}{slug}"
     branch = f"{BRANCH_PREFIX}{slug}"
     ledger_path = f"{worktree_path}/{LEDGER_RELPATH}"
@@ -156,7 +226,7 @@ def build_plan(
             f'--trailer "hot-patch: {trigger}" '
             f"-m \"Hotfix: {trigger}\""
         ),
-        f"gh pr create --base master --head {branch} --title \"Hotfix: {trigger}\"",
+        f"gh pr create --base {base_branch} --head {branch} --title \"Hotfix: {trigger}\"",
         (
             "# Operator merges: "
             "gh pr merge --merge <PR-NUMBER>  "
@@ -174,6 +244,7 @@ def build_plan(
         "steps": steps,
         "worktree_path": worktree_path,
         "branch": branch,
+        "base_branch": base_branch,
     }
 
 
@@ -287,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         f"then commit: git -C {plan['worktree_path']} commit "
         f'--trailer "hot-patch: {args.trigger}" -m "Hotfix: {args.trigger}"'
     )
-    print(f"Open PR: gh pr create --base master --head {plan['branch']}")
+    print(f"Open PR: gh pr create --base {plan['base_branch']} --head {plan['branch']}")
     print(
         f"After merge: git worktree remove {plan['worktree_path']} "
         f"&& git branch -d {plan['branch']}"

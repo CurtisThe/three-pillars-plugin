@@ -39,8 +39,17 @@ def head_of(attempt: dict) -> str:
 def checked(attempt: dict, rung: str, verdict_fn) -> dict:
     """Run ``verdict_fn`` (``check``'s steps 1-6) and record its verdict against the HEAD
     sampled *before* it ran, the commit those steps verified (impl-audit-2 #6). A HEAD
-    that moved during the check turns a PASS into FAIL ``moved-during-check``."""
+    that moved during the check turns a PASS into FAIL ``moved-during-check``. A HEAD
+    that moved *after* a prior PASS (no in-place repair, dd attempt-integrity §A2) skips
+    ``verdict_fn`` entirely and FAILs ``edited-after-pass``; a same-sha re-check runs as
+    normal."""
     start = head_of(attempt)
+    rec = _on_disk(attempt) or {}
+    prior = rec.get("check") or attempt.get("check")
+    if prior and prior.get("verdict") == "PASS" and prior.get("checked_sha") != start:
+        res = {"verdict": "FAIL", "exit": 1, "reason": "edited-after-pass", "pre_exists": False}
+        record_verdict(attempt, res, rung, checked_sha=start)
+        return res
     res = verdict_fn()
     if res.get("verdict") == "PASS" and head_of(attempt) != start:
         res.update(verdict="FAIL", exit=1, reason="moved-during-check", pre_exists=False)

@@ -1,7 +1,7 @@
 ---
 name: tp-design-detail
 description: Produce a detailed-design.md from an existing design.md. Maps high-level entities and behaviors to concrete modules, interfaces, and test boundaries.
-argument-hint: "{design-name} [--auto] [--force-takeover]"
+argument-hint: "{design-name} [--auto] [--patch <findings.json>] [--force-takeover]"
 ---
 
 # Low-Level Detailed Design
@@ -35,7 +35,7 @@ Turn a high-level design into a concrete implementation blueprint.
 
 ## Module Structure
 Where the code lives. File paths, new modules, relationship to existing code.
-Size the boundaries here: caps per `CLAUDE.md` §File Size Limits — when a proposed module or its test file would plausibly exceed the soft-warn, split the boundary at design time (by responsibility), not at implement time.
+Size the boundaries here: caps per `skills/_shared/file-size-caps.md` — when a proposed module or its test file would plausibly exceed the soft-warn, split the boundary at design time (by responsibility), not at implement time.
 
 ## Interfaces
 Public APIs with signatures. For each:
@@ -60,7 +60,7 @@ Other TDD designs this depends on (by name), what it needs from each, and minimu
 - External: new packages (with versions if known)
 
 ## Implementation Order
-Ordered list of what to build first → last, grouped by natural phases.
+Numbered list, one item per phase: `1. **<Phase Title>** — write tests for X, then implement X` (parsed by /tp-plan-audit — keep this shape). Number items 1..n consecutively; indented continuation lines belong to the item above them. The parser is `skills/tp-plan-audit/scripts/design_phases.py`.
 Each phase should be independently testable.
 
 ## Decisions
@@ -89,8 +89,25 @@ Key implementation choices made during this design and their rationale.
 In `--auto`:
 - **Skip step 5's conversation.** Derive answers to the open questions (module structure, interfaces, test boundaries, dependencies, processing model) from `design.md`, the codebase exploration in step 3, and the project docs read in step 4.
 - **Self-assess each derivation** as High / Medium / Low confidence per the auto-mode convention, and **append a Decision Entry** to `three-pillars-docs/tp-designs/{design-name}/decisions.md` using the canonical init/append snippet in `skills/_shared/auto-mode.md`. Use `[tp-design-detail]` as the bare skill-name prefix.
-- **Existing artifact**: if `detailed-design.md` already exists, overwrite without asking and log the overwrite as a decision.
+- **Existing artifact**: if `detailed-design.md` already exists, overwrite without asking and log the overwrite as a decision (under `--patch`, edit it instead: ## Patch mode).
 - **Lock conflict**: handled by the collaboration preflight per the shared rule — exits BLOCKED with a `decisions.md` entry. Do not re-document here.
 - Stage `decisions.md` alongside the artifact in the commit (step 7).
 
 **Contract: in `--auto`, this skill never prompts; the trail of judgment calls lives in `decisions.md` for human review.**
+
+## Patch mode
+
+`--patch <findings.json>` is the audit-retry path: after a design-audit `needs-work`,
+`/tp-run-full-design` re-dispatches this skill (as `tp-generator`, with `--auto`) and this flag.
+`<findings.json>` is the clipped audit `findings[]` (`.handoffs/<slot>-findings-<n>.json`).
+
+- **Edit, never Write.** Fix each finding in the existing `detailed-design.md` (or the split part
+  that holds the section) with one or more Edit calls scoped to that section. Never rewrite the
+  file with Write and never regenerate it from `design.md`; untouched sections stay byte-identical.
+- **One Decision Entry per finding**, appended to `decisions.md`:
+  `[tp-design-detail] patch finding <k> → <section>` (`<k>` = the finding's index in the file),
+  saying what changed, or why nothing needed to.
+- **No artifact → BLOCKED.** With no `detailed-design.md`, `--patch` refuses: append a BLOCKED
+  entry and exit non-zero. It never falls back to regeneration.
+- Steps 3-5 are skipped (the artifact and the findings are the input); step 7 commits the edited
+  files and `decisions.md`.

@@ -80,13 +80,24 @@ def _build_design_md(
     tmp_path: Path,
     sections: dict[str, str] | None = None,
     title: str = "test-design",
+    frontmatter: dict[str, str] | None = None,
 ) -> Path:
-    """Write a design.md from the given section dict and return the design dir."""
+    """Write a design.md from the given section dict and return the design dir.
+
+    ``frontmatter`` (optional) is written as a leading ``---`` block, e.g.
+    ``{"floor": "2"}``.
+    """
     if sections is None:
         sections = _well_formed_sections()
     design_dir = tmp_path / "design"
-    design_dir.mkdir()
-    lines: list[str] = [f"# {title}", ""]
+    design_dir.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    if frontmatter:
+        lines.append("---")
+        lines.extend(f"{key}: {value}" for key, value in frontmatter.items())
+        lines.append("---")
+        lines.append("")
+    lines.extend([f"# {title}", ""])
     for heading, body in sections.items():
         lines.append(f"## {heading}")
         lines.append("")
@@ -208,3 +219,51 @@ def test_required_section_with_only_subsections_passes(tmp_path: Path) -> None:
     result = _run(design_dir)
     assert result.returncode == 0, f"stderr={result.stderr!r}"
     assert "BLOCKED" not in result.stderr
+
+
+# (i) Task 9.1 — floor: 2 design: missing Consumer-repo behaviour section
+#     is a BLOCK (exit 1, listed under "missing"), present section passes.
+def test_floor2_requires_consumer_repo_section(tmp_path: Path) -> None:
+    section = "Consumer-repo behaviour"
+
+    # Without the section → BLOCKED, listed under "missing".
+    # Without the section → BLOCKED, listed under "missing".
+    sections = _well_formed_sections()
+    design_dir = _build_design_md(
+        tmp_path, sections, title="floor2-no-section", frontmatter={"floor": "2"}
+    )
+    result = _run(design_dir)
+    assert result.returncode == 1, f"stderr={result.stderr!r}"
+    assert "BLOCKED" not in result.stdout, "verdict must be on stderr, not stdout"
+    verdict = json.loads(result.stderr)
+    assert verdict["verdict"] == "BLOCKED"
+    assert section in verdict["missing"]
+
+    # With the section → PASS (exit 0), no BLOCKED verdict.
+    sections = _well_formed_sections()
+    sections[section] = (
+        "Ships as a skills/_shared helper that runs inside the user's repo, "
+        "not only in the framework development checkout."
+    )
+    design_dir = _build_design_md(
+        tmp_path, sections, title="floor2-with-section", frontmatter={"floor": "2"}
+    )
+    result = _run(design_dir)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert "BLOCKED" not in result.stderr
+
+
+# (j) Task 9.1 — legacy (un-stamped) design: missing Consumer-repo behaviour
+#     section is a stderr warning only, NOT a block (exit 0).
+def test_legacy_design_missing_section_warns_only(tmp_path: Path) -> None:
+    sections = _well_formed_sections()  # no Consumer-repo behaviour section
+    design_dir = _build_design_md(tmp_path, sections)  # no frontmatter stamp
+    result = _run(design_dir)
+    assert result.returncode == 0, f"stderr={result.stderr!r}"
+    assert "BLOCKED" not in result.stderr
+    assert "BLOCKED" not in result.stdout
+    # Warning on stderr, human-readable, never JSON.
+    assert result.stderr.strip() != "", "expected a stderr warning"
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stderr)
+    assert "Consumer-repo behaviour" in result.stderr

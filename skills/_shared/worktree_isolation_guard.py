@@ -4,7 +4,7 @@ Guards against shared-worktree corruption (known-issues M13/M14): a worker
 committing while its cwd is the shared orchestrator worktree rather than its
 own dedicated worktree.
 
-The load-bearing mechanical enforcement is invariant #32 in framework-check.sh
+The load-bearing mechanical enforcement (dev-repo only) is invariant #32 in framework-check.sh
 which calls this module with --assert-own-worktree before every commit.
 
 Two advisory boundary helpers are also exposed:
@@ -24,7 +24,8 @@ import posixpath
 import subprocess
 import sys
 
-
+import scratch_root
+from default_branch import default_branch_names
 # ---------------------------------------------------------------------------
 # Task 1.1: live_tp_worktrees — porcelain parser returning (path, branch) pairs
 # ---------------------------------------------------------------------------
@@ -102,18 +103,21 @@ def live_tp_worktrees(worktree_porcelain: str) -> list[tuple[str, str]]:
 
 # Default-branch names that mark the shared orchestrator / master checkout.
 _DEFAULT_BRANCHES = ("master", "main")
+# Where an issue ID cited in a BLOCK message resolves (live docs incl. Lows, then the archive).
+ISSUE_DOCS_HINT = "three-pillars-docs/known_issues.md, known_issues_low.md or known_issues_resolved.md"
 
 # ---------------------------------------------------------------------------
 # Orchestration paper-trail carve-out
 # ---------------------------------------------------------------------------
 
 _ORCHESTRATION_PREFIX = "three-pillars-docs/tp-designs/orchestration/"
+_CARVE_OUT_PREFIXES = (_ORCHESTRATION_PREFIX, "three-pillars-docs/escalations/")
 
 
 def orchestration_only_staged(staged_paths):
     """True iff the staged set is KNOWN, NON-EMPTY, and every path is under
-    the orchestration slot. None (unprovable) and [] (no commit) → False —
-    the carve-out never fires on an unprovable staged set (fail-closed).
+    the orchestration slot or the escalation layer. None (unprovable) and []
+    (no commit) → False → the carve-out never fires on an unprovable set.
 
     Paths are matched STRICTLY (forward-slash literals, no backslash
     normalization). A file literally named with backslash separators (a legal
@@ -126,7 +130,7 @@ def orchestration_only_staged(staged_paths):
         return False
     for path in staged_paths:
         normalized = posixpath.normpath(path)
-        if not normalized.startswith(_ORCHESTRATION_PREFIX):
+        if not normalized.startswith(_CARVE_OUT_PREFIXES):
             return False
     return True
 
@@ -200,24 +204,28 @@ def _is_default_branch_root(toplevel: str, branch: str, is_bare: bool) -> bool:
       - the porcelain marked this worktree `bare` (a bare worktree WITH a
         working tree is still the seat); OR
       - the path is NOT a `-wt/<slug>`-provisioned worktree AND NOT an agent
-        worktree (`.claude/worktrees/...`) — i.e. it is the main worktree root,
-        even when its branch is unreported.
+        worktree (`.claude/worktrees/...`) AND NOT under the scratch parent
+        (`.tp-scratch/...`) — i.e. it is the main worktree root, even when its
+        branch is unreported.
 
-    Guards against over-blocking: a `-wt/<slug>` tp worktree or a
-    `.claude/worktrees/agent-*` worktree is NEVER classified as a
-    default-branch root, so healthy tp worktrees and agent candidate/* worktrees
-    still PASS.
+    Guards against over-blocking: a `-wt/<slug>` tp worktree, a
+    `.claude/worktrees/agent-*` worktree or a `.tp-scratch/` attempt worktree is
+    NEVER classified as a default-branch root, so healthy tp worktrees, agent
+    candidate/* worktrees and scratch attempt worktrees still PASS.
     """
-    if branch in _DEFAULT_BRANCHES:
+    if branch in default_branch_names(toplevel):
         return True
     if is_bare:
         return True
     # Path-shape fallback: the main checkout is neither a tp-provisioned
-    # `-wt/<slug>` worktree nor an agent worktree under `.claude/worktrees/`.
+    # `-wt/<slug>` worktree, nor an agent worktree under `.claude/worktrees/`,
+    # nor a scratch worktree under `.tp-scratch/` (scratch_root).
     if _slug_provisioned_tp_branch(toplevel):
         return False
     norm = os.path.normpath(toplevel)
     if (os.sep + ".claude" + os.sep + "worktrees" + os.sep) in (norm + os.sep):
+        return False
+    if scratch_root.is_under_scratch(norm):
         return False
     return True
 
@@ -340,7 +348,7 @@ def assert_own_worktree(
         # it is not a known-safe branchless topology; it must BLOCK to prevent a
         # commit from landing in an unknown location.
         seat_on_default = (
-            effective_branch in _DEFAULT_BRANCHES
+            effective_branch in default_branch_names(owner_toplevel)
             or (not effective_branch and owner_is_bare)
         )
         # Boundary honesty: exclusivity is proven for the staged set at check
@@ -355,8 +363,8 @@ def assert_own_worktree(
             f"FAIL: refusing commit — cwd '{cwd}' (HEAD on '{effective_branch or '?'}') is the "
             f"shared default-branch ({root_label}) orchestrator worktree '{owner_toplevel}', "
             f"but {len(live)} live and {len(provisioned)} provisioned tp/<slug> worktree(s) exist.\n"
-            f"  This is the shared-worktree corruption class (known-issue M13; M14\n"
-            f"  is archived in three-pillars-docs/known_issues_resolved.md):\n"
+            f"  This is the shared-worktree corruption class (known-issues M13, M14;\n"
+            f"  IDs resolve in {ISSUE_DOCS_HINT}):\n"
             f"  committing from the shared master/orchestrator checkout while dedicated\n"
             f"  tp/* worktrees exist risks orphaning/cross-contaminating their commits.\n"
             f"  Live tp/* worktree(s): {live_str}\n"
@@ -379,8 +387,8 @@ def assert_own_worktree(
             f"FAIL: refusing commit — cwd '{cwd}'{branch_info} is inside the "
             f"tp-provisioned worktree '{owner_toplevel}' (expected branch '{expected}'), "
             f"but HEAD is NOT on that worktree's tp/<slug> branch.\n"
-            f"  This is the shared-worktree corruption class (known-issue M13; M14\n"
-            f"  is archived in three-pillars-docs/known_issues_resolved.md):\n"
+            f"  This is the shared-worktree corruption class (known-issues M13, M14;\n"
+            f"  IDs resolve in {ISSUE_DOCS_HINT}):\n"
             f"  a worker has checked out a foreign/candidate branch inside an\n"
             f"  orchestrator tp/* worktree (HEAD drift), risking commit orphaning.\n"
             f"  Live tp/* worktree(s): {live_str}\n"
@@ -447,7 +455,7 @@ def head_drift(*, dispatch_sha: str, return_sha: str) -> tuple[bool, str]:
     Empty either side → INDETERMINATE-style block (never a silent pass).
 
     This is an advisory comparator — the load-bearing orphan protection is
-    the branch-name reattach in tp-run-full-design §Branch hygiene rule 3.
+    the branch-name reattach in tp-run-full-design/run-safety.md §Branch hygiene rule 3.
     head_drift is for finer SHA-level drift detection when a caller records
     a pre-dispatch SHA.
     """
@@ -466,7 +474,7 @@ def head_drift(*, dispatch_sha: str, return_sha: str) -> tuple[bool, str]:
             f"  dispatch_sha: {dispatch_sha}\n"
             f"  return_sha:   {return_sha}\n"
             f"  The orchestrator's HEAD moved during the worker dispatch.\n"
-            f"  Verify branch integrity (see §Branch hygiene rule 3)."
+            f"  Verify branch integrity (see run-safety.md §Branch hygiene rule 3)."
         )
         return False, msg
 

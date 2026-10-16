@@ -28,7 +28,7 @@ PR = "https://github.com/o/r/pull/9"
 FAKE_LOGIN = "tp-bot"
 DECISIONS = "three-pillars-docs/tp-designs/d/decisions.md"
 CONFIG = ".three-pillars/config.json"
-CLEAN = "```json\n[]\n```\n"
+CLEAN = '{"findings": []}\n'
 _GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
             "GIT_CONFIG_NOSYSTEM": "1"}
@@ -81,7 +81,8 @@ def write(root, rel, text) -> Path:
 
 
 def config_doc(round_cap=6, k_consecutive=99) -> dict:
-    return {"review": {"expects_copilot": False}, "ci": {"expects_github_checks": False},
+    return {"schema_version": 1,
+            "review": {"expects_copilot": False}, "ci": {"expects_github_checks": False},
             "pdw": {"guards": {"round_cap": round_cap, "k_consecutive": k_consecutive}}}
 
 
@@ -150,7 +151,8 @@ class Loop:
     def prepare(self, cwd, base, head) -> Path:
         p = run("round_scratch.py", ["prepare", "--root", str(self.root), "--pr-url", PR,
                                       "--base", base, "--head", head, "--state", str(self.state),
-                                      "--log", str(self.log)], cwd=cwd, extra_env=self.env)
+                                      "--log", str(self.log), "--rulings", "rulings.md"],
+                cwd=cwd, extra_env=self.env)
         assert p.returncode == 0, p.stdout + p.stderr
         return Path(p.stdout.strip())
 
@@ -199,16 +201,19 @@ def blocking_finding(summary="real defect") -> dict:
 
 
 def write_replies(rd, first=CLEAN, *, drop=None) -> None:
-    """First angle gets `first`, the rest a clean `[]`; `drop` = index left without a reply."""
-    for i, e in enumerate(manifest(rd)["angles"]):
+    """First non-advisory angle gets `first`, the rest a clean `[]`; `drop` = index left
+    without a reply."""
+    entries = manifest(rd)["angles"]
+    lead = next((i for i, e in enumerate(entries) if not e.get("advisory")), 0)
+    for i, e in enumerate(entries):
         if i == drop:
             continue
-        text = first if i == 0 else CLEAN
+        text = first if i == lead else CLEAN
         Path(e["reply_path"]).write_text(text, encoding="utf-8")
 
 
 def reply(findings) -> str:
-    return "```json\n" + json.dumps(findings) + "\n```\n"
+    return "```json\n" + json.dumps({"findings": findings}) + "\n```\n"
 
 
 def tail_findings(rd) -> list:
@@ -216,7 +221,7 @@ def tail_findings(rd) -> list:
 
 
 def write_envelope(rd, *, action, head_reviewed, head_after, terminal=None,
-                   converged=False, budget=None) -> None:
+                   converged=False, budget=None, finalizer_stop=None) -> None:
     """A schema-valid round-tail.v1 envelope (what the tail subagent writes)."""
     b = budget or {}
     env_doc = {"schema": "tp-pr-iterate/round-tail/v1", "round": manifest(rd)["round"],
@@ -227,5 +232,5 @@ def write_envelope(rd, *, action, head_reviewed, head_after, terminal=None,
                "budget": {"iteration": b.get("iteration", 0),
                           "round_cap": b.get("round_cap", 6), "signal": b.get("signal"),
                           "holding": list(b.get("holding") or [])},
-               "summary": "itest"}
+               "finalizer_stop": finalizer_stop, "summary": "itest"}
     write(Path(rd) / "tail", "envelope.json", json.dumps(env_doc))

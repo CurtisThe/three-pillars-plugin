@@ -1,0 +1,16 @@
+{
+  "checked": "2026-09-30",
+  "claude_code_version": "2.1.286",
+  "main": {
+    "background_spawn_ok": true,
+    "done_detected": true,
+    "taskstop_ok": true,
+    "router_stats_agent_match": true
+  },
+  "nested": {
+    "background_spawn_ok": true,
+    "done_detected": true,
+    "taskstop_ok": false,
+    "router_stats_agent_match": true
+  }
+}

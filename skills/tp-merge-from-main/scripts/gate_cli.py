@@ -14,7 +14,7 @@ Usage:
 `--repo <path>` (task 8.2, dispatch-from-seat activation) is the ONLY recognized
 option: it resolves to a git toplevel (`git -C <path> rev-parse --show-toplevel`)
 and is threaded to `evaluate_fn(pr_url, repo_root=<resolved>)`. Without it the call
-shape is UNCHANGED (`evaluate_fn(pr_url)`) — see SKILL.md step 6.7 for the full
+shape is UNCHANGED (`evaluate_fn(pr_url)`) — see SKILL.md step 7a for the full
 dispatch-from-seat invocation this flag enables.
 
 stdlib-only (C1 invariant: no `import anthropic`, no `subprocess.run(["claude", ...])`).

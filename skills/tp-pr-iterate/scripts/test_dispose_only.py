@@ -1,8 +1,8 @@
 """Behavior tests for --dispose-only mode of /tp-pr-iterate (T1.3).
 
 Tests:
-  - SKILL.md documents --dispose-only in Arguments and describes it as
-    "calls the helper once and exits, no iteration."
+  - SKILL.md declares --dispose-only in its frontmatter argument-hint and its
+    references resolve (skill_refs).
   - Sending a payload with dispose_only=True calls dispose_threads exactly
     once and does NOT enter the run_round iteration / fix dispatch.
 """
@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
@@ -24,29 +26,33 @@ sys.path.insert(0, str(HERE.parent.parent.parent / "_shared"))
 import run_round  # noqa: E402
 
 
-# ---------- SKILL.md invariant ----------
+# ---------- SKILL.md structure ----------
+
+_SHARED = str(HERE.parents[1] / "_shared")
 
 
-def test_dispose_only_in_arguments_section():
-    """SKILL.md Arguments section must document --dispose-only."""
-    body = SKILL_MD.read_text(encoding="utf-8")
-    assert "--dispose-only" in body, (
-        "SKILL.md must document --dispose-only in the Arguments section"
-    )
+def _shared(name: str):
+    """Import a shipped _shared helper after putting its dir on sys.path."""
+    if _SHARED not in sys.path:
+        sys.path.insert(0, _SHARED)
+    return pytest.importorskip(name)
 
 
-def test_dispose_only_description_mentions_helper_and_no_iteration():
-    """SKILL.md must state --dispose-only calls the helper once and exits, no iteration."""
-    body = SKILL_MD.read_text(encoding="utf-8")
-    lower = body.lower()
-    assert "dispose-only" in lower, "--dispose-only must be documented"
-    # The description must contain 'once' and some form of 'exits' or 'exit'
-    # near the dispose-only section
-    assert "calls the helper once" in lower or "once and exits" in lower or (
-        "dispose_threads" in body and "exits" in lower
-    ), (
-        "SKILL.md must state --dispose-only calls the helper once and exits"
-    )
+def test_dispose_only_flag_is_in_the_frontmatter_argument_hint():
+    """--dispose-only is part of the skill's declared interface: it appears in the
+    parsed frontmatter argument-hint (not in the prose)."""
+    skill_frontmatter = _shared("skill_frontmatter")
+    fields, issues = skill_frontmatter.parse(SKILL_MD.read_text(encoding="utf-8"))
+    assert fields is not None and not issues
+    assert "--dispose-only" in fields["argument-hint"][1].replace("[", " ").replace("]", " ").split()
+
+
+def test_skill_md_references_resolve(tmp_path):
+    """Every path/script/flag the SKILL.md names (the --dispose-only helper
+    thread_dispose included) resolves: skill_refs (invariant 46)."""
+    skill_refs = _shared("skill_refs")
+    report = skill_refs.check(HERE.parents[2], [SKILL_MD], cache_dir=tmp_path)
+    assert report.issues == []
 
 
 # ---------- behavior: dispose_only=True calls dispose_threads once and exits ----------
@@ -124,12 +130,20 @@ def test_dispose_only_does_not_enter_run_round_loop(monkeypatch, capsys):
 
     monkeypatch.setattr(loop_driver, "run_round", fake_run_round)
 
-    old_stdin = sys.stdin
-    sys.stdin = io.StringIO(_make_payload(dispose_only=True))
-    try:
-        rc = run_round.main()
-    finally:
-        sys.stdin = old_stdin
+    # Stub thread_dispose exactly as test_dispose_only_calls_dispose_threads_once
+    # does: the real dispose_threads would list, reply to and resolve threads on
+    # github.com/o/r#1 through the operator's authenticated gh.
+    fake_module = MagicMock()
+    fake_module.dispose_threads = MagicMock(
+        return_value={"replied": [], "resolved": [], "skipped": []}
+    )
+    with patch.dict("sys.modules", {"thread_dispose": fake_module}):
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO(_make_payload(dispose_only=True))
+        try:
+            rc = run_round.main()
+        finally:
+            sys.stdin = old_stdin
 
     assert run_round_called == [], (
         "dispose_only=True must NOT call loop_driver.run_round; "

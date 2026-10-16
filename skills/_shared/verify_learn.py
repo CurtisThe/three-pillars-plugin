@@ -11,8 +11,9 @@ catches the residue. It is a deterministic, re-runnable, ADVISORY diff-grep:
 
 `main()` ALWAYS exits 0 (advisory, never a gate) and every function fails open
 (any error → empty), so a grep heuristic can never hard-block on a historical-doc
-mention. The HARD enforcement is framework-check.sh invariant #27; this is the
-soft, propagation-quality check (Q3).
+mention. The HARD enforcement is framework-check.sh invariant #27, which is
+framework repo only (needs framework-check.sh); in a user's repo only this soft,
+propagation-quality check (Q3) runs.
 
 Range note: callers pass `--range {default}...tp/{slug}` so `git diff` surfaces the
 DESIGN BRANCH's deletions (merge-base → tp/slug). The detailed-design literal wrote
@@ -132,6 +133,10 @@ def stale_invariant_cites(repo_root, touched_paths) -> list[StaleRef]:
 
     ALWAYS fail-open (returns empty on any error). NEVER a gate — callers
     must treat the result as advisory only (main() stays exit-0).
+
+    The live invariant numbers come from framework-check.sh, so this check is
+    framework repo only (needs framework-check.sh): in a user's repo, which has
+    none, it returns empty (a no-op).
     """
     if not touched_paths:
         return []

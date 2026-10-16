@@ -1,13 +1,13 @@
 """github_pr_author.py — the single PR-create chokepoint (pr-author-bot-account).
 
-Pure/seamed core + thin CLI. **No `gh auth switch` anywhere** (machine-global
-mutation; racy under parallel fleet workers). **No token at rest**: the token
-exists only as a local variable passed into one child process env. **Config
-source**: `.three-pillars/config.json` under the resolved repo root — an
-explicit `--repo` wins outright; otherwise the root is the git toplevel
-(`git rev-parse --show-toplevel`), not raw cwd, so a call from a
-subdirectory still finds the repo's config instead of misreading a missing
-file as "unconfigured" (falls back to cwd only outside a git repo).
+Pure/seamed core + thin CLI. The token rules (no `gh auth switch`, no token at rest, one
+implementation of the per-call token fetch, fail-loud `BotAuthUnavailable`) live in
+`automation_identity.py`, the identity core shared with every other automation write; the moved
+names are re-exported here so callers and tests keep using `github_pr_author.*`. **Config
+source**: `.three-pillars/config.json` under the resolved repo root — an explicit `--repo` (a
+LOCAL repo path, validated to be an existing directory; never a GitHub `owner/name` slug) wins
+outright; otherwise the root is the git toplevel (`_default_repo_root`), not raw cwd, so a call
+from a subdirectory still finds the repo's config (cwd only outside a git repo).
 
 See `three-pillars-docs/completed-tp-designs/pr-author-bot-account/detailed-design.md`
 §3 for the full interface specification.
@@ -24,102 +24,19 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
-class BotAuthUnavailable(RuntimeError):
-    """Raised when a configured PR-author bot account cannot be honored.
+import automation_identity  # noqa: E402
+from automation_identity import (  # noqa: E402,F401  (re-exported public names)
+    BotAuthUnavailable,
+    _default_repo_root,
+    bot_token,
+    resolve_pr_author,
+)
 
-    Covers two distinct triggers, both fail-loud (never a silent ambient
-    fallback): (1) the configured account failed its `gh auth token --user`
-    probe, and (2) the `github` config block is present but structurally
-    unusable (non-dict, malformed account, unknown `used_for`).
-    """
-
-
-def resolve_pr_author(config: dict, context: str) -> "str | None":
-    """Resolve which account (if any) should author the PR.
-
-    Pure. Returns `github.pr_author_account` iff it is a non-empty str AND
-    (`used_for` == "all-prs" or ("autonomous-only" and context == "autonomous")).
-    `used_for` null/absent folds to "all-prs".
-
-    Fail-loud asymmetry: a config with NO `github` key (or
-    `pr_author_account: null`) → None (plain path, byte-identical to today).
-    A PRESENT-yet-unusable `github` block — non-dict `github`, non-str
-    non-null `pr_author_account`, empty-str account, unknown `used_for`
-    (only when an account IS configured) — raises `BotAuthUnavailable`.
-
-    `context` not in {"manual", "autonomous"} → ValueError (caller bug).
-    """
-    if context not in ("manual", "autonomous"):
-        raise ValueError(
-            f"context must be 'manual' or 'autonomous', got {context!r}"
-        )
-
-    cfg = config if isinstance(config, dict) else {}
-    if "github" not in cfg:
-        return None
-
-    github = cfg["github"]
-    if not isinstance(github, dict):
-        raise BotAuthUnavailable(
-            "`.three-pillars/config.json`'s `github` block is present but is "
-            f"not an object (got {type(github).__name__}); cannot determine "
-            "the PR-author account. Fix the config or remove the `github` "
-            "key to fall back to ambient gh auth."
-        )
-
-    account = github.get("pr_author_account")
-    if account is None:
-        return None
-
-    if not isinstance(account, str) or account == "":
-        raise BotAuthUnavailable(
-            "`github.pr_author_account` is configured but is not a usable "
-            f"login (got {account!r}). Fix `.three-pillars/config.json` or "
-            "clear `github.pr_author_account` to disable bot-authored PRs."
-        )
-
-    used_for = github.get("used_for")
-    if used_for is None:
-        used_for = "all-prs"
-    if used_for not in ("all-prs", "autonomous-only"):
-        raise BotAuthUnavailable(
-            f"`github.used_for` is set to an unknown value {used_for!r} for "
-            f"configured account {account!r}. Expected 'all-prs' or "
-            "'autonomous-only'. Fix `.three-pillars/config.json`."
-        )
-
-    if used_for == "all-prs":
-        return account
-    # used_for == "autonomous-only"
-    return account if context == "autonomous" else None
-
-
-def bot_token(account: str, runner=None) -> str:
-    """`gh auth token --user <account>`; non-zero/empty → BotAuthUnavailable.
-
-    Fail loud, never fall back — a silent fallback to ambient auth re-creates
-    the self-approval trap the design exists to remove. The probe CAPTURES
-    stdout (never inherited) — `gh auth token` prints the credential, and an
-    inheriting runner would leak it into the terminal/transcript.
-    """
-    run = runner or (
-        lambda argv: subprocess.run(argv, capture_output=True, text=True)
-    )
-    result = run(["gh", "auth", "token", "--user", account])
-    token = (result.stdout or "").strip() if result.returncode == 0 else ""
-    if result.returncode != 0 or not token:
-        raise BotAuthUnavailable(
-            f"GitHub bot account {account!r} is not available via "
-            f"`gh auth token --user {account}` — the account may not be "
-            "logged into this machine's gh keyring. Fix by either: "
-            f"(1) run `gh auth login` and authenticate as {account}, adding "
-            "it to the multi-account keyring (`gh auth token --user` "
-            "requires a modern gh, ~2.40+), or "
-            "(2) clear `github.pr_author_account` in "
-            "`.three-pillars/config.json` to disable bot-authored PRs."
-        )
-    return token
+_load_repo_config = automation_identity.load_repo_config
 
 
 def _default_create_runner(argv, **kwargs):
@@ -174,8 +91,7 @@ def create_pr(
         result = run(["gh", "pr", "create", *gh_args], env=base_env)
         return result.returncode
 
-    token = bot_token(account, runner=token_runner)
-    child_env = {**base_env, "GH_TOKEN": token}
+    child_env = automation_identity.account_env(account, base_env, token_runner=token_runner)
     args = _reviewer_args(config, gh_args)
     result = run(["gh", "pr", "create", *args], env=child_env)
     return result.returncode
@@ -203,53 +119,6 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         except OSError:
             pass
         raise
-
-
-def _load_repo_config(repo: Path) -> dict:
-    """CLI-level config load: missing file -> {} (unconfigured, plain path);
-    present-but-unparseable JSON -> BotAuthUnavailable (fail loud — a
-    configured bot account cannot be ruled out, so this refuses rather than
-    silently falling back to ambient gh auth). `repo` is the git toplevel
-    when `--repo` is omitted (see `_default_repo_root`), not raw cwd — a
-    "missing" config here means genuinely absent, not "wrong directory"."""
-    config_path = repo / ".three-pillars" / "config.json"
-    if not config_path.exists():
-        return {}
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        raise BotAuthUnavailable(
-            "`.three-pillars/config.json` exists but could not be parsed "
-            f"({exc}); a configured PR-author bot account cannot be ruled "
-            "out. Fix or remove the file to proceed."
-        ) from exc
-
-
-def _default_repo_root() -> Path:
-    """Resolve the repo root to use when `--repo` is NOT passed explicitly.
-
-    Walks to the git toplevel (`git rev-parse --show-toplevel`) rather than
-    trusting cwd — invoked from a subdirectory of a configured repo, a raw
-    `Path(".").resolve()` finds no `.three-pillars/config.json`, cannot tell
-    "config genuinely absent" from "wrong cwd", and silently resolves
-    "unconfigured" (plain ambient `gh pr create`, no bot token, no
-    reviewer) — the exact silent-ambient-authorship class this chokepoint
-    exists to forbid. Falls back to `Path(".").resolve()` when not inside a
-    git repo (`gh pr create` itself requires a git repo, so the fallback
-    only affects degenerate/non-git invocations).
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            cwd=".",
-        )
-    except OSError:
-        return Path(".").resolve()
-    if result.returncode == 0 and result.stdout.strip():
-        return Path(result.stdout.strip()).resolve()
-    return Path(".").resolve()
 
 
 def _split_passthrough(raw_argv: list) -> "tuple[list, list]":
@@ -295,9 +164,25 @@ def main(argv=None) -> int:
     )
     parser.add_argument("command", choices=["create", "resolve", "verify"])
     parser.add_argument("--context", choices=["manual", "autonomous"], default=None)
-    parser.add_argument("--repo", default=None)
+    parser.add_argument(
+        "--repo",
+        default=None,
+        help="LOCAL repository path holding .three-pillars/config.json "
+        "(not a GitHub owner/name; pass that to gh after `--` as `-R owner/name`)",
+    )
     args = parser.parse_args(own_args)
-    repo = Path(args.repo).resolve() if args.repo is not None else _default_repo_root()
+    if args.repo is not None:
+        repo = Path(args.repo).resolve()
+        if not repo.is_dir():
+            print(
+                f"--repo must be a local repository path (an existing directory), "
+                f"not a GitHub owner/name: {args.repo!r} is not a directory. "
+                "To target a GitHub repo, pass it to gh after `--` as `-R owner/name`.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        repo = _default_repo_root()
 
     if args.command in ("create", "resolve") and args.context is None:
         print(f"--context is required for {args.command!r}", file=sys.stderr)

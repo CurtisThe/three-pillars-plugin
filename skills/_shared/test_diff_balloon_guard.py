@@ -20,6 +20,11 @@ from pathlib import Path
 
 import pytest
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_repo_config = pytest.mark.skipif(
+    not (_DEV_ROOT / ".three-pillars/config.json").exists(),
+    reason="reads the dev repo's own .three-pillars/config.json (dev-repo only)")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -610,6 +615,7 @@ class TestLiveMeasurementHermetic:
         )
 
 
+@_needs_repo_config
 def test_repo_config_has_fleet_factor():
     """The repo's .three-pillars/config.json must have fleet.diff_balloon_factor == 5."""
     here = Path(__file__).resolve().parent

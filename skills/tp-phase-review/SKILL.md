@@ -2,6 +2,7 @@
 name: tp-phase-review
 description: Review what was built against the plan and design. Flags gaps, regressions, and deviations. Writes review.md.
 argument-hint: "{design-name} [phase-number] [--force-takeover]"
+effort: high
 ---
 
 # Phase Review
@@ -31,6 +32,13 @@ Review the implementation against the design and plan artifacts.
    ```
    {project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
    ```
+4b. **Run the invariance check and the range audit**, when a phase number was given. `<phase base>` is the commit the phase started from — the parent of the phase's first task commit (`git log --oneline` for the branch, find the first `Implement:` or `Red:` commit whose subject names phase N's first task, then take its parent):
+    ```bash
+    python3 "$TP_ROOT"/skills/_shared/refactor_invariance.py --plan three-pillars-docs/tp-designs/{design-name}/plan.md --phase {n} --base <phase base> --json
+    python3 "$TP_ROOT"/skills/_shared/targets_frozen.py range --plan three-pillars-docs/tp-designs/{design-name}/plan.md --phase {n} --base <phase base> --json
+    ```
+    `refactor_invariance.py`: each `over_specified` node is a finding under Gaps with `fragility_class: change-detector` and the fix "test behaviour through the entry point" — cite `skills/_shared/test-fragility.md`. The reviewer may refute a finding by citing the spec clause that makes the transformed property meaningful; a refuted finding is logged in Deviations and dropped from Gaps. Exit 2 (`could-not-evaluate`) is reported as not evaluated, never treated as clean.
+    `targets_frozen.py range`: each reported task (a Targets file touched outside the task's red commit) is a finding under Gaps, for the non-`--local` paths.
 5. **Check for gaps**:
    - Behaviors in design.md that aren't covered by any task.
    - Interfaces in detailed-design.md that aren't implemented.
@@ -72,7 +80,7 @@ Review the implementation against the design and plan artifacts.
    CERT="$(python3 "$RS" certify.py)" || exit 1
    ```
    The review is always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <review.md>` prints the `verdict` to report; with claims:
-   - Dispatch `Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+   - Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
    - Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/phase-review.json`. Exit ≠ 0: the run below uses `--unverified records-handoff` in place of `--records`.
    - Run the caller's certification; fill `## Guards certified` from its statuses and report the printed `verdict`:
    ```bash

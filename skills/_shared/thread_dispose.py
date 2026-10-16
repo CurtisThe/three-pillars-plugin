@@ -36,6 +36,7 @@ _SHARED_DIR = Path(__file__).resolve().parent
 if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
+import automation_identity  # noqa: E402
 import thread_resolver  # noqa: E402
 import thread_dispose_verify  # noqa: E402
 import review_readiness  # noqa: E402
@@ -151,6 +152,7 @@ def dispose_threads(
     author: str = "automation",
     dry_run: bool = False,
     base_dir: "Path | None" = None,
+    config=automation_identity.DISCOVER,
 ) -> dict:
     """Reply-and-resolve every open, actionable Copilot review thread on pr_url.
 
@@ -171,6 +173,10 @@ def dispose_threads(
         author:       GitHub login of the automation actor (used in the reply signature).
         dry_run:      If True, compute dispositions and log them but do NOT call
                       reply_to_thread / resolve_thread.
+        config:       the repo config forwarded to both writes, which run as the configured
+                      automation account (`automation_identity`). Default `DISCOVER` loads it
+                      from the git toplevel; `None` / `{}` is the ambient login. A bot whose
+                      token cannot be fetched raises `BotAuthUnavailable`. Reads are ambient.
 
     Returns a result record:
         {
@@ -249,13 +255,15 @@ def dispose_threads(
             reply_ok = True
         else:
             if cid is not None:
-                reply_ok = thread_resolver.reply_to_thread(pr_url, cid, signed_body)
+                reply_ok = thread_resolver.reply_to_thread(
+                    pr_url, cid, signed_body, config=config
+                )
                 if reply_ok:
                     replied.append(tid)
 
         # --- RESOLVE only after a successful reply ---
         if reply_ok:
-            ok = thread_resolver.resolve_thread(tid)
+            ok = thread_resolver.resolve_thread(tid, config=config)
             if ok:
                 resolved.append(tid)
                 resolved_ids.add(tid)

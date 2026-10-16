@@ -53,7 +53,7 @@ def test_two_appended_entry_sets_merge_to_union_verbatim():
     assert text.index("[tp-plan]") < text.index("[tp-plan-audit]")
 
     # The independent verifier agrees nothing was lost — design §Tests, Fix B.
-    r = verify(_OURS, _THEIRS, text, mechanical_applied=True)
+    r = verify(_OURS, _THEIRS, text, base=None, mechanical_applied=True)
     assert r.verdict == VERIFIED, r.dropped
     assert r.pre_atoms == 2 and r.post_atoms == 2       # non-vacuous: it really parsed both
 
@@ -76,14 +76,14 @@ def test_byte_identical_entries_on_both_sides_are_kept_both():
     text = "\n".join(lines)
     assert text.count("### [tp-plan] weight class kept at light") == 2   # kept both, not deduped
 
-    r = verify(_OURS, _OURS, text, mechanical_applied=True)
+    r = verify(_OURS, _OURS, text, base=None, mechanical_applied=True)
     assert r.verdict == VERIFIED and r.dropped == []
     assert r.pre_atoms == 1        # the accepted collapse: one atom, two verbatim copies
 
 
 def test_dropping_either_side_is_reported():
     # The zero-drop backstop is live on this class: resolve to ours-only and the verifier flags it.
-    r = verify(_OURS, _THEIRS, _HEAD + "\n" + _OURS, mechanical_applied=True)
+    r = verify(_OURS, _THEIRS, _HEAD + "\n" + _OURS, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("council round 1" in sig for _kind, sig in r.dropped)
 

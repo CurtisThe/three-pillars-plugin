@@ -47,26 +47,13 @@ This check lives here, in docs-init, because `/tp-docs-init` is where a user fir
    - Scan source tree structure (key directories, languages, frameworks)
    - Read recent git log for project trajectory
    - Check for existing design artifacts in `three-pillars-docs/tp-designs/` and `three-pillars-docs/completed-tp-designs/`
-5. **For each missing doc**, scaffold with content derived from the analysis:
-
-   **architecture.md** scaffold sections:
-   - Overview (what the system does, high-level architecture — consistent with vision's Problem section)
-   - Goals and Non-Goals (non-goals should echo `three-pillars-docs/vision.md`'s non-goals, not contradict them)
-   - Key Components (modules, services, data stores)
-   - Architecture Decisions (choices made and rationale — note when a decision was driven by a vision principle)
-   - Constraints (hardware, dependencies, compatibility)
-
-   **product_roadmap.md** scaffold sections:
-   - **(No Vision section.)** Open with a single line: `> **Why this exists:** see [three-pillars-docs/vision.md](vision.md).` The vision lives in one place; the roadmap does not duplicate it.
-   - Current State (what works today, what doesn't)
-   - Design Inventory (table of TDD designs with status)
-   - Implementation Sequence (what to build next, dependencies — ordered by impact against the vision)
-   - Methodology (how we build — TDD pipeline, spikes)
-
-   **known_issues.md** scaffold sections:
-   - Critical / High (blocking issues)
-   - Medium (functional issues, workarounds exist)
-   - Low (cosmetic, minor, tech debt)
+5. **For each missing doc**, scaffold the condensed template, then fill it with content derived from the analysis:
+   ```bash
+   python3 "$TP_ROOT"/skills/_shared/living_doc_scaffold.py --doc architecture
+   python3 "$TP_ROOT"/skills/_shared/living_doc_scaffold.py --doc product_roadmap
+   python3 "$TP_ROOT"/skills/_shared/living_doc_scaffold.py --doc known_issues
+   ```
+   Each call writes that doc's template plus its cold archive sibling (`known_issues` also seeds the cold `known_issues_low.md`), and is an idempotent no-op when the doc already exists — it never overwrites operator work. Then replace the placeholders with the real content from step 4, keeping the template's condensed shape: **one bullet per item** (one row per table entry), a `## History` section with one line per update, and the template's one-line pointer `> History and evidence live in <archive>.` left in place — the live doc is an index of what is true now; the archive is the record. `known_issues.md` carries High and Medium only, with the "N Low issues → `known_issues_low.md`" pointer.
 
 5b. **Scaffold the spawned-agent context doc (`project-context.md`) as a stub.** Unlike the three docs above, `three-pillars-docs/project-context.md` is an **operator-authored placeholder** — it carries the conventions / stack / domain-rules injected into every spawned subagent (council members, phase-implement / run-full-design workers, pr-fix / readonly-auditor dispatches), so it is filled in by hand, never generated from codebase analysis. Scaffold it **idempotently** with:
    ```bash
@@ -79,6 +66,7 @@ This check lives here, in docs-init, because `/tp-docs-init` is where a user fir
    - `three-pillars-docs/architecture.md`
    - `three-pillars-docs/product_roadmap.md`
    - `three-pillars-docs/known_issues.md`
+   - `three-pillars-docs/known_issues_low.md` and each doc's `*_archive.md` (only when step 5 created them)
    - `three-pillars-docs/project-context.md` (only if step 5b created the stub)
    Commit message: `Docs: init project docs` (or `Docs: init {file1},{file2}` if only a subset was scaffolded).
 8. **Tell the user the next step**: Once the three docs are in place, the natural next step on a fresh project is `/tp-test-setup` — it configures test infrastructure informed by the `architecture.md` you just scaffolded. This sequencing is deliberate: testing-framework choices belong *after* the architecture is documented, not before.

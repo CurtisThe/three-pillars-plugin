@@ -15,6 +15,11 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_repo_config = pytest.mark.skipif(
+    not (_DEV_ROOT / ".three-pillars/config.json").exists(),
+    reason="reads the dev repo's own .three-pillars/config.json (dev-repo only)")
+
 SCHEMA_PATH = Path(__file__).parent / "repo-config.schema.json"
 
 
@@ -158,12 +163,14 @@ def _this_repo_config() -> dict:
     return json.loads(_THIS_REPO_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+@_needs_repo_config
 def test_this_repos_config_validates_against_updated_schema(validator):
     """This repo's .three-pillars/config.json (post-flip) must validate against the
     schema now carrying the two new review.* carry keys."""
     validator.validate(_this_repo_config())
 
 
+@_needs_repo_config
 def test_this_repos_carry_enabled_reads_true():
     """base_sync_cert.carry_enabled must read True from this repo's own (edited)
     config file -- the FINAL flip (task 9.4)."""

@@ -6,11 +6,49 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-10-16
+
+Batch release of the October waves on top of v2.4.0: unattended runs now start every easy task on the cheap engine by default (Sonnet, or a local Strata model under `--local`), with Opus kept for judgment; the PR review loop converges in fewer rounds and a Fable first stop answers run questions before the operator; PR-facing actions go through one forge interface with GitHub and Gitea backends; a new explainer agent turns rulings and PRs into plain, visual briefs; and the framework's own instructions and living docs were cut hard to save context on every run. A round of launch, scratch-space and worktree-hygiene fixes rounds it out.
+
 ### Added
+
+- **`tp-explainer` agent and PR briefs** — one agent turns a ruling or a whole PR into a plain-language brief (STE-80 style) with diagrams, every claim tied to an evidence reference; `/tp-design-complete` and `/tp-run-full-design` Tier 6 draft it, commit it as `brief.md` in the archived design and post it to the PR, with a rolling "Fable rulings" comment. Switches live under the `explainer` block in `.three-pillars/config.json`.
+- **Forge interface (GitHub and Gitea)** — `skills/_shared/forge.py` resolves `origin` to a forge and offers PR create/read, comment post/edit/list and label operations on either backend; on Gitea without a token, PR create falls back to AGit, and a degraded path always prints a visible line. A new forge-parity rule makes every design that touches a forge surface state its GitHub and Gitea behaviour (`## Forge behaviour`, enforced by the design floor).
+- **Fable first stop for questions, and `/tp-escalate`** — run questions and the fleet seat's questions now go to a Fable ruling before the operator, answered against the vision and architecture docs (a ruling must quote them verbatim or it escalates); merges, force-pushes, remote deletes and classifier denials stay operator-only. The new `/tp-escalate` skill sends a stuck seat question to a Fable agent and records feedback on past rulings under `three-pillars-docs/escalations/`.
+- **Review convergence** — each phase gets one bounded check right after Tier 3.5 (new `tp-phase-checker` agent; unresolved items carry into the implementation audit), PR findings are tagged `original` or `regression` by blame against the round SHAs so a regression-heavy area is flagged for a rewrite, and a new `security` review angle reads diffs that touch argv, paths, credentials, git/gh commands or untrusted parsing.
+- **Cheap-engine routing** — `--local` task routing and the per-role engines (`council_member`, `review_finder`, `context_scout`, `explainer` under `role_engines`) put council members and review finders on a local Strata model behind one Opus check; the run's cheap engine (Sonnet, or Strata under `--local`) now handles every easy task, and a configurable busy policy (`strata.busy`: `fallback` to Sonnet, or `wait`) decides what a held GPU slot does.
+- **Ready-ping** — when a design run's PR is two-stable and mergeable, the run sends one "ready to merge #N" notification (or a marked printed line when no push tool is available), and a stopped run pings with its reason; both are logged once per head.
+- **Prose-pin gate** — the fragility lint now sees SKILL.md wording asserted through the `skill_text` helper, and a new prose pin blocks instead of warning.
+- **Red-commit hook protection** — a `Red:` commit gate and a hook detector warn when a consumer repo's test-running pre-commit hook would refuse the failing-test commit, `/tp-test-setup` and `/tp-design-learn` point at it, and a `--local` task worker whose first commit is refused by a hook now fails fast instead of running to its ceiling.
+- **Scratch and worktree reapers** — `skills/_shared/scratch_reap.py` sweeps framework leftovers (`tp-angle-*`, `slotrel-*`, `vfy.*`, orphaned CI stage roots) older than 24 h from the scratch root (`--dry-run` supported, fail-open), and `gc_agent_worktrees.py` removes landed, clean, idle `.claude/worktrees/agent-*` worktrees; `/tp-post-merge` runs both and the dev-repo CI gate runs the scratch sweep.
+- **Fleet windows link into the launching session** (pro) — the pro fleet launcher's worker windows are linked into the session that launched the batch, and fleet teardown removes the links.
+- **Fleet stall watch and capped auto-resume** (pro) — the pro fleet watch reads each worker's transcript and pane and labels it `working`, `stalled`, `awaiting-operator` or `awaiting-permission`; only a `stalled` worker (a turn that ended in an error) is sent a resume nudge, capped at 3 with doubling backoff and logged to `decisions.md`, while a question or permission prompt is shown to the operator and never answered. Auto-resume needs the watch's `--batch-id`.
+- **`bg_wait.py` and a wait-TTL hook** — long commands run in the background and are waited on in bounded steps so a dispatcher never idles past the five-minute prompt cache; a warn-only `PreToolUse` hook flags foreground waits over 300 s and `until … sleep` loops.
+- **Matchable commands** — `skills/_shared/scratch_worktree.py` (`add` / `run` / `remove`) keeps throwaway "compare against master" worktrees under `.claude/worktrees/scratch-<name>`, with no `cd` and no `$VAR` paths, so one allow rule covers it. `skills/_shared/matchable-commands.md` states the matchable form of each command shape that stalls unattended runs (`bash -c` / `nohup`, `cd … && git`, `$VAR/x.py`, `export TP_ROOT=… &&`), the finder-launch, base-sync and watcher prose points to it, and the advisory `command_shape_scan.py` lists any shape left in shipped prose (always exit 0).
+- **`launch_design_run.py --local-mode {wait,fallback,exclusive}`** exports `TP_LOCAL_MODE` into the run's window, and the launch report names the seat brief (`seat brief: <path> (source: …; blob …)`). The repo CLAUDE templates gain a "Launching design runs" rule: launch through `launch_design_run.py`, never a hand-written `tmux new-session`.
+- **Design-run window naming and post-merge close** — `design_run_tmux.py open` names the run window `<slug>` and turns `automatic-rename` off for it (new and resumed windows alike), and `/tp-post-merge`, when run inside the run's own window, tells the seat to run `design_run_tmux.py close <slug> --worktree <path>` from the seat session.
 
 ### Changed
 
+- **Cheap tier is on by default** — `--cheap-tier` is always on (the flag is deprecated), easy slots start on Sonnet or, under `--local`, on Strata, and `--local` can be defaulted per repo and switched off with `--no-local`.
+- **Skills and living docs cut hard** — `architecture.md`, `known_issues.md` and the roadmap were condensed under their caps with the rationale archived, the rule-ledger tool and consumer templates were updated, and `tp-run-full-design/SKILL.md` was split into a core plus tier files (`tier-1-pickup.md` … `tier-7-review.md`) that tests read through `skill_text.read_skill_text()`; other skills were condensed too.
+- **PR loop budget** — the review loop now stops at 3 counted rounds by default (the 2.4.0 notes said 6) and at 1.5× the round-1 diff, small diffs no longer trip the growth stop on one real fix with tests, and a loop that converges at two-stable removes the `tp:do-not-merge-yet` label.
+- **Certifier stays, costs less** — claim wording is linted before any certifier dispatch, a `not-binding` guard is strengthened on the cheap engine against the recorded poles instead of re-running the whole audit, and an `unverified` claim gets one retry, then a PR note and a `tp:cert-gap` label rather than a stop.
+- **Review proof and closeout** — review-proof digests are posted under the trusted automation identity instead of whatever `gh` login the shell has, review logs survive teardown, and `/tp-pr-iterate` refuses an un-archived design (closeout before the loop).
+- **Launches** — a design run's tmux session is named after its slug, the main thread of a run or seat launches on the direct Claude backend (never through the Strata router), launch roles (`seat`, `run`, `child`) rank between launch flags and `routes.conf`, and Strata child spawns no longer feed the session classifier cost described in `strata-session-isolation`.
+- **Base-sync** — a three-way verifier checks auto-resolved living-doc hunks, and an inventory-row hunk that mixed in other lines is no longer claimed and silently dropped (H8).
+- **`/tp-promote` docs** — `/tp-promote` launches its run in the launcher's own linked tmux session, and a launched slug is never staged again as `design-ready` (that would start a second run); the fleet docs drop that flow (pro).
+- **Every Strata dispatch states its effort** — the 18 council personas and `tp-review-confirmer` gain generated Strata-only `-medium` variants, `strata_effort.py` is the agent/effort inventory and prints the spawn reference (`spawn <agent>` → `agent_ref` + `rung`), and every Strata row logs `local-medium` or `local-xhigh` instead of a bare `local-high`; the run report splits its local line by effort. Opus/Sonnet escalations are unchanged and keep the base agents.
+- **ci-local gate and `tests.yml` run every skill's tests** — both lanes in the three-pillars dev repo now run `skills/`, not just `_shared` and `tp-merge-from-main`, about 40 s of extra time at `-n 4`; closes H7.
+
 ### Fixed
+
+- **Reaper no longer reports a worker done while its children run** — and the wait exit codes now separate failed from still-running.
+- **Stale orchestrator index** — a guard stops the orchestrator committing a stale index after a fold or fast-forward moves HEAD.
+- **Strata children under a non-default profile** — child spawns inherit the launching profile's config directory, so a run on another profile no longer falls back to Sonnet with `no inner transcript`.
+- **Consumer-repo hygiene** — telemetry and cleanup records no longer write the worker's absolute worktree path into committed files, and `number_issues.py` no longer renumbers a placeholder the base already owns.
+- **Child-spawn scratch moved out of `.claude/`** — child-spawn scratch, attempt worktrees and drafter scratch now live under `.tp-scratch/` instead of `.claude/worktrees/`, so a Strata child's Write and Edit are no longer refused there (M61, resolved; the live smoke passed).
+- **Design-run launches** — the window pins the launching profile (`CLAUDE_LAUNCHER_FORCE_PROFILE`) and unsets the seat launcher's owned keys, so the run plans its own route; a launcher-owned `TP_LOCAL` no longer cancels the repo's `--local` default; the `routing:` line reads the real `claude` child and brief delivery is confirmed from the transcript; `close <slug> --worktree PATH` also removes windows outside the `<slug>` session.
 
 ## [2.4.0] — 2026-09-26
 
@@ -45,7 +83,7 @@ Batch release of the September hardening waves on top of v2.3.0: audits must now
 - **Shared scripts resolve on every install layout** — the FREE `_shared` resolver now also checks `$CLAUDE_PLUGIN_ROOT`, `--skill-dir` and its own location, so `--skill-dir` and non-cache plugin installs no longer fail; an unreadable plugin cache fails loud rather than with a traceback, and SKILL.md call sites check the resolver's exit.
 - **`/tp-pr-iterate` dedupe overstated the finding count** — two review angles describing one defect at identical coordinates now collapse to one finding; the survivor keeps the more severe (canonicalized) verdict and any GitHub `thread_id`, anchorless file-level findings and distinct Copilot threads are never merged, and conflict deferral no longer drops every `/code-review` finding in a round. The fix round also actions the loop's own `/code-review` findings instead of deferring them as `non-collaborator`.
 - **Fleet monitoring finds worker transcripts** (pro) — transcript paths are now derived the way Claude Code slugs project directories, under the worker's pinned profile.
-- **Order/load-dependent test flakes under `-n auto`** — deadline-based assertions in the supervisor and framework-check tests now wait on the condition they prove, and the live framework-check run is marked `serial`.
+- **Order/load-dependent test flakes under `-n auto`** — deadline-based assertions in the supervisor and framework-check tests now wait on the condition they prove, and the live framework-check run (dev-repo only) is marked `serial`.
 
 ## [2.3.0] — 2026-07-13
 
@@ -96,7 +134,7 @@ Batch release of the W4–W8 trust / safety / quality hardening waves on top of 
 - **The autonomous merge boundary is now portable and provenance-checked** — gate config reads from committed HEAD, a sixth predicate requires a fresh local-CI stamp, the enforcement layer resolves its root on any install (not just the dev machine), and `git commit --no-verify` is denied.
 - **Human approval is ergonomic and current-on-head** — approval is carried in a SHA-tagged label *or* a native `APPROVED` PR review, both verified human-actor and current on the head commit; a single-account collision is detected with flip guidance.
 - **The backward paper trail self-reconciles after merges** — archived designs, stale status rows, and rotted invariant citations are repaired by a dated-amendment protocol and a new citation-coherence invariant; invariant numbers are now append-only.
-- **Enforced file-size caps** (500 lines / 50 000 chars, either axis) via a shared guard behind both the pre-commit hook and a framework-check invariant.
+- **Enforced file-size caps** (500 lines / 50 000 chars, either axis) via a shared guard behind both the pre-commit hook and a framework-check invariant (dev-repo only).
 - **Collision-aware merge sequencing** for parallel batches, plus an `orchestrator:<email>` lock-owner identity so a human and their own orchestrator count as one actor.
 
 ## [2.1.0] — 2026-06-09
@@ -135,7 +173,7 @@ The **first canon-shaped release.** Pre-v1.5.0 versions (v1.0.0–v1.4.1) shippe
   - `adoption/via-hermes-skills.md` — the Hermes-path adoption guide (target v1.8.0, gated on `CurtisThe/three-pillars-hermes` existing)
   - `adoption/via-other-agents.md` — generic methodology porting (target v1.8.0+)
   - `examples/d17-readme-rename/` and `examples/d19-hook-abandonment/` — worked examples authored fresh (targets v1.7.0 and v1.9.0)
-  - `scripts/build-hermes-distribution.py` + `.github/workflows/build-hermes-distribution.yml` — release-time build pipeline that transforms this repo's `skills/` into a Hermes-installable package and force-pushes to `CurtisThe/three-pillars-hermes`. Planned for v1.5.x or v1.6.0.
+  - `scripts/build-hermes-distribution.py` + `.github/workflows/build-hermes-distribution.yml` (framework repo only) — release-time build pipeline that transforms this repo's `skills/` into a Hermes-installable package and force-pushes to `CurtisThe/three-pillars-hermes`. Planned for v1.5.x or v1.6.0.
 
 ### Changed
 

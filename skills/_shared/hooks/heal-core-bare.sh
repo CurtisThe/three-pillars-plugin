@@ -4,7 +4,7 @@
 # Problem: the seat's shared .git/config was flipped to core.bare=true, leaving
 # the seat reporting "(bare)" and refusing `git status`.  Cause (corrected
 # 2026-09-22, hook-inherited-git-env; known_issues M17): self-inflicted by the
-# framework's own pre-commit chain — framework-check invariant 7 ran a temp-dir
+# framework's own pre-commit chain (dev-repo only) — invariant 7 ran a temp-dir
 # `git init` under the hook's inherited GIT_DIR, so a commit from a linked
 # worktree re-initialised that worktree's gitdir and wrote core.bare=true into
 # the shared config.  That init was vestigial and is deleted; invariant #42

@@ -193,8 +193,8 @@ Emit to user:
 > **Council convened**: {member names}. Beginning Round 1 — independent analysis.
 
 Spawn each selected council member as a subagent:
-- `subagent_type: "council-{name}"` (each council member is a registered agent)
-- Run all members **IN PARALLEL**
+- `subagent_type: agent_ref("council-{name}")` — the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py council-<name>` (each member is a registered plugin agent; never the bare name)
+- Run all members **IN PARALLEL** (serially per `strata-members.md` when `council_member` resolves `local`)
 - Each member sees ONLY the problem statement (blind-first, no peer outputs)
 
 Prompt template for each member (the coordinator fills `{project_context_block}` from `skills/_shared/project_context.py` — resolved at `"$TP_ROOT"/skills/_shared/project_context.py`; omit the block when empty to preserve today's behavior):
@@ -354,7 +354,7 @@ CLI:
 ### Round 1 dispatch contract (`--round 1`)
 
 Dispatch the N named members **IN PARALLEL** as top-level `council-{name}`
-subagents — the orchestrator is the caller, so this is a legal single-level
+subagents (spawned by `agent_ref`, STEP 2) — the orchestrator is the caller, so this is a legal single-level
 fan-out. Each member is **blind to its peers** (sees only the artifact paths, the
 deliberation question, and — **for the `impl-audit` slot, when `--code-input` is
 present** — the `--code-input` refs it reads via its own read-only git). Each

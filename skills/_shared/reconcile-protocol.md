@@ -44,8 +44,10 @@ SKIPPED/NEUTRAL correction below. That pattern is the canonical form.
    whose documented behavior this design changed, propose the dated amendment.
    In `--auto`: apply the amendment and log to `decisions.md` with
    `Confidence` per `auto-mode.md` rules.
-3. **`/tp-post-merge` step 6 reconcile report** — advisory reminder when the
-   scan finds stale rows or dead cites; the author still does the writing.
+3. **`/tp-post-merge` step 6 drift report** — `final_doc_state.py check`'s
+   advisory report of stale rows, pending tokens and dead living-doc cites,
+   with its `fix` lines (see `skills/_shared/final-doc-state.md`); the author
+   still does the writing.
 
 ## New-code citation convention
 

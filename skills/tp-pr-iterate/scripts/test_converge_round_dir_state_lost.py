@@ -39,13 +39,14 @@ def test_lost_state_mid_loop_refused_like_absent(tmp_path, monkeypatch, content)
     r2 = round_scratch.prepare(proof, PR, angles.DEFAULT_ANGLES, **kw)
     m = json.loads((r2 / "angles.json").read_text(encoding="utf-8"))
     for e in m["angles"]:
-        Path(e["reply_path"]).write_text(FENCE + "json\n[]\n" + FENCE, encoding="utf-8")
+        Path(e["reply_path"]).write_text(FENCE + "json\n{\"findings\": []}\n" + FENCE, encoding="utf-8")
     (r2 / "tail" / "findings.json").write_text("[]", encoding="utf-8")
     state.write_text(content, encoding="utf-8")
     called = []
     monkeypatch.setattr(converge, "_finish_clean", lambda **k: called.append(k) or 0)
     out = io.StringIO()
-    rc = converge_rounddir.run(r2, config={}, seams={"out": out, "err": io.StringIO()})
+    rc = converge_rounddir.run(r2, config={}, seams={"out": out, "err": io.StringIO(),
+                                                      "repo_root": tmp_path})
     assert rc == 2 and not called
     assert json.loads(out.getvalue())["reason"] == "state-bootstrapped-mid-loop"
     assert state.read_text(encoding="utf-8") == content

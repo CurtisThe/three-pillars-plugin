@@ -9,7 +9,19 @@ blocking bar, verbatim, under *What counts as a real defect here*.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "skills" / "_shared"))
+
+_DEV_ROOT = Path(__file__).resolve().parents[3]
+_needs_github_dir = pytest.mark.skipif(
+    not (_DEV_ROOT / ".github").exists(),
+    reason="reads the dev repo's .github/ instructions (dev-repo only)")
+_needs_architecture = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs/architecture.md").exists(),
+    reason="reads the dev repo's architecture.md (dev-repo only)")
 
 REPO = Path(__file__).resolve().parents[3]
 REVIEW_INSTRUCTIONS = REPO / ".github" / "review-instructions.md"
@@ -40,18 +52,21 @@ def _blocking_bar(text: str) -> str:
     return m.group(1)
 
 
+@_needs_github_dir
 def test_review_bar_verbatim_in_instructions():
     for path in (REVIEW_INSTRUCTIONS, COPILOT_INSTRUCTIONS):
         text = path.read_text(encoding="utf-8")
         assert REVIEW_BAR in _flat(_blocking_bar(text)), path.name
 
 
+@_needs_github_dir
 def test_lint_bypass_needs_real_call_site():
     for path in (REVIEW_INSTRUCTIONS, COPILOT_INSTRUCTIONS):
         bar = _flat(_blocking_bar(path.read_text(encoding="utf-8")))
         assert "real call site" in bar, path.name
 
 
+@_needs_github_dir
 def test_unpinned_contract_bullet_requires_demonstrated_failure():
     for path in (REVIEW_INSTRUCTIONS, COPILOT_INSTRUCTIONS):
         defects = _flat(_section(path.read_text(encoding="utf-8"),
@@ -72,10 +87,6 @@ def _topology() -> str:
 
 def _has_all(text: str, *needles: str) -> list[str]:
     return [n for n in needles if n not in text]
-
-
-def test_round_topology_under_cap():
-    assert len(TOPOLOGY.read_text(encoding="utf-8").splitlines()) <= 300
 
 
 def test_round_topology_angles_as_data_all_opus_and_bar():
@@ -108,7 +119,7 @@ def test_round_topology_scratch_is_per_round_and_per_angle():
 def test_round_topology_log_flush_commits_only_at_two_stable():
     text = _topology()
     assert not _has_all(text, "round_scratch.py flush", "decisions.md",
-                        "committed only at `two-stable`", "not pushed",
+                        "committed and pushed only at `two-stable`", "round_log_carry",
                         "modified and uncommitted")
 
 
@@ -140,10 +151,11 @@ def _between(text: str, start: str, end: str) -> str:
     return text[i:text.index(end, i)]
 
 
-def test_skill_md_angles_block_points_to_round_topology():
-    body = _skill()
-    assert "ANGLES = [" not in body, "the inline ANGLES list moved to angles.py (data)"
-    assert "round-topology.md" in _between(body, "## Loop body", "### Cold-resume contract")
+def test_skill_md_references_resolve():
+    """Every path / script / skill reference in SKILL.md resolves (structured spans only)."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(REPO, [SKILL])
+    assert report.issues == []
 
 
 def test_skill_md_termination_matrix_has_budget_rows():
@@ -156,10 +168,6 @@ def test_skill_md_termination_matrix_has_budget_rows():
 
 def test_skill_md_second_clean_round_not_required():
     assert "a second clean round is not required" in _flat(_skill())
-
-
-def test_skill_md_has_no_run_loop():
-    assert "run_loop" not in _skill() and "_check_guards" not in _skill()
 
 
 def test_skill_md_loop_steps_name_the_round_dir_flow():
@@ -182,6 +190,18 @@ def test_skill_md_net_line_budget():
     assert len(_skill().splitlines()) <= SKILL_MAX_LINES
 
 
+# ---------- Task 1.3: the growth floor pointer (design diff-growth-min-floor) ----------
+
+def test_skill_md_names_the_growth_floor():
+    """SKILL.md lists `growth_floor_lines` among the guards and says what it gates."""
+    guards = _flat(_between(_skill(), "- `.three-pillars/config.json` — `pdw.guards.*`",
+                            "override the defaults"))
+    assert not _has_all(guards, "growth_floor_lines", "ratio_floor_lines"), guards
+    body = _flat(_skill())
+    assert not _has_all(body, "growth and ratio are judged only above it",
+                        "default 300 changed lines")
+
+
 # ---------- Task 8.4: proof-of-review.md, architecture.md, tp-design-complete ----------
 
 PROOF_DOC = REPO / "skills" / "tp-pr-iterate" / "proof-of-review.md"
@@ -195,6 +215,7 @@ def _components() -> str:
                     "## Finding the spawning design")
 
 
+@_needs_architecture
 def test_no_run_loop_in_docs():
     for name, text in (("proof-of-review.md", PROOF_DOC.read_text(encoding="utf-8")),
                        ("tp-design-complete/SKILL.md",

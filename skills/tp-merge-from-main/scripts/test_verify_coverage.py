@@ -80,6 +80,12 @@ from test_verify_floor import _F_DECISION_ENTRY  # noqa: E402
 from test_verify_superset import ADVERSARIAL  # noqa: E402
 from verify import DROPS_DETECTED, verify  # noqa: E402
 from verify_atoms import _norm  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_DEV_ROOT = Path(__file__).resolve().parents[3]
+# The real decisions.md corpus lives in the dev repo's three-pillars-docs/ (dev-repo
+# only); its size floor applies only where it exists, the adversarial half always runs.
+_HAS_DEV_DOCS = (_DEV_ROOT / "three-pillars-docs").exists()
 
 _CORPUS_CAP = 40
 
@@ -170,7 +176,7 @@ def _undetectable(name, text, cap=None):
         if i in exempt:
             continue
         checked += 1
-        r = verify(text, text, _without(text, i), mechanical_applied=True)
+        r = verify(text, text, _without(text, i), base=None, mechanical_applied=True)
         if r.verdict != DROPS_DETECTED:
             bad.append((name, i, raw[i][:70], r.verdict))
     return checked, bad
@@ -216,7 +222,8 @@ def test_the_coverage_check_is_not_vacuous():
     a mis-typed regex, a corpus that stopped parsing — both assertions above would pass by
     examining nothing."""
     covered_total = sum(len(_covered_lines(t)) for _p, t in _corpus())
-    assert covered_total >= 5000, f"only {covered_total} covered lines across the corpus"
+    if _HAS_DEV_DOCS:
+        assert covered_total >= 5000, f"only {covered_total} covered lines across the corpus"
     with_entries = {k: len(_covered_lines(v)) for k, v in ADVERSARIAL.items() if _blocks(v)}
     assert len(with_entries) >= 5, with_entries
     assert all(with_entries.values()), with_entries

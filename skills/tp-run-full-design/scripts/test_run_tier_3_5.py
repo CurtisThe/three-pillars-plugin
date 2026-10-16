@@ -123,6 +123,7 @@ def test_happy_path_envelope(tmp_path):
         "case": None,
         "event_token": "ok",
         "detail": None,
+        "sha": WORKER_SHA,
     }, f"unexpected envelope: {envelope!r}"
 
     # Four candidate artifact files written.

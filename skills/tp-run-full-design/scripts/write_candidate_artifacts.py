@@ -8,6 +8,11 @@ Layout under ``dir``::
         test-results.json   # pretty-printed parsed["test_results"]
         telemetry.json      # parsed["telemetry"] ∪ agent_meta ∪ {written_at: <iso-utc>}
 
+``telemetry.json`` is committed, so every top-level absolute-path value (from
+``agent_meta``, e.g. ``worktreePath``, or the worker's own telemetry) is
+written in its portable form (see ``portable_path``); the caller's dicts keep
+the absolute values.
+
 Each file is written via a tmp-staging-file in the same directory followed by
 ``os.replace`` so a mid-write failure cannot leave a partial final file.
 """
@@ -17,6 +22,8 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from portable_path import find_anchor, is_abs_path_str, portable_path
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -46,11 +53,12 @@ def write_candidate_artifacts(
     cand_dir = Path(dir) / "candidates" / candidate_id
     cand_dir.mkdir(parents=True, exist_ok=True)
 
+    anchor = find_anchor(cand_dir)
     telemetry = {
-        **parsed["telemetry"],
-        **agent_meta,
-        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        key: portable_path(value, anchor) if is_abs_path_str(value) else value
+        for key, value in {**parsed["telemetry"], **agent_meta}.items()
     }
+    telemetry["written_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     _atomic_write(cand_dir / "branch.txt", f"{parsed['branch']}\n")
     _atomic_write(

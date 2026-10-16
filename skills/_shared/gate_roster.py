@@ -29,6 +29,19 @@ if str(_SHARED_DIR) not in sys.path:
 from project_root import find_project_root  # noqa: E402
 from diff_balloon_guard import derive_base_ref  # noqa: E402
 
+
+def _hermetic_balloon_base_ref(repo: str = ".") -> str:
+    """The base ref for the hermetic (injected-sizes) balloon call.
+
+    Resolves `repo`'s default branch, falling back to 'master' on
+    `DefaultBranchError` — never raises into the gate."""
+    from default_branch import resolve_default_branch, DefaultBranchError
+    try:
+        return resolve_default_branch(repo)
+    except DefaultBranchError:
+        return "master"
+
+
 # Valid status values for RosterEntry
 _VALID_STATUSES = frozenset({"PASS", "FAIL", "INDETERMINATE", "OMITTED"})
 
@@ -49,20 +62,63 @@ def _require_review_proof(config) -> bool:
 
 
 def _require_ci_local_stamp(config) -> bool:
-    """Whether the ci_local_stamp predicate is REQUIRED (default True) — [G3] fix.
-
-    Reads review.require_ci_local_stamp. Default True (fail-closed: every repo
-    enforces unless it opts out). A missing subsection, missing key, non-dict
-    `review`, or None/absent config ALL fold to True. ONLY an explicit
-    review.require_ci_local_stamp: false OMITS the predicate (roster note, not
-    a blocking entry) — a consumer repo with no `scripts/ci-local.sh` opts out
-    per-repo instead of permanently FAILing this predicate on every landing.
-    Mirrors `_require_review_proof` exactly (tp-merge/SKILL.md:67 precedent).
-    """
+    """Required iff `require_ci_local_stamp` is explicitly False→no / True→yes,
+    else a non-empty `ci.gate_command` activates it (default OFF — Task 2.2)."""
     review = (config or {}).get("review") if isinstance(config, dict) else None
-    if not isinstance(review, dict):
-        return True
-    return bool(review.get("require_ci_local_stamp", True))
+    if isinstance(review, dict) and isinstance(review.get("require_ci_local_stamp"), bool):
+        return review["require_ci_local_stamp"]
+    return _gate_command(config) is not None
+
+
+def _gate_command(config):
+    """The declared non-empty `ci.gate_command` string, or None (missing/blank)."""
+    ci = config.get("ci") if isinstance(config, dict) else None
+    if not isinstance(ci, dict):
+        return None
+    cmd = ci.get("gate_command")
+    return cmd if isinstance(cmd, str) and cmd.strip() else None
+
+
+def stamp_trust_from_load(cl):
+    """`("broken", why)` for a present-but-unusable committed config, else None.
+
+    `cl` is a `repo_config_load.ConfigLoad`. Unreadable (bad JSON / non-object)
+    or a fatal `schema_version` (status "ok" folded to `{}`) is broken: the gate
+    cannot tell whether the stamp is required, so it must not read as absent."""
+    if cl.status == "unreadable" or (cl.status == "ok" and not cl.config):
+        return ("broken", "; ".join(cl.warnings) or "config unusable")
+    return None
+
+
+def _stamp_requirement(config, stamp_trust):
+    """-> (mode, gate_command, reason); mode is required | omit | indeterminate.
+
+    Untrusted config is TIGHTEN-ONLY (F1, A2-F2): `("untrusted", pre-binding
+    config)` requires the stamp iff that config declares a non-blank
+    `ci.gate_command` OR sets `review.require_ci_local_stamp` to literal `true`;
+    an untrusted `false` (or any non-`True` value) is ignored — it may only turn
+    the stamp ON, never off. A `("broken", why)` config is INDETERMINATE.
+    Otherwise the trusted rule `_require_ci_local_stamp(config)` decides
+    (reason None → caller's note)."""
+    kind = stamp_trust[0] if stamp_trust else None
+    if kind == "broken":
+        return ("indeterminate", None,
+                f"committed .three-pillars/config.json present but unusable "
+                f"({stamp_trust[1]}) — cannot tell whether a local-CI stamp is "
+                "required; fix the config")
+    if kind == "untrusted":
+        untrusted = stamp_trust[1]
+        cmd = _gate_command(untrusted)
+        review = untrusted.get("review") if isinstance(untrusted, dict) else None
+        opted_in = isinstance(review, dict) and review.get("require_ci_local_stamp") is True
+        if cmd is not None or opted_in:
+            return ("required", cmd, None)
+        return ("omit", None, "config untrusted by origin binding: the untrusted "
+                "config declares no ci.gate_command and does not set "
+                "review.require_ci_local_stamp: true, so no local-CI stamp is required")
+    if _require_ci_local_stamp(config):
+        return ("required", _gate_command(config), None)
+    return ("omit", None, None)
 
 
 @dataclass(frozen=True)
@@ -125,12 +181,16 @@ def build_predicates_and_roster(
     copilot_runners,
     running_live: bool,
     shared_dir,
+    stamp_trust=None,
 ) -> "tuple[list, list]":
     """Evaluate all gate predicates and build the roster entries list.
 
     Returns (predicates, roster_entries) in canonical order:
       threads, mergeable, checks, diff_not_ballooned, copilot, human,
-      ci_local_stamp, review_proof_on_head.
+      ci_local_stamp, review_proof_on_head, fragility_clear.
+
+    `stamp_trust` (F1): None, `("untrusted", pre-binding config)` or
+    `("broken", why)` — see `_stamp_requirement`.
 
     Extracted from evaluate_gate in deterministic_gate.py to keep that function
     readable and to stay within the 800-line file-size cap.
@@ -177,6 +237,7 @@ def build_predicates_and_roster(
         RosterEntry.from_result(p3),
     ]
 
+    _frag_base = None  # p8's base: the balloon's fetched origin/<base> (live only)
     # p_balloon: active when balloon_sizes key present OR pure live mode
     if "balloon_sizes" in r or running_live:
         import diff_balloon_guard  # noqa
@@ -185,7 +246,7 @@ def build_predicates_and_roster(
             # Hermetic path: sizes injected directly, no root/base resolution needed
             _p_balloon = diff_balloon_guard.pred_diff_not_ballooned(
                 repo=".",
-                base_ref="master",
+                base_ref=_hermetic_balloon_base_ref("."),
                 head_ref=head_oid,
                 factor=_diff_balloon_factor(config),
                 sizes=_injected_sizes,
@@ -232,6 +293,7 @@ def build_predicates_and_roster(
                             ),
                         )
                     else:
+                        _frag_base = f"origin/{_base}"
                         _p_balloon = diff_balloon_guard.pred_diff_not_ballooned(
                             repo=str(_project_root),
                             base_ref=f"origin/{_base}",
@@ -267,24 +329,32 @@ def build_predicates_and_roster(
             "human_approved", reason="review.require_human_approval=false",
         ))
 
-    # p6 (ci-local stamp): OMITTED when review.require_ci_local_stamp resolves
-    # false — [G3] fix, a consumer repo with no scripts/ci-local.sh opts out
-    # per-repo instead of permanently FAILing this predicate on every landing.
-    # Otherwise active when stamp key present OR pure live mode. The stamp
-    # predicate receives the project root resolved above.
-    # Hermetic carve-out: when a stamp is injected the predicate evaluates entirely
-    # from the injected dict (repo_root is not read), so check _stamp_key_present
-    # BEFORE the _project_root-is-None guard — mirrors the balloon's injected-sizes
-    # carve-out so hermetic stamp injection works from a non-repo cwd.
-    if _require_ci_local_stamp(config):
+    # p6 (ci-local stamp): REQUIRED only via an explicit `require_ci_local_stamp:
+    # true` or a declared `ci.gate_command` (Task 2.2 default-OFF) — or, under an
+    # untrusted config, iff it declares a command (tighten-only, F1); a broken
+    # config is INDETERMINATE. The active path passes the declared command
+    # (refusal text) + project root. Hermetic carve-out: an injected stamp
+    # evaluates from the dict (repo_root unread) — so the _stamp_key_present check
+    # runs BEFORE the _project_root-is-None guard (mirrors the balloon's
+    # injected-sizes carve-out for non-repo cwd).
+    _stamp_mode, _stamp_cmd, _stamp_reason = _stamp_requirement(config, stamp_trust)
+    if _stamp_mode == "indeterminate":
+        _p_stamp = PredicateResult(
+            name="ci_local_stamp", verdict=GateVerdict.INDETERMINATE,
+            detail=_stamp_reason,
+        )
+        predicates.append(_p_stamp)
+        roster_entries.append(RosterEntry.from_result(_p_stamp))
+    elif _stamp_mode == "required":
         _stamp_key_present = "stamp" in r
         if _stamp_key_present or running_live:
-            import ci_local_stamp  # noqa
+            import round_log_carry  # noqa
             if _stamp_key_present:
                 # Hermetic path: stamp injected directly — no repo_root access needed.
                 # Pass a sentinel repo_root so the signature is satisfied; it is never read.
-                _p_stamp = ci_local_stamp.pred_ci_local_stamp(
+                _p_stamp = round_log_carry.pred_ci_local_stamp_carried(
                     head_oid, repo_root=str(_project_root or "."), stamp=r["stamp"],
+                    gate_command=_stamp_cmd, run_git=r.get("run_git"),
                 )
             elif _project_root is None:
                 _p_stamp = PredicateResult(
@@ -293,20 +363,30 @@ def build_predicates_and_roster(
                     detail="could not resolve project root for ci_local_stamp",
                 )
             else:
-                _p_stamp = ci_local_stamp.pred_ci_local_stamp(
+                _p_stamp = round_log_carry.pred_ci_local_stamp_carried(
                     head_oid, repo_root=str(_project_root),
+                    gate_command=_stamp_cmd, run_git=r.get("run_git"),
                 )
             predicates.append(_p_stamp)
             roster_entries.append(RosterEntry.from_result(_p_stamp))
         else:
+            # Active-but-hermetic: stamp required but no stamp key injected.
             roster_entries.append(RosterEntry.omitted(
                 "ci_local_stamp",
                 reason="<stamp> inactive (hermetic run — no stamp key injected)",
             ))
+    elif _stamp_reason is not None:
+        roster_entries.append(RosterEntry.omitted("ci_local_stamp", reason=_stamp_reason))
     else:
-        roster_entries.append(RosterEntry.omitted(
-            "ci_local_stamp", reason="review.require_ci_local_stamp=false",
-        ))
+        review = (config or {}).get("review") if isinstance(config, dict) else None
+        opted_out = isinstance(review, dict) and review.get("require_ci_local_stamp") is False
+        reason = "review.require_ci_local_stamp=false" if opted_out else (
+            "no ci.gate_command declared: declare one to require a local-CI stamp"
+            + ("; scripts/ci-local.sh exists — declare it as ci.gate_command"
+               if _project_root is not None
+               and (Path(_project_root) / "scripts" / "ci-local.sh").is_file() else "")
+        )
+        roster_entries.append(RosterEntry.omitted("ci_local_stamp", reason=reason))
 
     # p7 (review proof on head): OMITTED when require_review_proof resolves false.
     # Reuses the head_oid already resolved by _fetch_pr_state (single-fetch
@@ -323,15 +403,18 @@ def build_predicates_and_roster(
     if _require_review_proof(config):
         if r.get("comments_fn") is not None or running_live:
             import proof_predicate  # noqa — in _shared/ beside this file
-            _p_proof = proof_predicate.pred_review_proof_on_head(
-                pr_url, head_oid,
-                comments_fn=r.get("comments_fn", None),  # injectable seam (hermetic tests)
-                config=config,
-                self_login_fn=r.get("self_login_fn", None),  # shared key with p5
-                run_git=r.get("run_git", None),  # approval-survives-safe-base-sync carry seam
-                derive_base_ref_fn=r.get("derive_base_ref_fn", None),  # shared key with p5
-                repo_root=r.get("carry_repo_root", None),  # shared key with p5
-            )
+            import operator_accept  # noqa — in _shared/ beside this file (E3 accept seam)
+            _p_proof = operator_accept.proof_or_accept(
+                lambda: proof_predicate.pred_review_proof_on_head(
+                    pr_url, head_oid,
+                    comments_fn=r.get("comments_fn", None),  # injectable seam (hermetic tests)
+                    config=config,
+                    self_login_fn=r.get("self_login_fn", None),  # shared key with p5
+                    run_git=r.get("run_git", None),  # approval-survives-safe-base-sync carry seam
+                    derive_base_ref_fn=r.get("derive_base_ref_fn", None),  # shared key with p5
+                    repo_root=r.get("carry_repo_root", None),  # shared key with p5
+                ),
+                operator_accept.accept_for(pr_url, head_oid, r, config, running_live))()
             predicates.append(_p_proof)
             roster_entries.append(RosterEntry.from_result(_p_proof))
         else:
@@ -344,6 +427,14 @@ def build_predicates_and_roster(
             "review_proof_on_head", reason="review.require_review_proof=false",
         ))
 
+    # p8 (fragility_clear): roster_block owns the opt-out / hermetic-seam (`fragility_fn`)
+    # / live activation; no second fetch, and no base (None) on a hermetic run.
+    import fragility_predicate  # noqa — in _shared/ beside this file
+    _p_frag, _e_frag = fragility_predicate.roster_block(
+        config=config, r=r, running_live=running_live, repo_root=_project_root,
+        pr_head=head_oid, base_ref=_frag_base)
+    predicates.extend(_p_frag)
+    roster_entries.extend(_e_frag)
     return predicates, roster_entries
 
 

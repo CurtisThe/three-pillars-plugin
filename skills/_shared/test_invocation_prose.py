@@ -14,6 +14,17 @@ import subprocess
 import tempfile
 import textwrap
 from pathlib import Path
+import pytest
+
+import skill_text
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_checkout = pytest.mark.skipif(
+    not (_DEV_ROOT / "framework-check.sh").exists(),
+    reason="asserts on the dev repo's tracked tree via git ls-files (dev-repo only)")
+_needs_framework_check = pytest.mark.skipif(
+    not (_DEV_ROOT / "framework-check.sh").exists(),
+    reason="reads framework-check.sh (dev-repo only)")
 
 # The exact grep pattern that invariant #36 uses
 INV36_GREP = r"(python3|bash)[[:space:]]+skills/"
@@ -68,6 +79,7 @@ def test_grep_passes_clean_fixture(tmp_path):
     )
 
 
+@_needs_dev_checkout
 def test_real_tree_has_zero_bare_invocations():
     """
     The live tracked tree must have zero bare invocations in skills/**/*.md.
@@ -109,6 +121,7 @@ def test_real_tree_has_zero_bare_invocations():
     )
 
 
+@_needs_framework_check
 def test_banner_derived():
     """framework-check.sh must emit the DERIVED banner, not a hardcoded literal.
 
@@ -130,6 +143,7 @@ def test_banner_derived():
     )
 
 
+@_needs_framework_check
 def test_inv36_grep_regex_sync():
     """Sync pin: the INV36_GREP regex in this file matches what framework-check.sh uses.
 
@@ -149,6 +163,7 @@ def test_inv36_grep_regex_sync():
     )
 
 
+@_needs_framework_check
 def test_inv36_block_present():
     """framework-check.sh must contain the invariant #36 grep block."""
     repo_root = Path(__file__).resolve().parent.parent.parent
@@ -184,7 +199,8 @@ def test_floor_validator_rider_present_in_all_three_callers():
     for rel_path in _FLOOR_VALIDATOR_CALLERS:
         skill_file = repo_root / rel_path
         assert skill_file.exists(), f"Expected SKILL.md not found: {skill_file}"
-        content = skill_file.read_text(encoding="utf-8")
+        content = (skill_text.read_skill_text("tp-run-full-design") if rel_path == "skills/tp-run-full-design/SKILL.md"
+                   else skill_file.read_text(encoding="utf-8"))
         if _RIDER_TEMPLATE not in content:
             missing.append(rel_path)
     assert not missing, (

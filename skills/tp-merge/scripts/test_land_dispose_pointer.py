@@ -15,6 +15,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 HERE = Path(__file__).resolve().parent
 SKILL_MD = HERE.parent / "SKILL.md"
 
@@ -124,22 +126,12 @@ def test_no_dispose_pointer_on_gate_pass(capsys):
     )
 
 
-# ---------- SKILL.md invariant: threads_resolved line documents the pointer ----------
+# ---------- SKILL.md references resolve (structured check) ----------
 
 
-def test_skill_md_threads_resolved_documents_dispose_pointer():
-    """The threads_resolved predicate line in SKILL.md must reference --dispose-only."""
-    text = SKILL_MD.read_text(encoding="utf-8")
-    # Find the threads_resolved predicate description
-    assert "threads_resolved" in text, "SKILL.md must document the threads_resolved predicate"
-    assert "--dispose-only" in text, (
-        "SKILL.md must document that threads_resolved refusal points to --dispose-only"
-    )
-    # Both must appear in the same vicinity (within the predicate list or merge gate section)
-    tr_idx = text.find("threads_resolved")
-    do_idx = text.find("--dispose-only")
-    # The dispose-only reference should appear close to threads_resolved (within 1000 chars)
-    assert abs(tr_idx - do_idx) < 2000, (
-        "The --dispose-only pointer must be documented near the threads_resolved predicate "
-        "in SKILL.md (within 2000 chars)"
-    )
+def test_skill_md_references_resolve(tmp_path):
+    """Every path, `/tp-*` skill and `python3` invocation the SKILL.md names exists and parses
+    (invariant 46's check, run in-suite); the pointer's wording is not pinned."""
+    skill_refs = pytest.importorskip("skill_refs")
+    report = skill_refs.check(HERE.parents[2], [SKILL_MD], cache_dir=tmp_path)
+    assert report.issues == []

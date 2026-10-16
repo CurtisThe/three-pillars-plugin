@@ -2,6 +2,7 @@
 name: council-machiavelli
 description: "Council member. Use standalone for power dynamics & incentive analysis, or via /council for multi-perspective deliberation."
 model: opus
+effort: high
 color: dark-green
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

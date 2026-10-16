@@ -78,7 +78,9 @@ finisher** for a structurally-clean round (the Tier-7 reviewed-stable finish). I
 `post_codereview_comment` BEFORE shelling `run_round.py`**. That posted comment is the
 **last head-binding action**: the digest embeds the exact full head SHA, so no commit
 may land after it (a later commit moves HEAD and stales the head-bound proof, flipping
-the merge gate to INDETERMINATE). converge.py then seeds the untracked
+the merge gate to INDETERMINATE). The one carried exception is the `two-stable` round-log
+commit (`decisions.md` and the two `.ndjson` logs of the archived design), which the gate
+carries the proof across (`skills/_shared/round_log_carry.py`). converge.py then seeds the untracked
 `iterate-state.v1.json`, shells `run_round.py` (paths `str()`-ed, `decisions_path`
 omitted, `config` explicit), and asserts `convergence_proof.non_degraded_proof_on_head`
 is PASS before emitting `two-stable [code-review-only]`; HEAD is invariant across the
@@ -88,7 +90,7 @@ never after it.
 ## Artifact layout
 
 ```
-.three-pillars/review-proof/      # gitignored; local provenance only
+<proof_root>/     # proof_root.py: <absolute git-dir>/three-pillars/review-proof, outside the tree
   <head-sha>/
     meta.json       # load-bearing: base, head, files_changed, degraded, reason, ...
     numstat.txt     # raw git diff --numstat base...head output
@@ -101,7 +103,8 @@ meta.json exists, parses, `meta["head"] == head`, `meta["degraded"] is not True`
 
 ## Posted-comment detector (fresh-checkout-safe)
 
-The local artifact is gitignored, so a clean clone (where the merge gate runs)
+The local artifact lives under the worktree's git-dir (never committed), so a clean
+clone (where the merge gate runs)
 cannot read it. The **posted digest comment** is the durable, checkout-independent
 proof. `review_proof.py` exposes two detectors:
 
@@ -139,7 +142,7 @@ source read at two points; the shared convergence predicate
 convergence gate and the merge gate consume:
 
 1. **Loop terminal** — the live loop-terminal is **`run_round.py`** (shelled from both
-   `tp-pr-iterate/SKILL.md` and `tp-run-full-design/SKILL.md` §Tier-7), the **only** loop
+   `tp-pr-iterate/SKILL.md` and `tp-run-full-design/tier-7-review.md` §Tier-7), the **only** loop
    terminal. Each iteration computes `proof_ok` against the freshly-polled head (never a cached
    SHA) and passes the bound True/False to `loop_driver.run_round`. The proof conjunct applies
    to **both**

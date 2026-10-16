@@ -103,6 +103,13 @@ def test_challenged_indices_embedded():
     assert "[0, 2]" in prompt or "[0,2]" in prompt
 
 
+def test_synth_prompt_names_its_agent():
+    """run-throughput 4.5: read-only `tp-readonly-auditor`; Slot 8 is `tp-impl-auditor`."""
+    for slot, agent in (("design-audit", "tp-readonly-auditor"), ("impl-audit", "tp-impl-auditor")):
+        prompt = build_synth_prompt(["a/design.md"], _round1(), None, slot)
+        assert f"read-only `{agent}` subagent" in prompt and "general-purpose" not in prompt
+
+
 # --------------------------------------------------------------------------- #
 # Task 2.2 — fast-audit branch (round2=None)
 # --------------------------------------------------------------------------- #
@@ -240,6 +247,15 @@ def test_code_input_empty_touched_files():
     # Still has the Candidate-code heading; no exception was raised reaching here.
     assert "## Candidate code under audit" in prompt
 
+
+
+@pytest.mark.parametrize("slot", ["design-audit", "plan-audit", "impl-audit"])
+def test_every_finding_requires_a_severity(slot):
+    """run-throughput 5.6: `severity` keys the lows rule (`audit_retry_rules.lows_only`)."""
+    from build_synth_prompt import SEVERITIES
+    out = build_synth_prompt(["a/design.md"], [{"member": "ada", "findings": []}], None, slot)
+    assert SEVERITIES == ("critical", "medium", "minor")
+    assert "`severity` (`critical|medium|minor`) is REQUIRED on every finding" in out
 
 @pytest.mark.parametrize("slot", ["design-audit", "plan-audit"])
 def test_map_check_slots_require_the_category_tag(slot):

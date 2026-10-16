@@ -1,6 +1,6 @@
 """Envelope + exit-code plumbing for `run_round.py`'s CLI boundary.
 
-Split out of `run_round.py` by responsibility (CLAUDE.md §File Size Limits): that
+Split out of `run_round.py` by responsibility (skills/_shared/file-size-caps.md): that
 module is the round wrapper — stdin contract, state resolution, the loop_driver
 call — while everything here answers one narrower question, *how does this process
 report itself to its caller without being able to fail?*

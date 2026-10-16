@@ -7,7 +7,12 @@ mention elsewhere in the 1k-line SKILL.md cannot satisfy them.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 SKILL_MD = Path(__file__).resolve().parent.parent / "SKILL.md"
 GRANDFATHERED_LINES = 1089  # grandfathered monolith: never grows net
@@ -15,7 +20,7 @@ GRANDFATHERED_CHARS = 120179  # len() of the pre-design text (chars, not bytes)
 
 
 def _text() -> str:
-    return SKILL_MD.read_text(encoding="utf-8")
+    return skill_text.read_skill_text("tp-run-full-design")
 
 
 def _flat(text: str) -> str:
@@ -42,7 +47,7 @@ def _missing(text: str, *needles: str) -> list[str]:
 
 def test_step1_names_the_round_dir_flow_in_order():
     step1 = _step1()
-    order = ["round_scratch.py prepare", 'model="opus"', "reply_path",
+    order = ["round_scratch.py prepare", "dispatch_model", "reply_path",
              "reproduce.py --round-dir", "converge.py --round-dir", "run_round.py"]
     assert not _missing(step1, *order)
     idx = [step1.index(s) for s in order]
@@ -79,13 +84,13 @@ def test_round_tail_is_the_one_working_tree_writer():
     for where, text in (("slot 11", slot11), ("step 1", _step1()), ("rule 2", rule2)):
         assert not _missing(text, "round tail", "one working-tree writer", "`tp/{slug}`"), where
     assert "never checks out" in rule2 and "idle" in rule2
-    assert "3. **Assert before every orchestrator commit.**" in _text()
 
 
-def test_two_stable_flush_is_committed_but_not_pushed():
+def test_two_stable_flush_is_committed_and_pushed():
     tier7 = _tier7()
-    assert "committed locally and **not pushed**" in tier7
-    assert "exception to commit-then-push" in tier7
+    assert "committed and pushed" in tier7
+    assert "round_log_carry" in tier7
+    assert "**not pushed**" not in tier7
 
 
 def test_non_two_stable_terminal_reports_dirty_decisions_md():

@@ -28,6 +28,12 @@ import sys
 from pathlib import Path
 
 from iteration_lane import gate_command, iteration_command
+import pytest
+
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_ci_local = pytest.mark.skipif(
+    not (_DEV_ROOT / "scripts/ci-local.sh").exists(),
+    reason="reads scripts/ci-local.sh (dev-repo only)")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_LOCAL = REPO_ROOT / "scripts" / "ci-local.sh"
@@ -76,6 +82,7 @@ def _fast_region_is_stampless(content: str) -> bool:
 
 # --- (a) the fast region never writes a stamp --------------------------------
 
+@_needs_ci_local
 def test_fast_region_never_writes_stamp():
     content = CI_LOCAL.read_text(encoding="utf-8")
     assert _fast_region_is_stampless(content), (
@@ -84,6 +91,7 @@ def test_fast_region_never_writes_stamp():
     )
 
 
+@_needs_ci_local
 def test_full_region_has_exactly_the_stamp_step():
     content = CI_LOCAL.read_text(encoding="utf-8")
     _, full_region = _split_fast_full(content)
@@ -101,12 +109,14 @@ def test_iteration_lane_never_writes_stamp_either_granularity():
         assert r.writes_stamp is False, f"iteration lane ({gran}) must never write a stamp"
 
 
+@_needs_ci_local
 def test_gate_lane_writes_stamp_in_dev_repo():
     assert gate_command(REPO_ROOT).writes_stamp is True, (
         "the gate lane in the dev repo is the full stamp-writing ci-local.sh"
     )
 
 
+@_needs_ci_local
 def test_iteration_and_gate_commands_are_never_the_same():
     it = iteration_command(REPO_ROOT, granularity="phase").command
     gate = gate_command(REPO_ROOT).command

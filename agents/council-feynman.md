@@ -2,6 +2,7 @@
 name: council-feynman
 description: "Council member. Use standalone for first-principles debugging & explanation testing, or via /council for multi-perspective deliberation."
 model: opus
+effort: high
 color: orange
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

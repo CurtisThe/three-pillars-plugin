@@ -133,6 +133,7 @@ def test_group_a_parity_with_merge_gate_predicate():
 # ============================================================
 
 _CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {
         "approval_survives_safe_base_sync": True,
         "automation_identities": [AUTHOR.lower()],

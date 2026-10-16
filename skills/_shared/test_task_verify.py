@@ -1,5 +1,9 @@
 """test_task_verify.py — ``check`` steps 3-6, the Opus-rung policy, and ``land``.
 
+Step 3 is the red/green pair rule (fragile-test-prevention, stages §Part C1): two
+commits that break it fail by its reason; a test that exercises Targets commits a
+pair (``commit_pair``), one that does not keeps the test file at base.
+
 design: local-implement-and-review (design-audit-3 #1, #2)
 
 Real tmp repos only (``attempt_fixture``); the ambient repository is never read (M23).
@@ -16,7 +20,8 @@ import pytest
 
 import task_attempts
 import task_verify
-from attempt_fixture import IDENTITY, DD, branches, commit, git, make_seat, task_row, write
+from attempt_fixture import (IDENTITY, DD, branches, commit, commit_pair, git, make_seat,
+                             task_row, write)
 
 
 @pytest.fixture
@@ -42,8 +47,10 @@ def test_check_commit_count_and_porcelain(tmp_path):
     assert (res["verdict"], res["reason"]) == ("FAIL", "no commit")
 
     commit(adir, {"skills/a.py": "A = 2\n"})
-    commit(adir, {"skills/a.py": "A = 3\n"})
-    assert _check(att, task_row())["reason"] == "2 commits"
+    commit(adir, {"skills/a.py": "A = 3\n"})  # two commits that break the pair rule
+    assert _check(att, task_row())["reason"] == "red commit touches non-Targets file: skills/a.py"
+    commit(adir, {"skills/a.py": "A = 4\n"})
+    assert _check(att, task_row())["reason"] == "3 commits"
 
     att2 = task_attempts.open_attempt(wt, "1.2", DD)
     adir2 = Path(att2["attempt_dir"])
@@ -115,13 +122,14 @@ NODE_ROW = {"files": ["skills/a.py"], "targets": "`skills/test_a.py::test_a`"}
 
 def test_check_red_test_fails(tmp_path):
     wt, att = _open(tmp_path)
-    commit(Path(att["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": RED})
+    commit_pair(Path(att["attempt_dir"]), {"skills/test_a.py": RED}, {"skills/a.py": "A = 2\n"})
     res = _check(att, task_row(**NODE_ROW), runner=RUNNER)
     assert (res["verdict"], res["reason"]) == ("FAIL", "red test")
     assert "assert 1 == 2" in res["test_output_tail"]
 
     att2 = task_attempts.open_attempt(wt, "1.2", DD)
-    commit(Path(att2["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": GREEN})
+    commit_pair(Path(att2["attempt_dir"]), {"skills/test_a.py": GREEN},
+                {"skills/a.py": "A = 2\n"})
     res = _check(att2, task_row(**NODE_ROW), runner=RUNNER)
     assert res["verdict"] == "PASS" and res["unverified"] is False
     width = len(shlex.split(RUNNER))  # the runner, the one target, then the report flags
@@ -131,8 +139,10 @@ def test_check_red_test_fails(tmp_path):
 
 
 def test_check_skips_step6_when_not_runnable(tmp_path):
-    _wt, att = _open(tmp_path)
-    commit(Path(att["attempt_dir"]), {"skills/a.py": "A = 2\n", "skills/test_a.py": RED})
+    _seat, wt = make_seat(tmp_path)
+    commit(wt, {"skills/test_a.py": RED}, "the test at base: step 6 never runs it")
+    att = task_attempts.open_attempt(wt, "1.1", DD)
+    commit(Path(att["attempt_dir"]), {"skills/a.py": "A = 2\n"})
     both = ["skills/a.py", "skills/test_a.py"]
     malformed = task_row(both, "`bash framework-check.sh` exits 0")
     missing = task_row(both)  # no Targets field: non-canonical

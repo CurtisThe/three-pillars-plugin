@@ -14,31 +14,37 @@ error yields no warning. The CLI prints the warning and always exits 0::
 
     python3 skills/_shared/agent_override_warn.py [--root .]
 
-Model values are normalised by `model_family` (the same rule as the fleet
-launcher's local-settings pin check, kept here because `_shared/` ships in the core
-build without that skill), so `opus`, `claude-opus-4-8` and `"opus"` all count as Opus.
+Model values are normalised by `model_family`, which delegates to
+`model_policy.agent_alias` (the one family normaliser, shared with the fleet
+launcher's local-settings pin check), so `opus`, `claude-opus-4-8` and `"opus"` —
+each with or without a `[1m]` suffix — all count as Opus.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import effort_pins  # noqa: E402
+import model_policy  # noqa: E402  (agent_alias: the one family normaliser)
 
 AGENT_FILES = ("tp-worker.md", "tp-task-worker.md")
 AGENTS_REL = ".claude/agents"
 _MARKERS = ("tp-local-model", "# tp-local: generated override")
 _MODEL_RE = re.compile(r"^model:\s*(.*?)\s*$", re.M)
-_FAMILIES = ("opus", "sonnet", "haiku")
 
 
 def model_family(model) -> str | None:
-    """``opus`` | ``sonnet`` | ``haiku`` for an alias or a ``claude-<family>…`` id;
-    any other non-empty value lower-cased as is; None for empty / non-string."""
+    """The Agent-enum family (``model_policy.agent_alias``: an alias or a
+    ``claude-<family>-…`` id, a trailing `[…]` suffix dropped); any other
+    non-empty value lower-cased as is; None for empty / non-string."""
     if not isinstance(model, str) or not model.strip():
         return None
-    m = model.strip().lower()
-    return next((f for f in _FAMILIES if m == f or m.startswith(f"claude-{f}")), m)
+    return model_policy.agent_alias(model) or model.strip().lower()
 
 
 def _frontmatter(text: str) -> str:
@@ -65,8 +71,11 @@ def _warning(rel: str, text: str) -> str | None:
             f"model: opus, and let --local choose per task.")
 
 
-def detect(root) -> str | None:
-    """One warning line per offending override under ``root``, or None (fail-open)."""
+def detect(root, env=None) -> str | None:
+    """One warning line per offending override under ``root``, then the
+    ``CLAUDE_CODE_EFFORT_LEVEL`` pin line (``env=None`` means ``os.environ``); None when
+    there are none (fail-open). Settings-file effort pins are not overrides and are
+    never reported (``effort_pins``)."""
     lines = []
     for name in AGENT_FILES:
         rel = f"{AGENTS_REL}/{name}"
@@ -77,6 +86,11 @@ def detect(root) -> str | None:
         line = _warning(rel, text)
         if line:
             lines.append(line)
+    try:
+        env = os.environ if env is None else env
+        lines += effort_pins.detect(env)
+    except Exception:  # noqa: BLE001 — advisory only
+        pass
     return "\n".join(lines) or None
 
 

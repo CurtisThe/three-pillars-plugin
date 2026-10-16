@@ -6,11 +6,13 @@ Every attempt (task worker, escalated Opus, opus-from-start under ``--local``) r
 its own worktree, so nothing here ever runs ``git reset --hard`` or ``git clean`` in the
 dispatcher's tree.
 
-* **Placement (inv #32)** — ``<dispatcher_root>/.claude/worktrees/tp-attempt-<slug>-
-  <task>-<nonce>``, never ``/tmp``: the isolation guard classifies a worktree that is
-  neither ``<repo>-wt/<slug>`` nor under ``.claude/worktrees/`` as the seat, so with a
-  live ``tp/*`` worktree every hooked commit there would be refused. Branches are
-  ``tp-attempt/<slug>/<task>-<nonce>`` (never ``tp/*``).
+* **Placement (inv #32)** — ``<dispatcher_root>/.tp-scratch/tp-attempt-<slug>-
+  <task>-<nonce>`` (``scratch_root.SCRATCH_DIR``; the legacy ``.claude/worktrees``
+  parent is still accepted, for residue from before the move), never ``/tmp``: the
+  isolation guard classifies a worktree that is neither ``<repo>-wt/<slug>`` nor under
+  a scratch parent as the seat, so with a live ``tp/*`` worktree every hooked commit
+  there would be refused. Branches are ``tp-attempt/<slug>/<task>-<nonce>``
+  (never ``tp/*``).
 * **Owner record** — ``<git-common-dir>/tp-attempts/<slug>/<task>-<nonce>.json``, written
   ``opening`` before the branch and worktree exist and ``open`` after, so a crash at any
   point leaves a record ``sweep`` can clean up. ``owner.pid``/``host`` are diagnostic;
@@ -33,13 +35,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import scratch_root
 import task_scope
 
-ATTEMPT_PARENT = os.path.join(".claude", "worktrees")
+ATTEMPT_PARENT = scratch_root.SCRATCH_DIR
 DIR_PREFIX = "tp-attempt-"
 BRANCH_PREFIX = "tp-attempt/"
 RECORDS = "tp-attempts"
-EXCLUDE_LINE = "/.claude/worktrees/"
+EXCLUDE_LINE = scratch_root.ignore_line()
 
 
 class DirtyTree(Exception):
@@ -93,7 +96,7 @@ def _write_record(rec: dict) -> None:
 
 
 def _ensure_exclude(common: str) -> None:
-    """Append ``/.claude/worktrees/`` to the common ``info/exclude`` once (local only)."""
+    """Append ``/.tp-scratch/`` to the common ``info/exclude`` once (local only)."""
     path = os.path.join(common, "info", "exclude")
     try:
         with open(path, encoding="utf-8") as fh:
@@ -179,14 +182,15 @@ def _owner_root(rec: dict) -> str:
 
 
 def removable(rec: dict) -> bool:
-    """True iff ``attempt_dir`` normalises to a direct child named ``tp-attempt-*`` of
-    ``<owner.dispatcher_root>/.claude/worktrees/`` — the only paths ``rm`` may target."""
+    """True iff ``attempt_dir`` normalises to a direct child named ``tp-attempt-*`` of one
+    of ``scratch_root.scan_parents(<owner.dispatcher_root>)`` (the new scratch base,
+    then the legacy ``.claude/worktrees``) — the only paths ``rm`` may target."""
     owner = _owner_root(rec)
     if not owner or not rec.get("attempt_dir"):
         return False
-    parent = os.path.realpath(os.path.join(owner, ATTEMPT_PARENT))  # a symlinked .claude
+    parents = [os.path.realpath(p) for p in scratch_root.scan_parents(owner)]
     target = os.path.realpath(str(rec["attempt_dir"]))
-    return (os.path.dirname(target) == parent
+    return (os.path.dirname(target) in parents
             and os.path.basename(target).startswith(DIR_PREFIX))
 
 
@@ -201,8 +205,8 @@ def discard(attempt: dict, *, root=None) -> dict:
     """Remove an attempt: worktree dir → ``worktree prune`` → branch → record.
 
     Idempotent (a hand-deleted dir, an absent branch or record are tolerated). ``rm``
-    only ever targets a path under ``<owner>/.claude/worktrees/tp-attempt-``; any other
-    ``attempt_dir`` is left on disk (branch + record only, logged). Only a
+    only ever targets a ``tp-attempt-*`` child of one of ``<owner>``’s scratch
+    parents; any other ``attempt_dir`` is left on disk (branch + record only, logged). Only a
     ``tp-attempt/`` branch is ever deleted. Never touches the dispatcher's tree.
     → ``{attempt_id, removed_dir, log}``.
     """
@@ -215,8 +219,8 @@ def discard(attempt: dict, *, root=None) -> dict:
                 shutil.rmtree(adir, ignore_errors=True)
             removed = not os.path.exists(adir)
     elif adir:
-        log.append(f"attempt_dir outside {_owner_root(attempt) or '?'}/{ATTEMPT_PARENT}/"
-                   f"{DIR_PREFIX}*; not removed: {adir}")
+        parents = ", ".join(scratch_root.scan_parents(_owner_root(attempt) or "?"))
+        log.append(f"attempt_dir outside {parents} {DIR_PREFIX}*; not removed: {adir}")
     _git(repo, "worktree", "prune", check=False)
     branch = str(attempt.get("branch") or "")
     if branch.startswith(BRANCH_PREFIX):
@@ -268,6 +272,31 @@ def _landed(repo, rec: dict, own: bool) -> dict | None:
     return {"attempt_id": rec["attempt_id"], "task_id": rec["task_id"], "sha": sha}
 
 
+def _partial_land(repo, rec: dict, own: bool, log: list) -> None:
+    """A ``landing`` record whose tip is not reached: a range land that died between its
+    commits. An own one is undone (abort a cherry-pick left in progress, else quit it; then
+    ``reset --keep`` to ``pre_land_head`` if a strict ancestor of HEAD); a dead owner's is
+    only logged. The caller discards the attempt, so the task re-runs."""
+    pre = rec.get("status") == "landing" and _resolve(repo, str(rec.get("pre_land_head") or ""))
+    if not pre:
+        return
+    pick = ("sequencer", "CHERRY_PICK_HEAD")  # a pick left in progress blocks the next land
+    done = own and any(os.path.exists(_out(repo, "rev-parse", "--path-format=absolute",
+                                           "--git-path", n)) for n in pick)
+    if done and _git(repo, "cherry-pick", "--abort", check=False).returncode:
+        _git(repo, "cherry-pick", "--quit", check=False)
+    head = _resolve(repo, "HEAD" if own else str(rec.get("dispatcher_branch") or ""))
+    ahead = head and head != pre and not _git(repo, "merge-base", "--is-ancestor", pre, head,
+                                              check=False).returncode
+    if ahead and not own:
+        log.append(f"partial-land: {rec.get('branch')}")
+        return
+    if ahead:
+        done = _git(repo, "reset", "--keep", "-q", pre, check=False).returncode == 0
+    if ahead or done:
+        log.append(f"partial-land reset{'' if done else ' failed'}: {rec['attempt_id']}")
+
+
 def sweep(root, slug: str) -> dict:
     """Discard this slug's leftover attempts → ``{discarded, landed, log}``.
 
@@ -275,7 +304,8 @@ def sweep(root, slug: str) -> dict:
     is dead (its root no longer registered) or is ``realpath(root)`` itself (sweep runs
     before the dispatcher opens anything). Other slugs and live owners are never touched.
     A ``landing`` record whose commit already reached the dispatcher (crash after land,
-    before discard) is reported in ``landed`` so the task is recorded done, not re-run.
+    before discard) is reported in ``landed`` so the task is recorded done, not re-run; one
+    whose range landed only in part is undone by ``_partial_land``.
     """
     top = toplevel(root)
     _git(top, "worktree", "prune", check=False)
@@ -295,6 +325,8 @@ def sweep(root, slug: str) -> dict:
         hit = _landed(top, rec, own)
         if hit:
             out["landed"].append(hit)
+        else:
+            _partial_land(top, rec, own, out["log"])
         out["log"].extend(discard(rec, root=top)["log"])
         out["discarded"].append(rec["attempt_id"])
     return out

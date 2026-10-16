@@ -112,7 +112,7 @@ def test_locked_removes_and_logs(tmp_path):
     assert log.exists()
     contents = log.read_text(encoding="utf-8")
     assert _LOG_PREFIX in contents
-    assert str(wt) in contents
+    assert wt.name in contents  # portable form; see test_cleanup_worker_worktree_paths.py
 
 
 # ---------------------------------------------------------------------------

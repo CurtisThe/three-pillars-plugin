@@ -59,14 +59,17 @@ def _make_repo(tmp_path, name, config: dict) -> Path:
 
 class TestLoadRepoConfigOverride:
     def test_repo_root_reads_that_roots_committed_config(self, tmp_path):
-        marker_cfg = {"review": {"require_human_approval": False}, "_marker": "B"}
+        marker_cfg = {
+            "schema_version": 1,
+            "review": {"require_human_approval": False, "automation_identities": ["marker-B"]},
+        }
         repo_b = _make_repo(tmp_path, "repo_b", marker_cfg)
 
         result = dg._load_repo_config(repo_root=str(repo_b))
         assert result == marker_cfg
 
     def test_repo_root_none_falls_back_to_find_project_root(self, tmp_path, monkeypatch):
-        marker_cfg = {"_marker": "A"}
+        marker_cfg = {"schema_version": 1, "review": {"automation_identities": ["marker-A"]}}
         repo_a = _make_repo(tmp_path, "repo_a", marker_cfg)
 
         import project_root
@@ -103,11 +106,13 @@ class TestEvaluateGateRepoRootOverride:
         }
 
     _OMIT_ALL = {
+        "schema_version": 1,
         "review": {"require_human_approval": False, "expects_copilot": False,
                     "require_review_proof": False},
         "ci": {"expects_github_checks": False},
     }
     _REQUIRE_HUMAN = {
+        "schema_version": 1,
         "review": {"require_human_approval": True, "expects_copilot": False,
                     "require_review_proof": False},
         "ci": {"expects_github_checks": False},

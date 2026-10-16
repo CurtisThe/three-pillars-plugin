@@ -21,7 +21,7 @@ import converge_cli  # noqa: E402
 import round_scratch  # noqa: E402
 
 PR = "https://github.com/o/r/pull/7"
-CLEAN = "```json\n[]\n```"
+CLEAN = '{"findings": []}'
 NOTE = {"file": "a.py", "line_range": [1, 2], "summary": "tighten", "verdict": "minor",
         "blocking": False, "class": "T"}
 BLOCK = {"file": "a.py", "line_range": [1, 2], "summary": "bug", "verdict": "structural",
@@ -65,7 +65,8 @@ def _main(argv, monkeypatch, tmp_path, cfg=None):
     path = tmp_path / "cfg.json"
     path.write_text(json.dumps(cfg or {}), encoding="utf-8")
     out, err = io.StringIO(), io.StringIO()
-    seams = {"out": out, "err": err, "run_round_fn": lambda stdin: stdin}
+    seams = {"out": out, "err": err, "run_round_fn": lambda stdin: stdin,
+             "repo_root": tmp_path}
     rc = converge_cli.main(["--config", str(path), *argv], seams=seams)
     return rc, out.getvalue(), err.getvalue(), fake
 
@@ -80,6 +81,16 @@ def test_paths_come_from_manifest(tmp_path, monkeypatch):
     assert (kw["base"], kw["head"], kw["pr_url"], kw["review_base"]) == ("b0", "h1", PR, "b0")
     assert kw["findings"] == [NOTE]
     assert [lbl for lbl, _ in kw["label_counts"]][0] == "correctness-leak[opus/confirmer]"
+
+
+def test_digest_counts_each_angles_findings(tmp_path, monkeypatch):
+    """The proof digest carries each angle's real finding count, not a constant."""
+    r, m = _round(tmp_path, findings=[NOTE])
+    Path(m["angles"][0]["reply_path"]).write_text(json.dumps({"findings": [NOTE, NOTE]}),
+                                                   encoding="utf-8")
+    rc, _out, _err, fake = _main(["--round-dir", str(r)], monkeypatch, tmp_path)
+    assert rc == 0
+    assert [c for _, c in fake.kwargs["label_counts"]] == [2, 0, 0]
 
 
 def test_stdin_carries_round_ordinal_class_log(tmp_path, monkeypatch):
@@ -140,6 +151,15 @@ def test_finder_only_refused(tmp_path, monkeypatch):
 def test_unparseable_confirmer_refused(tmp_path, monkeypatch):
     r, _m = _round(tmp_path, replies=False)
     assert _main(["--round-dir", str(r)], monkeypatch, tmp_path)[0] == 2
+
+
+def test_unparseable_angle_reply_refused_not_counted_zero(tmp_path, monkeypatch):
+    """M27: a clean tail findings.json never digests an unparseable reply as `:0`."""
+    r, m = _round(tmp_path)
+    Path(m["angles"][1]["reply_path"]).write_text("Clean.\n" + CLEAN, encoding="utf-8")
+    rc, out, _e, fake = _main(["--round-dir", str(r)], monkeypatch, tmp_path)
+    assert rc == 2 and fake.kwargs is None
+    assert json.loads(out)["reason"] == "unparseable-review-angle"
 
 
 def test_missing_tail_findings_refused(tmp_path, monkeypatch):

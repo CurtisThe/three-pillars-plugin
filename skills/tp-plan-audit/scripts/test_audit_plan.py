@@ -287,50 +287,8 @@ def test_field_continuation_modes():
               "Status field after fence correctly parsed")
 
 
-def test_extract_design_phases():
-    print("test_extract_design_phases")
-    detailed = textwrap.dedent("""\
-        ## Implementation Order
-
-        ### Phase 1: Foundation
-        - Set up widget module
-
-        ### Phase 2: Integration
-        - Wire to app
-    """)
-    phases = ap.extract_design_phases(detailed)
-    assert_eq(len(phases), 2, "should find 2 phases")
-    assert_eq(phases[0], "Foundation", "first phase name")
-
-
 # ── Check tests ───────────────────────────────────────────
-
-
-def test_extract_design_phases_both_shapes():
-    print("test_extract_design_phases_both_shapes")
-    h3 = textwrap.dedent("""\
-        ## Implementation Order
-
-        ### Phase 1: Foundation
-        - Set up widget module
-
-        ### Phase 2: Integration
-        - Wire to app
-    """)
-    h2 = textwrap.dedent("""\
-        ## Implementation Order
-
-        ## Phase 1: Foundation
-        - Set up widget module
-
-        ## Phase 2: Integration
-        - Wire to app
-    """)
-    h3_phases = ap.extract_design_phases(h3)
-    h2_phases = ap.extract_design_phases(h2)
-    assert_eq(h3_phases, h2_phases, "both heading shapes return same list")
-    assert_eq(len(h2_phases), 2, "## Phase shape returns two phases")
-    assert_eq(h2_phases[0], "Foundation", "first phase name")
+# (the extract_design_phases tests moved to test_design_phases.py, Task 3.3)
 
 
 def test_completeness_all_fields():
@@ -410,8 +368,9 @@ def test_module_coverage_hit():
             "raw": "",
         }
     ]
-    issues = ap.check_module_coverage(tasks, ["src/widget.py"])
-    assert_eq(len(issues), 0, "covered module has no issues")
+    issues, notes = ap.check_module_coverage(tasks, ["src/widget.py"])
+    assert_eq(len(issues), 0, "declared-path coverage has no issues")
+    assert_eq(len(notes), 0, "declared-path coverage needs no notes")
 
 
 def test_module_coverage_miss():
@@ -425,10 +384,11 @@ def test_module_coverage_miss():
             "raw": "",
         }
     ]
-    issues = ap.check_module_coverage(tasks, ["src/widget.py", "src/other.py"])
+    issues, notes = ap.check_module_coverage(tasks, ["src/widget.py", "src/other.py"])
     assert_eq(len(issues), 1, "uncovered module flagged")
     assert_eq(issues[0][0], "MISSING", "category is MISSING")
     assert_in("other.py", issues[0][2], "should mention the missing module")
+    assert_eq(len(notes), 0, "no notes when nothing but the hit matches")
 
 
 def test_interface_coverage():
@@ -653,11 +613,10 @@ EXPECTED_STANDARD_OUTPUT = textwrap.dedent("""\
     Detailed: 1 modules, 1 interfaces, 1 phases
     Plan:     1 tasks across 1 phases
 
-    --- WARN (1) ---
-      [Task 1.1]
-      Parent dir for new file `src/widget.py` does not exist
+    RESULT: ALL CHECKS PASSED
 
-    TOTAL: 1 issues (1 WARN)
+    Verified: task fields, module coverage, interface coverage,
+    phase alignment, file existence.
 """)
 
 
@@ -704,7 +663,7 @@ def test_mode_pinned_standard_output():
         },
         [],
     )
-    assert_eq(rc, 0, "standard pinned fixture exits 0 (WARN only)")
+    assert_eq(rc, 0, "standard pinned fixture exits 0")
     assert_eq(out, EXPECTED_STANDARD_OUTPUT, "standard output unchanged on pinned fixture")
 
 
@@ -932,8 +891,6 @@ if __name__ == "__main__":
     test_extract_module_files()
     test_extract_interface_names()
     test_field_continuation_modes()
-    test_extract_design_phases()
-    test_extract_design_phases_both_shapes()
     test_completeness_all_fields()
     test_completeness_missing_fields()
     test_missing_field_error_cites_regex()

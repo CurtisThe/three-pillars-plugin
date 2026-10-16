@@ -103,7 +103,7 @@ class TestPredCiLocalStamp:
         assert result.verdict == GateVerdict.PASS
 
     def test_absent_stamp_returns_fail(self, tmp_path):
-        """stamp=None -> FAIL with detail pointing to ci-local.sh."""
+        """stamp=None -> FAIL with detail pointing to the declared gate command."""
         import ci_local_stamp
         from deterministic_gate import GateVerdict
 
@@ -111,7 +111,10 @@ class TestPredCiLocalStamp:
             "abc123", repo_root=str(tmp_path), stamp=None
         )
         assert result.verdict == GateVerdict.FAIL
-        assert "ci-local" in result.detail.lower() or "stamp" in result.detail.lower()
+        # gate_command defaults to None -> the refusal says to declare ci.gate_command
+        # (and never names the dev-repo script ci-local.sh).
+        assert "ci.gate_command" in result.detail
+        assert "ci-local.sh" not in result.detail
 
     def test_stale_head_sha_returns_fail(self, tmp_path):
         """stamp.head_sha != head_oid -> FAIL (drift)."""
@@ -258,7 +261,7 @@ class TestEvaluateGateStampSeam:
 
     PASS_CONFIG = {
         "review": {"expects_copilot": False, "require_human_approval": False},
-        "ci": {"expects_github_checks": False},
+        "ci": {"expects_github_checks": False, "gate_command": "make ci"},
     }
 
     def test_stamp_absent_causes_fail(self):
@@ -311,7 +314,7 @@ class TestEvaluateGateStampSeam:
 
         # fake_pred needs a stamp default (_UNSET) so it doesn't TypeError when
         # called on the live path (which omits the stamp kwarg).
-        def fake_pred(head_oid, *, repo_root, stamp=_STAMP_UNSET):
+        def fake_pred(head_oid, *, repo_root, stamp=_STAMP_UNSET, gate_command=None):
             observed.append({"head_oid": head_oid, "stamp": stamp})
             return PredicateResult(
                 name="ci_local_stamp",
@@ -332,7 +335,7 @@ class TestEvaluateGateStampSeam:
         # Key-present path passes the stamp value directly (not _UNSET)
         assert observed[0]["stamp"] == {"schema": 1, "head_sha": "deadbeefcafe", "dirty": False}
 
-    def test_pure_live_mode_activates_predicate(self, monkeypatch):
+    def test_pure_live_mode_activates_predicate(self, monkeypatch, tmp_path):
         """Pure live mode (no runners at all) activates pred_ci_local_stamp without stamp kwarg.
 
         Verifies the _running_live = not r branch: when runners is falsy (empty/None),
@@ -349,7 +352,7 @@ class TestEvaluateGateStampSeam:
 
         stamp_calls = []
 
-        def fake_pred(head_oid, *, repo_root, stamp=_STAMP_UNSET):
+        def fake_pred(head_oid, *, repo_root, stamp=_STAMP_UNSET, gate_command=None):
             stamp_calls.append({"head_oid": head_oid, "stamp": stamp})
             return PredicateResult(
                 name="ci_local_stamp",
@@ -365,7 +368,11 @@ class TestEvaluateGateStampSeam:
                 "statusCheckRollup": [],
             }
 
-        # Stub out all live seams to keep test hermetic
+        # Stub out all live seams to keep test hermetic. The project root too: the
+        # live path resolves it from the cwd's git checkout, and a plugin install
+        # runs this test from a plain directory (consumer-repo-parity L4); a None
+        # root is the gate's correct fail-closed INDETERMINATE, not the seam under test.
+        monkeypatch.setattr(gate_roster, "find_project_root", lambda *a, **k: tmp_path)
         monkeypatch.setattr(ci_local_stamp, "pred_ci_local_stamp", fake_pred)
         monkeypatch.setattr(deterministic_gate, "_live_pr_state_fn", fake_live_pr_state)
 
@@ -386,7 +393,7 @@ class TestEvaluateGateStampSeam:
         # Config: skip copilot + human (both OMITTED) to reduce stubs needed
         live_config = {
             "review": {"expects_copilot": False, "require_human_approval": False},
-            "ci": {"expects_github_checks": False},
+            "ci": {"expects_github_checks": False, "gate_command": "make ci"},
         }
 
         # Pure live mode: no runners (runners=None → r = {} → _running_live = True)

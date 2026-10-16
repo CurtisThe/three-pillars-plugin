@@ -33,9 +33,12 @@ from validate_artifact import (
     OPTIONAL_SECTIONS,
     SCHEMA_VERSION_DESIGN as SCHEMA_VERSION,
     _classify,
+    _is_non_placeholder_content,
     _missing_optional,
     _parse_sections,
 )
+
+import floor_sections  # Task 9.1: stamp-keyed extra-section requirements
 
 # Re-export constants for any external importers that reference them by name
 from validate_artifact import (  # noqa: F401
@@ -58,8 +61,10 @@ def main(argv: list[str]) -> int:
         print(f"design.md not found: {design_md}", file=sys.stderr)
         return 2
 
-    sections = _parse_sections(design_md.read_text(encoding="utf-8"))
+    text = design_md.read_text(encoding="utf-8")
+    sections = _parse_sections(text)
     classification = _classify(sections)
+    floor_sections.apply(text, sections, classification, is_non_placeholder=_is_non_placeholder_content)
 
     if any(classification[k] for k in ("missing", "empty", "placeholder_only")):
         verdict = {

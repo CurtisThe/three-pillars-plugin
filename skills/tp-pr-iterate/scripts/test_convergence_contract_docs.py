@@ -7,7 +7,12 @@ the live loop terminal (Finding 5). New file (test_pr_iterate_skill_md.py is nea
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+
+import skill_text  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 PROOF_DOC = _ROOT / "tp-pr-iterate" / "proof-of-review.md"
@@ -16,6 +21,8 @@ TIER7_SKILL = _ROOT / "tp-run-full-design" / "SKILL.md"
 
 
 def _read(p: Path) -> str:
+    if p == TIER7_SKILL:
+        return skill_text.read_skill_text("tp-run-full-design")
     return p.read_text(encoding="utf-8")
 
 

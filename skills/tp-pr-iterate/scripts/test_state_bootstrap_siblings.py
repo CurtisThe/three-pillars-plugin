@@ -112,6 +112,35 @@ def test_converge_seed_state_is_schema_valid(tmp_path):
     # _seed_state writes no key the schema does not know about.
     assert _schema_errors(seeded) == []
 
+    # Guard G1, extended by review-convergence Task 4.5: `round_plan.plan` stamps
+    # `review_weight` into the loop's state, so the schema must accept a state that
+    # carries it — and only the four weight classes, never an invented one.
+    assert _schema_errors({**seeded, "review_weight": "full"}) == []
+    assert _schema_errors({**seeded, "review_weight": "huge"}) != []
+
+    # Guard G1, extended by review-convergence Task 5.5: a mid-loop state carrying the
+    # round-weight / freeze / reproduced-blocker keys SURVIVES the seed (the schema
+    # alone would pass a seed that dropped them — hence the round trip through a real
+    # prior file, not just `_schema_errors`). Without this, `_finish_clean` rebuilds
+    # iterate-state and loses the freeze mark `round_tail` wrote on a clean round.
+    carried = {
+        "phase": "awaiting-copilot", "iteration": 4, "max_iterations": 8,
+        "max_wall_clock_sec": 14400, "started_at": "2026-10-01T00:00:00+00:00",
+        "transitions": [], "original_diff_lines": 200,
+        "review_weight": "light", "frozen_at": "deadbeef", "reproduced_blockers": 2,
+    }
+    assert _schema_errors(carried) == []
+    prior_path = tmp_path / "prior-iterate-state.v1.json"
+    prior_path.write_text(json.dumps(carried, indent=2) + "\n", encoding="utf-8")
+    converge._seed_state(prior_path, head="abc123",
+                         now_iso="2026-09-09T00:00:00+00:00")
+    kept = json.loads(prior_path.read_text(encoding="utf-8"))
+    assert kept["review_weight"] == "light"
+    assert kept["frozen_at"] == "deadbeef"
+    assert kept["reproduced_blockers"] == 2
+    assert kept["iteration"] == 4
+    assert _schema_errors(kept) == []
+
     # The convergence-priming values that distinguish it from a cold round 0.
     assert seeded["last_verdict"] == "minor-only"
     assert seeded["last_codereview_head_sha"] == "abc123"

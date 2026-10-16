@@ -18,6 +18,13 @@ one case per outcome of every `<testcase>`: `failure`, `error`, `skipped`, or `p
 when it carries none of those; None when the report is missing, unparseable or carries a
 DTD (pytest writes none).
 
+**A pass the report does not show.** pytest writes nothing for a passing test body or a
+passing pytest-9 subtest, and a `<skipped>` child, on the SAME `<testcase>`, for a skipped
+subtest: a node that passed beside a skipped subtest has a testcase that carries only
+`<skipped>`, like a test skipped as a whole. The suite's `tests` attribute still counts every
+pass, so `hidden_passes` of each case is what the case's suite counts beyond the outcomes
+its testcase elements show (0 where the suite has no count).
+
 **Which testcases are the guard's.** The dotted classname does not encode the node chain
 (a module `tests/t/test_x.py` that committed conftest code adds as a target spells
 `tests.t.test_x`, like a class `test_x` of `tests/t.py`, and a function it imports from
@@ -58,7 +65,11 @@ counts (one per testcase id; a call failure beside its teardown error is one fai
 With none, the reason says why, in this order:
   * `pytest-error`: a guard case has an `<error>` (a setup or teardown error, e.g. a
     module fixture's teardown reported on the last item), never red;
-  * `pytest-skipped`: every guard case was skipped (could not evaluate);
+  * `pytest-skipped`: every guard case was skipped (could not evaluate), unless the report
+    shows a pass beside them: every case of the report is the guard's and its suite counts
+    a pass that no testcase shows (a node that passed with a skipped subtest, see `parse`).
+    A pass can then belong to any testcase, so a case that is not the guard's keeps the
+    reading skipped (the report cannot say whose pass it is);
   * `pytest-foreign-file`: a case named like the guard's node (classname and name) that
     is not the guard's (another `file`, or no definition of it at its `line`) failed or
     errored, or no guard case ran but such a case did;
@@ -98,6 +109,7 @@ class Case:
     type: str | None = None
     file: str | None = None  # xunit1 `file`: the tree-relative file defining the test
     line: int | None = None  # xunit1 `line`: the definition's 0-based first line
+    hidden_passes: int = 0  # passes its suite counts that no testcase shows (module docstring)
 
     @property
     def node(self) -> str:
@@ -116,18 +128,31 @@ def parse(xml_text: str | None) -> list[Case] | None:
         root = ET.fromstring(xml_text)  # nosec B314 — DTD-free input only (checked above)
     except ET.ParseError:
         return None
+    hidden: dict[int, int] = {}
+    for suite in root.iter("testsuite"):
+        left = _hidden_passes(suite)
+        hidden.update({id(testcase): left for testcase in suite.findall("testcase")})
     cases = []
     for testcase in root.iter("testcase"):
         ids = (testcase.get("classname") or "", testcase.get("name") or "")
-        where = (testcase.get("file"), _line(testcase.get("line")))
+        where = (testcase.get("file"), _count(testcase.get("line")), hidden.get(id(testcase), 0))
         found = [Case(*ids, child.tag, child.get("message") or "", child.get("type"), *where)
                  for child in testcase if child.tag in OUTCOME_TAGS]
         cases.extend(found or [Case(*ids, "passed", "", None, *where)])
     return cases
 
 
-def _line(text: str | None) -> int | None:
+def _count(text: str | None) -> int | None:
     return int(text) if text is not None and text.isascii() and text.isdigit() else None
+
+
+def _hidden_passes(suite: ET.Element) -> int:
+    """What the suite's `tests` counts beyond the outcomes its testcase elements show: one per
+    `<failure>` / `<error>` / `<skipped>` child, one per element that has none (a pass)."""
+    counted = _count(suite.get("tests"))
+    shown = sum(sum(child.tag in OUTCOME_TAGS for child in testcase) or 1
+                for testcase in suite.findall("testcase"))
+    return 0 if counted is None else max(0, counted - shown)
 
 
 def _split_param(name: str) -> tuple[str, str]:
@@ -191,6 +216,11 @@ def _foreign(case: Case, guard: str, source: str | None) -> bool:
     return _names(case, guard) and not matches(case, guard, source)
 
 
+def _passed_beside_skips(cases: list[Case], mine: list[Case]) -> bool:
+    """The report holds only the guard's cases, and its suite counts a pass they do not show."""
+    return len(mine) == len(cases) and all(case.hidden_passes > 0 for case in mine)
+
+
 def guard_result(cases: list[Case], guard: str,
                  source: str | None) -> tuple[list[Case], str | None]:
     """`(failures, reason)`: the guard's `<failure>` cases, one per testcase id, or `([],
@@ -207,7 +237,8 @@ def guard_result(cases: list[Case], guard: str,
     if any(case.kind == "error" for case in mine):
         return [], "pytest-error"
     if mine and all(case.kind == "skipped" for case in mine):
-        return [], "pytest-skipped"
+        return [], ("pytest-no-failure" if _passed_beside_skips(cases, mine)
+                    else "pytest-skipped")
     if any(case.kind in ("failure", "error") for case in foreign) or (foreign and not mine):
         return [], "pytest-foreign-file"
     if any(case.kind in ("failure", "error") for case in cases):

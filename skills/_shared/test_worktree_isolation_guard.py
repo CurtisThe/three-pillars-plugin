@@ -32,6 +32,11 @@ from worktree_isolation_guard import (
     orchestration_only_staged,
 )
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_framework_check = pytest.mark.skipif(
+    not (_DEV_ROOT / "framework-check.sh").exists(),
+    reason="reads framework-check.sh (dev-repo only)")
+
 
 # ---------------------------------------------------------------------------
 # Porcelain fixture helpers
@@ -972,6 +977,7 @@ def test_main_guidance_on_stderr_not_stdout():
 # ---------------------------------------------------------------------------
 
 
+@_needs_framework_check
 def test_framework_check_inv32_wired():
     """Smoke: framework-check.sh has the #32 gate block and bumped footer.
 

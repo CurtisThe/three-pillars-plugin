@@ -7,7 +7,7 @@ When a skill produces a substantial artifact, it commits that artifact at the en
 **Opt-in** (commit at the end):
 - Setup: `/tp-setup`, `/tp-docs-init`, `/tp-test-setup`
 - Design pipeline: `/tp-design`, `/tp-design-detail`, `/tp-plan`
-- Implementation: `/tp-task-cycle` (one commit per full red-green-refactor cycle), `/tp-phase-implement` (stragglers only), `/tp-phase-review`, `/tp-implementation-audit`
+- Implementation: `/tp-task-cycle` (one task = a red commit, then a green commit; see §Task commits: red, then green), `/tp-phase-implement` (stragglers only), `/tp-phase-review`, `/tp-implementation-audit`
 - Spike pipeline: `/tp-spike`, `/tp-spike-plan`, `/tp-spike-implement` (one commit per experiment), `/tp-spike-results`
 - Learn / docs: `/tp-design-learn`, `/tp-spike-learn`, `/tp-docs-update`
 - Release: `/tp-design-release` (the lock change is the substantial work)
@@ -72,6 +72,18 @@ The **PR boundary is unchanged**: opening a PR is still reserved for `/tp-design
 
 Orchestrated proof-currency flows (e.g. `/tp-run-full-design` Tier 7's head-bound proof comment) still own their own final-push ordering — push-after-commit is a commit-time convention and is orthogonal to the "proof must be the last branch action" rule those flows enforce.
 
+## Task commits: red, then green
+
+One task = a **red** commit, then a **green** commit; no Targets edit after the red. The rule is one every tool enforces: `task_verify` on `--local` (`targets_frozen`), and `fragility_lint.py check --base <task base>` on the task's diff.
+
+- **Red** (first): the failing test, staged as the task's **Targets** files only. Subject `Red: {design} {phase}.{task} — {title}`. Written from the design and plan text, citing `skills/_shared/test-fragility.md`; confirmed failing for the expected reason before it is committed.
+- **Green** (second): the minimal implementation, refactor included, touching **no Targets file**. Subject `Implement: {design} {phase}.{task} — {title}`. If the test turns out wrong, the green does not fix it: the attempt is discarded and the next one starts from a new red.
+- **No Targets files** in the task: one `Implement:` commit, as before.
+- **Test-only task** (its whole diff is its Targets): one commit, subject `Implement:`, touching only Targets files.
+- A commit that mixes Targets files with implementation files fails the check; so does a green that edits a Targets file.
+
+Neither commit carries a `Co-Authored-By` trailer or `--no-verify`. Both are pushed per step 6.
+
 ## Commit message conventions
 
 | Skill | Message template |
@@ -82,7 +94,8 @@ Orchestrated proof-currency flows (e.g. `/tp-run-full-design` Tier 7's head-boun
 | `/tp-design {name}` | `Design: {name} high-level` |
 | `/tp-design-detail {name}` | `Design: {name} detailed` |
 | `/tp-plan {name}` | `Plan: {name}` |
-| `/tp-task-cycle` | `Implement: {design-name} {phase}.{task} — {task-title}` |
+| `/tp-task-cycle` (the red test, Targets files only) | `Red: {design-name} {phase}.{task} — {task-title}` |
+| `/tp-task-cycle` (the green implementation) | `Implement: {design-name} {phase}.{task} — {task-title}` |
 | `/tp-phase-implement {name}` | `Implement: {name} phase-{n} cleanup` (only if stragglers remain after per-task commits) |
 | `/tp-phase-review {name}` | `Review: {name} phase-{n}` |
 | `/tp-implementation-audit {name}` | `Audit: {name} implementation` |
@@ -129,7 +142,7 @@ git worktree add -b hot-patch/<slug> .claude/worktrees/hot-patch-<slug>
 git -C .claude/worktrees/hot-patch-<slug> commit \
     --trailer "hot-patch: <trigger>" \
     -m "Hotfix: <summary>"
-gh pr create --base master --head hot-patch/<slug>
+gh pr create --base "$(python3 $TP_ROOT/skills/_shared/default_branch.py)" --head hot-patch/<slug>
 # operator merges:
 gh pr merge --merge <PR-NUMBER>
 git worktree remove .claude/worktrees/hot-patch-<slug> && git branch -d hot-patch/<slug>
@@ -144,14 +157,17 @@ git worktree remove .claude/worktrees/hot-patch-<slug> && git branch -d hot-patc
 **Eligibility (all required):**
 
 1. Trailer self-declaration: commit carries `hot-patch: <trigger>` (non-empty trigger).
-2. Hard mechanical exclusions enforced at commit time: the commit must not touch
-   `.three-pillars/`, gate/enforcement files (`framework-check.sh`,
-   `deterministic_gate.py`, `land.py`, `gate_cli.py`, `merge_gate.py`, etc.), or
+2. Hard mechanical exclusions enforced at `commit-msg` time (`hot_patch_check.py
+   --commit-msg`, run by the commit guard (`commit_guard.py`), only when
+   installed): the commit must not touch
+   `.three-pillars/`, gate/enforcement files
+   (`deterministic_gate.py`, `land.py`, `gate_cli.py`, `merge_gate.py`, etc.), or
    the lane's own modules and their tests (`hot_patch_check.py`, `hot_patch.py`,
    `hot_patch_ledger.py`, `test_hot_patch_check.py`, `test_hot_patch_ledger.py`,
    `test_hot_patch_anomaly.py`, `test_hot_patch.py`, `test_hot_patch_stanza.py`).
 3. Diff cap: ≤150 changed lines (adds + dels over `git show --numstat`), with the
    ledger append (`hot-patches.md`) excluded from the sum. Binary files fail.
+   Checked at `commit-msg` time by the same `hot_patch_check.py --commit-msg` run.
 
 **Trailer grammar:** `hot-patch: <trigger>` where `<trigger>` is free-text
 describing the trigger event (e.g., `fix teardown order after fleet launch`).
@@ -164,9 +180,11 @@ describing the trigger event (e.g., `fix teardown order after fleet launch`).
 ```
 
 Preferred path: the entry **rides in the same commit** as the fix (paper arrives
-with the patch). Backstop: same-day UTC deadline, enforced fail-closed — the
-hot-patch eligibility check hard-fails the next commit while any entry is
-overdue. The ledger is size-exempt by location (`three-pillars-docs/tp-designs/` exempt prefix); no
+with the patch). Backstop: same-day UTC deadline, enforced fail-closed at
+`pre-commit` time (`hot_patch_check.py --ledger-only --branch-trailered`, run
+by the commit guard (`commit_guard.py`), only when installed) — the overdue-ledger
+check hard-fails the next commit while any entry is overdue. The ledger is
+size-exempt by location (`three-pillars-docs/tp-designs/` exempt prefix); no
 rotation in v1.
 
 **Scan-cost expectation:** the post-baseline `--since` anomaly scan is acceptable

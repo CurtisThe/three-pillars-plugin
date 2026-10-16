@@ -10,7 +10,7 @@ def test_zero_drop_passes():
     ours = "### L4: keep me"
     theirs = "### L4: also keep\n### L5: and me"
     resolved = "### L4: keep me\n### L5: also keep\n### L6: and me"
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert r.ok and r.dropped == []
 
 
@@ -19,7 +19,7 @@ def test_renumber_is_not_a_drop():
     ours = "### L4: project docs lag"
     theirs = "### L4: other"
     resolved = "### L4: other\n### L7: project docs lag"
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert r.ok
 
 
@@ -27,7 +27,7 @@ def test_real_drop_is_flagged():
     ours = "### L4: project docs lag"
     theirs = "### L4: other\n### L5: more"
     resolved = "### L4: other\n### L5: more"        # ours' entry silently gone
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("project docs lag" in sig for _, sig in r.dropped)
 
@@ -36,7 +36,7 @@ def test_row_drop_is_flagged():
     ours = "| D15 | lock-owner-classes | design | x |"
     theirs = "| D14 | foo | design | y |"
     resolved = "| D14 | foo | design | y |"          # D15 row dropped
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("lock-owner-classes" in sig for _, sig in r.dropped)
 
@@ -47,7 +47,7 @@ def test_prose_is_not_an_atom():
     theirs = "Other prose entirely."
     resolved = "A synthesized human resolution."
     # No mechanical apply on this lane (design Behavior 2) — zero atoms here is not UNVERIFIABLE.
-    r = verify(ours, theirs, resolved, mechanical_applied=False)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=False)
     assert r.ok
 
 
@@ -65,7 +65,7 @@ def test_log_bullet_drop_is_flagged():
     ours = "- **2026-07-04** — decision OURS"
     theirs = "- **2026-07-05** — decision THEIRS"
     resolved = "- **2026-07-05** — decision THEIRS"          # ours' entry silently gone
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("decision ours" in sig for _, sig in r.dropped)
 
@@ -75,7 +75,7 @@ def test_name_keyed_log_bullet_drop_is_flagged():
     ours = "- **`design-a`** — Implemented (2026-07-04)."
     theirs = "- **`design-b`** — Done — archived (2026-07-05)."
     resolved = "- **`design-a`** — Implemented (2026-07-04)."   # theirs' entry dropped
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("design-b" in sig for _, sig in r.dropped)
 
@@ -85,7 +85,7 @@ def test_log_keep_both_is_zero_drop():
     ours = "- **2026-07-04** — decision OURS"
     theirs = "- **2026-07-05** — decision THEIRS"
     resolved = "- **2026-07-04** — decision OURS\n- **2026-07-05** — decision THEIRS"
-    r = verify(ours, theirs, resolved, mechanical_applied=True)
+    r = verify(ours, theirs, resolved, base=None, mechanical_applied=True)
     assert r.ok and r.dropped == []
 
 
@@ -128,7 +128,7 @@ def test_atoms_extracts_decision_entries():
 
 def test_decision_entry_drop_is_flagged():
     resolved = _ENTRY_A                       # theirs' entry silently gone
-    r = verify(_ENTRY_A, _ENTRY_B, resolved, mechanical_applied=True)
+    r = verify(_ENTRY_A, _ENTRY_B, resolved, base=None, mechanical_applied=True)
     assert not r.ok
     assert any("pickup" in sig for _kind, sig in r.dropped)
 
@@ -141,7 +141,7 @@ def test_same_tag_same_title_different_body_are_two_atoms():
     theirs = "### [orchestrator/plan-audit] clip\n**Decided**: kept finding 2\n"
     assert len(atoms(ours + theirs)) == 2
 
-    r = verify(ours, theirs, ours, mechanical_applied=True)      # theirs' copy dropped
+    r = verify(ours, theirs, ours, base=None, mechanical_applied=True)      # theirs' copy dropped
     assert not r.ok and len(r.dropped) == 1
 
 
@@ -187,15 +187,15 @@ def test_log_shaped_body_line_yields_BOTH_atoms():
 
     # (iii) dropping EITHER is reported.
     without_bullet = "\n".join(text.splitlines()[:2]) + "\n"
-    r = verify(text, "", without_bullet, mechanical_applied=True)
+    r = verify(text, "", without_bullet, base=None, mechanical_applied=True)
     # the `log` atom AND the now-digest-changed `decision-entry` atom are both lost
     assert len(r.dropped) == 2, r.dropped
     assert sorted(k for k, _ in r.dropped) == ["decision-entry", "log"]
 
-    r_all = verify(text, "", "unrelated prose\n", mechanical_applied=True)
+    r_all = verify(text, "", "unrelated prose\n", base=None, mechanical_applied=True)
     assert sorted(k for k, _ in r_all.dropped) == ["decision-entry", "log"]
 
 
 def test_atom_kinds_is_verifys_self_description():
     import verify as _v
-    assert _v.ATOM_KINDS == ("entry", "row", "log", "decision-entry")
+    assert _v.ATOM_KINDS == ("entry", "row", "log", "decision-entry", "heading-entry", "slug-row")

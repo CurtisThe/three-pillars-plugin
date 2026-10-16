@@ -13,11 +13,16 @@ line on stdout):
   resetting the cap;
 - `no-confirmer` — no confirmer angle on Claude left a parseable reply (a
   finder-only `[]` never converges);
-- `findings-missing` — no `R/tail/findings.json` (the reproducer's output).
+- `findings-missing` — no `R/tail/findings.json` (the reproducer's output);
+- `unparseable-review-angle` — a reply that fails the strict one-object contract
+  beside a clean `findings.json` (defence in depth: a consistent round tail already
+  turns it into a sentinel), so it is never digested as `:0`.
 Then `converge.guard_refusal` refuses only on blocking findings; non-blocking
 notes do not block. The finish itself is `converge._finish_clean`, with
 `round`, `ordinal` and `class_log_path` added to the run_round stdin and
 `class_tally` added to the terminal JSON.
+An identity stop (`bot-auth-unavailable`, `proof-author-untrusted`) from the
+finish is returned as-is (exit 3), never turned into an evidence-complete accept.
 
 Stdlib only.
 """
@@ -34,13 +39,17 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import angles  # noqa: E402
+import closeout_gate  # noqa: E402
 import converge  # noqa: E402
+import evidence_complete  # noqa: E402
+import finder_round  # noqa: E402
 import finding_class  # noqa: E402
+import proof_post  # noqa: E402
 import round_scratch  # noqa: E402
 from review_merge import parse_codereview_result  # noqa: E402
 
 _FINISH_SEAMS = ("post_fn", "comments_fn", "self_login_fn", "run_git",
-                 "derive_base_ref_fn", "repo_root", "now_iso")
+                 "derive_base_ref_fn", "repo_root", "now_iso", "ready_ping_fn")
 
 
 class _Refusal(Exception):
@@ -95,6 +104,15 @@ def _state_lost(state_path: Path) -> bool:
     return not isinstance(doc, dict)
 
 
+def _accept(out, manifest: dict, reason: str) -> int:
+    """§D8: the evidence is in, the bookkeeping is not → stop at 4 with the accept hint."""
+    head = manifest["head"]
+    out.write(json.dumps({"converged": False, "terminal": "evidence-complete",
+                          "head_sha": head, "reason": reason,
+                          "accept_hint": evidence_complete.accept_hint(head, reason)}) + "\n")
+    return evidence_complete.EXIT_EVIDENCE
+
+
 def _check(round_dir: Path, manifest: dict, state_arg) -> list:
     state_path = Path(manifest["paths"]["state_path"])
     if state_arg is not None and Path(state_arg).resolve() != state_path.resolve():
@@ -114,17 +132,32 @@ def run(round_dir, *, config, state_arg=None, class_log_path=None, seams=None) -
     round_dir = Path(round_dir)
     try:
         manifest = _load(round_dir)
+    except _Refusal as exc:  # no manifest → nothing to be complete about
+        return _refuse(out, *exc.args)
+    gate = closeout_gate.head_refusal(run_git=seams.get("run_git"),
+                                      repo_root=seams.get("repo_root"))
+    if gate is not None:  # never an evidence-complete accept for an un-archived head
+        return converge.emit_head_refusal({**gate, "head_sha": manifest["head"]}, out, err)
+    try:
         findings = _check(round_dir, manifest, state_arg)
     except _Refusal as exc:
+        # §D8: a bookkeeping refusal on a round whose evidence is in is a terminal.
+        if evidence_complete.check(round_dir, run_git=seams.get("run_git"))[0]:
+            return _accept(out, manifest, exc.args[0])
         return _refuse(out, *exc.args)
     refusal = converge.guard_refusal(findings)
     if refusal is not None:
         err.write(refusal + "\n")
         return converge._EXIT_REFUSED
 
-    texts = round_scratch.read_replies(round_dir)
-    counts = {e["name"]: len(parse_codereview_result(t)[0])
-              for e, t in zip(manifest["angles"], texts)}
+    pairs = finder_round.aligned_replies(round_dir)
+    texts = [t for _e, t in pairs]
+    need = {e["name"] for e in finder_round.parse_required(manifest)}
+    parsed = [(e["name"], *parse_codereview_result(t)) for e, t in pairs if e["name"] in need]
+    bad = [n for n, _f, ok in parsed if not ok]
+    if bad:  # M27: never digest an unparseable reply as `:0` beside a clean findings.json
+        return _refuse(out, "unparseable-review-angle", ", ".join(bad))
+    counts = {n: len(f) for n, f, _ok in parsed}
     base_fn = seams.get("run_round_fn") or converge._default_run_round
     extra = {"round": manifest["round"], "ordinal": manifest["ordinal"],
              "class_log_path": str(class_log_path) if class_log_path else None}
@@ -137,11 +170,18 @@ def run(round_dir, *, config, state_arg=None, class_log_path=None, seams=None) -
         base=manifest["base"], head=manifest["head"], pr_url=manifest["pr_url"],
         config=config, texts=texts, findings=findings,
         label_counts=angles.digest_labels(manifest, counts),
-        state_path=Path(manifest["paths"]["state_path"]), review_base=manifest["base"],
+        state_path=Path(manifest["paths"]["state_path"]),
+        review_base=manifest.get("pr_base", manifest["base"]),
         proof_root=Path(manifest["paths"]["proof_root"]), run_round_fn=run_round_fn,
         out=buf, err=err, **{k: seams.get(k) for k in _FINISH_SEAMS})
     tally = finding_class.tally(findings)
+    reasons = set()
     for line in buf.getvalue().splitlines():
         doc = json.loads(line)
+        reasons.add(doc.get("reason"))
         out.write(json.dumps({**doc, "class_tally": tally}) + "\n")
+    if reasons & proof_post.IDENTITY_STOPS:  # its own terminal (round-topology step 2)
+        return rc
+    if rc and evidence_complete.check(round_dir, run_git=seams.get("run_git"))[0]:
+        return _accept(out, manifest, f"finish exit {rc}")
     return rc

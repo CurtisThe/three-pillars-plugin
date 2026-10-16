@@ -30,6 +30,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import converge  # noqa: E402
 import converge_rounddir  # noqa: E402
 import review_proof  # noqa: E402
+import ready_ping  # noqa: E402 — skills/_shared, on sys.path via converge's shim
 
 
 def _parse_args(argv):
@@ -69,6 +70,9 @@ def main(argv=None, *, seams=None) -> int:
     except Exception as exc:
         sys.stderr.write(f"converge.py: could not read config {args.config!r}: {exc}\n")
         return 2
+    # Production (no seams) wires the ready-ping on every path, round-dir first.
+    if seams is None:
+        seams = {"ready_ping_fn": ready_ping.ping_ready}
     if args.round_dir:
         return converge_rounddir.run(args.round_dir, config=config, state_arg=args.state,
                                      class_log_path=args.class_log_path, seams=seams)
@@ -88,8 +92,9 @@ def main(argv=None, *, seams=None) -> int:
         state_path=args.state, review_base=args.review_base or args.base,
         proof_root=review_proof.default_proof_root(),
     )
-    # seams (tests) may override any kwarg incl. proof_root / state_path / out / err.
-    call_kwargs.update(seams or {})
+    # seams is always a dict here (production wires the ping above; tests pass
+    # their own and expect nothing extra wired).
+    call_kwargs.update(seams)
     return converge.converge(**call_kwargs)
 
 

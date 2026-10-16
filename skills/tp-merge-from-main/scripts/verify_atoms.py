@@ -13,7 +13,14 @@ asserts each survives into the resolved output. Atom identity is **ID-independen
 legitimate renumber (L4 -> L7) is not mistaken for a drop:
 
     entry atom  `### L<n>: <title>`         -> signature = normalized <title>
+    heading-entry atom
+                `### M-new-x: t`, `### M27 (RESOLVED …): t`, `` ### `slug` (date) ``
+                                            -> signature = <key>|normalized <title>, status left out
     row atom    `| D<n> | <name> | `        -> signature = normalized <name>
+                `` | `slug` | … | ``         -> signature = the raw `` `slug` `` (backticks kept)
+    slug-row atom
+                `| <slug> | …`, `| **<slug>** | …`  -> signature = <slug> (a plain or bold first
+                                               cell; a backticked slug is the row atom above)
     log atom    `- **<date|`slug`>** — …`   -> signature = normalized <key + title>
     decision-entry atom
                 `### [<skill>] <title>`     -> signature = <tag>|<title>|sha1(<body>)[:12]
@@ -140,6 +147,29 @@ ENTRY = re.compile(r"^### [A-Z]\d+:\s*(.*)$")
 # Accepted residual, older than this module (named round 25): on an ID-row-shaped line with no `|`
 # after its name cell, a long run of spaces makes `ROW` backtrack quadratically (0.5 s at 20,000).
 ROW = re.compile(r"^\|\s*[A-Z]\d+\s*\|\s*([^|]+?)\s*\|")
+# Slug-row atom — a table row whose FIRST cell is a bare backticked slug (`` | `ci-settle` | … | ``).
+# The signature is the RAW `` `slug` `` (backticks kept), which `_norm` would strip from an ID-row
+# name, so a slug row and an ID row of the same name can never collide. It is its own place key, so
+# a one-side edit of the other cells needs no excuse and a one-side rename is a pure removal. Checked
+# only after `ROW` fails; independent of `classify`'s own slug regex (the observers stay separate).
+SLUG_ROW = re.compile(r"^\|\s*`([a-z0-9][a-z0-9-]*)`")
+# Slug-row atom — a table row whose first cell is a lowercase kebab slug holding a letter, PLAIN or
+# BOLD (`| slug |`, `| **slug** |`; mismatched markup is admitted too, over-counting being the safe
+# direction): the Design Inventory's own row shape, which `keyed-row-insertion` keeps both of. The
+# signature is the slug alone, as `ROW`'s is its name cell, so a row whose status flips while it
+# moves (`Completion PR pending` -> `Done (completion PR)`) is still one atom. A BACKTICKED slug is
+# `SLUG_ROW`'s `row` atom above, never this one (the lookahead keeps the two disjoint whatever the
+# scan order), so the kinds never double-count a line. Re-derived here, never shared with
+# `keyed_rows`: the observers stay independent. Its classes are disjoint, so it is linear.
+PLAIN_SLUG_ROW = re.compile(r"^(?!\|\s*`[a-z0-9][a-z0-9-]*`)\|\s*[*`]*([a-z0-9][a-z0-9-]*)[*`]*\s*\|")
+# Heading-entry atom — a keyed entry heading other than a plain `### M48: t` (that is `ENTRY`, which
+# is checked first): a placeholder `### M-new-<slug>: t`, a status `### M27 (RESOLVED 2026-09-30): t`
+# or an archive slug `` ### `slug` (2026-09-29) ``. Group 1/3 is the key, group 2/4 the title text; a
+# parenthetical is no part of it, so `### H6 (OPEN): t` and `### H6 (RESOLVED …): t` are ONE atom.
+# Re-derived here, never shared with `keyed_classes`: the observers stay independent.
+HEADING_ENTRY = re.compile(
+    r"^### (?:([A-Z](?:[0-9]+|-new-[a-z0-9]+(?:-[a-z0-9]+)*))(?:[ \t]+\([^)\n]*\))?:[ \t]*(.*)"
+    r"|(`[a-z0-9][a-z0-9-]*`)[ \t]+\([0-9]{4}-[0-9]{2}-[0-9]{2}\)[ \t]*(.*))")
 # Log atom — a bold-lead-bullet log entry, dated OR name-keyed. Mirrors classify.LOG_ENTRY's shape,
 # re-derived here so the verifier stays independent of the resolver. Group 1 (everything after the
 # `- ` marker, i.e. `**<key>** — <title>`) is the signature; the kebab-slug arm excludes file-path
@@ -174,7 +204,7 @@ DECISION_ENTRY = re.compile(r"^### \[([^\]\s][^\]]*)\]\s+(.+)$")
 # test (Behavior 5b). It names kinds, never shapes: `classify.py` must NOT import it, or the two
 # modules' regexes would stop being independently written and drift would become a common-mode
 # failure with no signal.
-ATOM_KINDS = ("entry", "row", "log", "decision-entry")
+ATOM_KINDS = ("entry", "row", "log", "decision-entry", "heading-entry", "slug-row")
 
 
 def _norm(s: str) -> str:
@@ -228,7 +258,7 @@ def atoms(text: str) -> dict[tuple[str, str], str]:
 
     TWO scans run over the SAME lines, writing into ONE dict:
 
-    1. the per-line `ENTRY` / `ROW` / `LOG` kind scan, and
+    1. the per-line `ENTRY` / `HEADING_ENTRY` / `ROW` / `SLUG_ROW` / `PLAIN_SLUG_ROW` / `LOG` kind scan, and
     2. a `decision-entry` BLOCK scan (a `### [tag] title` heading plus its body, closed by the
        next `### [tag] title` heading or EOF — and by NOTHING else).
 
@@ -310,9 +340,22 @@ def atoms(text: str) -> dict[tuple[str, str], str]:
         if m and _norm(m.group(1)):
             out[("entry", _norm(m.group(1)))] = "entry"
             continue
+        m = HEADING_ENTRY.match(line)
+        if m:
+            sig = f"{m.group(1) or m.group(3)}|{_norm(m.group(2) or m.group(4) or '')}"
+            out[("heading-entry", sig)] = "heading-entry"
+            continue
         m = ROW.match(line)
         if m and _norm(m.group(1)):
             out[("row", _norm(m.group(1)))] = "row"
+            continue
+        m = SLUG_ROW.match(line)
+        if m:
+            out[("row", f"`{m.group(1)}`")] = "row"
+            continue
+        m = PLAIN_SLUG_ROW.match(line)
+        if m and re.search("[a-z]", m.group(1)):
+            out[("slug-row", m.group(1))] = "slug-row"
             continue
         m = LOG.match(line)
         if m and _norm(m.group(1)):

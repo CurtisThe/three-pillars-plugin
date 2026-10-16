@@ -22,6 +22,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+import floor_sections  # Task 9.1: stamp-keyed extra-section requirements
 
 # ---------------------------------------------------------------------------
 # Core types
@@ -210,6 +211,7 @@ def _design_schema(text: str) -> list[Violation]:
     """Validate design.md against the v1 floor schema."""
     sections = _parse_sections(text)
     classification = _classify(sections)
+    floor_sections.apply(text, sections, classification, is_non_placeholder=_is_non_placeholder_content)
     violations: list[Violation] = []
     for name in classification["missing"]:
         violations.append(Violation(

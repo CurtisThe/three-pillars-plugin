@@ -5,7 +5,7 @@ default branch while tp/* worktrees are live that accidentally lands worktree
 work (framework code or design artifacts) on the default branch.
 
 The guard is fail-closed (parse success → enforce). The empty-staged-set case
-exits 0 immediately — this is the no-commit / CI case (framework-check runs
+exits 0 immediately — this is the no-commit / CI case (a CI check runs
 with nothing staged and must never self-block).
 
 Design refs:
@@ -18,6 +18,8 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+
+from default_branch import default_branch_names
 
 DEFAULT_BRANCHES = ("main", "master")
 
@@ -42,6 +44,10 @@ _LIVING_DOCS = frozenset({
     "product_roadmap.md",
     "known_issues.md",
     "known_issues_resolved.md",  # append-only RESOLVED archive (same governance class)
+    "known_issues_low.md",       # live Low issues (same governance class)
+    "known_issues_archive.md",   # cold open-issue bodies (same governance class)
+    "architecture_archive.md",   # append-only archive (same governance class)
+    "product_roadmap_archive.md",  # append-only archive (same governance class)
     "RELEASING.md",
 })
 
@@ -72,6 +78,9 @@ def is_guarded_path(path: str) -> bool:
     Not guarded:
       - tp-designs/<slug>/seed.md (seeds are not in DESIGN_ARTIFACTS)
       - three-pillars-docs/{vision,architecture,product_roadmap,known_issues,RELEASING}.md
+        and known_issues_low.md, and the append-only archives (known_issues_resolved.md,
+        known_issues_archive.md,
+        architecture_archive.md, product_roadmap_archive.md)
       - completed-tp-designs/** (archived designs)
       - .claude-plugin/** version bumps (release files)
       - Root-level *.md docs (README.md, CLAUDE.md, etc.)
@@ -127,15 +136,16 @@ def should_block(
     branch: str,
     staged_paths: list[str],
     worktree_porcelain: str,
+    repo: str = ".",
 ) -> tuple[bool, str]:
     """The predicate. Block iff ALL of:
-      (1) branch in DEFAULT_BRANCHES, AND
+      (1) branch in default_branch_names(repo) (DEFAULT_BRANCHES + resolved), AND
       (2) live_tp_worktrees(worktree_porcelain) is non-empty, AND
       (3) any(is_guarded_path(p) for p in staged_paths).
 
     Returns (blocked, guidance_message). When not blocked, (False, "").
     """
-    if branch not in DEFAULT_BRANCHES:
+    if branch not in default_branch_names(repo):
         return False, ""
 
     live = live_tp_worktrees(worktree_porcelain)
@@ -244,7 +254,7 @@ def main(argv=None) -> int:
     blocked, msg = should_block(
         branch=branch,
         staged_paths=staged_paths,
-        worktree_porcelain=porcelain,
+        worktree_porcelain=porcelain, repo=repo,
     )
     if blocked:
         print(msg, file=sys.stderr)

@@ -7,6 +7,9 @@ programmable branches of the `## GitHub PR-author offer` flow in
 
 - **no-origin silent skip**: `git remote get-url origin` fails → no prompt,
   no config write. Re-checks on the next invocation.
+- **non-GitHub forge skip** (`forge_skip`, shared with `branch_protection_check`):
+  the origin is not GitHub → `skip-non-github`, with the forge kind recorded once
+  (Task 1.8). A recorded `forge.kind` settles it from the config read alone.
 - **already-decided skip**: `github.pr_author_account` is set OR
   `github.declined` is true — the operator has already answered.
 - **gh-missing skip**: `gh` not on PATH — the offer is moot (no `gh`, no PR
@@ -25,19 +28,23 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import forge
+import forge_config
+
 
 @dataclass
 class CheckResult:
     """What the helper decided to do.
 
-    `action`: one of "skip-no-origin", "skip-decided", "skip-gh-missing",
-              "auto-skip", "needs-prompt".
+    `action`: one of "skip-no-origin", "skip-non-github", "skip-decided",
+              "skip-gh-missing", "auto-skip", "needs-prompt".
     `reason`: short human string for logs / handoffs.
     `config_updated`: True iff `.three-pillars/config.json` was written.
     """
@@ -55,6 +62,65 @@ def _has_origin(repo: Path) -> bool:
         text=True,
     )
     return result.returncode == 0
+
+
+def _origin_url(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def forge_skip(repo: Path, config: dict, resolver=None) -> Optional[CheckResult]:
+    """The one forge gate BOTH GitHub-only first-run offers share (Task 1.8).
+
+    Returns a `CheckResult` for `action == "skip-non-github"` when this repo's
+    forge is not GitHub, or `None` when the caller's GitHub path is unchanged
+    (a github.com origin, or a recorded `forge.kind: github`). A github.com
+    origin is answered from the origin URL alone — the resolver never runs, so
+    no probe and no `forge` write happens on the GitHub hot path.
+
+    Once `forge.kind` is recorded (Task 1.7's `forge_config`), the config read
+    settles both offers: no resolver, no write, no print — that is what makes
+    cheap-path conditions 3 and 7 a config-read condition on a Gitea repo.
+    Otherwise the kind comes from `(resolver or forge.resolve)(repo)`:
+
+    - `no web base` (an ssh-config alias / custom port detection cannot name) →
+      record NOTHING (a `kind: other` there would silence the setup hint forever)
+      and print `forge.NO_WEB_BASE_LINE` once per run, until the operator sets
+      `forge.web_base`.
+    - anything else → `forge_config.record_kind`, once and merging, so an
+      operator-written `forge.web_base` survives; a web base discovered from a
+      matching `tea` login is recorded beside the kind for Tier 6 `pr-create`.
+    """
+    url = _origin_url(repo)
+    if not url or forge.parse_remote(url)[0] == "github.com":
+        return None
+    kind = forge_config.read_kind(config)
+    if kind == "github":
+        return None
+    if kind:
+        return CheckResult(action="skip-non-github", reason=f"forge.kind={kind}",
+                           config_updated=False)
+    info = (resolver or forge.resolve)(repo)
+    if info.kind == "github":
+        return None
+    if info.reason.startswith("no web base"):
+        print(forge.NO_WEB_BASE_LINE, file=sys.stderr)
+        return CheckResult(action="skip-non-github", reason="forge web base unset",
+                           config_updated=False)
+    discovered = info.web_base if (
+        info.kind == "gitea" and info.web_base
+        and not forge_config.read_web_base(config)
+    ) else None
+    wrote = forge_config.record_kind(repo, info, web_base=discovered)
+    if info.kind == "other" and info.reason:  # later runs are silent: show the remedy now
+        print(info.reason, file=sys.stderr)
+    return CheckResult(action="skip-non-github", reason=f"forge.kind={info.kind}",
+                       config_updated=wrote)
 
 
 def _gh_available() -> bool:
@@ -193,11 +259,13 @@ def check(
     repo: Path,
     auto: bool = False,
     decisions_file: Optional[Path] = None,
+    resolver=None,
 ) -> CheckResult:
     """Run the GitHub PR-author preflight branches that don't need user input.
 
     Returns a CheckResult; `action == "needs-prompt"` means the caller (the
     agent) must run the interactive account/no/skip prompt itself.
+    `resolver` is the `forge.resolve` seam behind `forge_skip` (tests only).
     """
     if not _has_origin(repo):
         return CheckResult(
@@ -206,6 +274,9 @@ def check(
             config_updated=False,
         )
     config = _read_config(repo)
+    skip = forge_skip(repo, config, resolver)
+    if skip is not None:
+        return skip
     if _already_decided(config):
         return CheckResult(
             action="skip-decided",

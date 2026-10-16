@@ -33,6 +33,7 @@ HEAD = "def56789aabbccdd"
 AUTHOR = "tp-loop-bot"
 
 CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {"approval_survives_safe_base_sync": True, "base_sync_carry_max_chain": 5},
 }
 

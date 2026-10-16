@@ -9,7 +9,8 @@ runtime can never disagree on what a field means:
 * a **malformed** field (any grammar error) → ``ERROR`` (exit 1);
 * a **missing** field → a ``NOTE``: the task stays valid but is non-canonical (not
   runnable: opus-only, unverified in the re-run). Notes never fail the audit and never
-  suppress its pass artifact;
+  suppress its pass artifact — unless ``require=True`` (marked ``plan-schema: 2``
+  standard and light plans), where it is an ``ERROR`` instead;
 * a target that neither exists nor is marked ``(new)`` by any task of the plan →
   ``WARN`` (paths are relative to the cwd, the repo root, like the File-existence check).
   A ``(new)`` target that exists is fine: a re-audit after the task landed sees it.
@@ -28,8 +29,13 @@ if _SHARED not in sys.path:
 from task_targets import parse_targets, validate  # noqa: E402 — stdlib-only sibling
 
 
-def check_targets(tasks, root: Path | str = ".") -> tuple[list[tuple], list[tuple]]:
-    """``tasks`` (from ``extract_tasks``) → ``(issues, notes)``, each ``(type, ctx, msg)``."""
+def check_targets(tasks, root: Path | str = ".",
+                  require: bool = False) -> tuple[list[tuple], list[tuple]]:
+    """``tasks`` (from ``extract_tasks``) → ``(issues, notes)``, each ``(type, ctx, msg)``.
+
+    ``require=True`` (marked ``plan-schema: 2`` standard and light plans) makes a
+    missing **Targets** field an ERROR instead of a NOTE.
+    """
     issues: list[tuple] = []
     notes: list[tuple] = []
     parsed: list[tuple[str, dict]] = []
@@ -37,8 +43,9 @@ def check_targets(tasks, root: Path | str = ".") -> tuple[list[tuple], list[tupl
         ctx = f"Task {t['id']}: {t['name']}"
         field = t["fields"].get("Targets")
         if field is None:
-            notes.append(("NOTE", ctx, "no **Targets** field: non-canonical (not runnable, "
-                          "routed to opus, unverified in the Tier 3.5 re-run)"))
+            msg = "no **Targets** field: non-canonical (not runnable, " \
+                  "routed to opus, unverified in the Tier 3.5 re-run)"
+            (issues if require else notes).append(("ERROR" if require else "NOTE", ctx, msg))
             continue
         errors = validate(field)
         if errors:

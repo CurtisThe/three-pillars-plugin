@@ -23,6 +23,11 @@ from spec_delta import (  # noqa: E402
     validate,
 )
 
+_DEV_ROOT = Path(__file__).resolve().parents[2]
+_needs_dev_docs = pytest.mark.skipif(
+    not (_DEV_ROOT / "three-pillars-docs").exists(),
+    reason="reads the dev repo's three-pillars-docs/ (dev-repo only)")
+
 # --------------------------------------------------------------------------- fixtures
 
 BASE = """## Requirements
@@ -337,6 +342,7 @@ def test_cli_validate_rejects_unknown_flag(tmp_path, capsys):
 
 # --------------------------------------------------------------------------- P4: demo
 
+@_needs_dev_docs
 def test_demo_fixtures_refuse():
     root = Path(__file__).resolve().parents[2]
     rel = "openspec-primitives/demos/parallel_edit_silent_drop.py"

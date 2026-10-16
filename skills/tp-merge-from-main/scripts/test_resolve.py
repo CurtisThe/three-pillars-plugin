@@ -232,7 +232,10 @@ def test_force_bypasses_deferral():
 
 
 def test_mixed_file_resolves_mechanical_keeps_semantic_markers():
-    t = _diff3("*Last updated: 2026-05-17*", "*Last updated: 2026-05-15*", "*Last updated: 2026-05-16*") + \
+    # ours' preamble side carries a second prose line: a date-only side is the mechanical
+    # `last-updated-preamble` now, and this test needs a SEMANTIC region that keeps its markers
+    t = _diff3("*Last updated: 2026-05-17*\nA second prose line.", "*Last updated: 2026-05-15*",
+               "*Last updated: 2026-05-16*") + \
         "\nmid\n" + _diff3_empty_base("- **2026-05-17** — ours", "- **2026-05-16** — theirs")
     status, lines, results = resolve_file(t)
     text = "\n".join(lines)

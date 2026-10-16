@@ -15,7 +15,7 @@ claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars
 ```
 
-Restart Claude Code. That's it — 38 skills and 18 council agents are live.
+Restart Claude Code. That's it — 39 skills and 18 council agents are live.
 
 **Verify** by typing `/tp-guide` in any project. If the skill runs, you're set.
 
@@ -46,22 +46,24 @@ Both extras are **optional**. The plugin's core features (skills, agents, sessio
 
 **Status line** — a bash script that shows your context-window usage, active design, and git status in Claude Code's status line.
 
-The plugin's shipped `settings.json` already references `~/.claude/statusline.sh`:
+Claude Code reads only the `agent` and `subagentStatusLine` keys from a plugin's `settings.json` and ignores every other key there, so the plugin's own `statusLine` entry does nothing. The status line needs an entry in your **user** settings, `~/.claude/settings.json`:
 ```json
 "statusLine": { "type": "command", "command": "~/.claude/statusline.sh", "padding": 1 }
 ```
 
-To enable it, copy the script into place (one-time, manual):
+To enable it, copy the script into place and add that entry (one-time, manual):
 ```bash
 cp statusline.sh ~/.claude/statusline.sh
 chmod +x ~/.claude/statusline.sh
 ```
 
-**If you skip this step:** nothing breaks. Claude Code will try to run the command, silently fail (file not found), and render an empty status line. No functionality is lost.
+**If you skip this step:** nothing breaks. With no user-settings entry there is simply no status line; with the entry but no script, the command fails silently and the status line renders empty. No functionality is lost.
+
+The same holds for the plugin's `permissions` block: its `git commit --no-verify` deny is not applied from the plugin. The first-run preflight offers to add that deny to your project's `.claude/settings.json` instead.
 
 **Why `~/.claude/` and not inside the project?** The status line is a user-global Claude Code feature, not per-project. It lives next to your user-wide `settings.json` and applies to every Claude Code session. The `statusline.sh` script itself is read-only: it reads git status, file-existence checks for `.claude/last-design` and `three-pillars-docs/tp-designs/`, and formats the output for your terminal. No network requests. No writes. See `statusline.sh` for the source (it's ~200 lines of bash).
 
-**Reviewer note:** if you're auditing this plugin, the `~/.claude/statusline.sh` path in `settings.json` is a user-scoped external dependency with graceful failure, not a silent install hook. It requires explicit user action to enable.
+**Reviewer note:** if you're auditing this plugin, the `~/.claude/statusline.sh` path in its `settings.json` is inert (Claude Code ignores that key in a plugin) and a user-scoped external dependency with graceful failure, not a silent install hook. It requires explicit user action to enable: the user-settings `statusLine` entry above.
 
 ## Why this exists
 
@@ -72,7 +74,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 Three layers, one source of truth:
 
 - **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
-- **The Claude Code reference implementation** — `skills/` (37 `tp-*` skills + `/council`, including the autonomous PR-iteration loop `/tp-pr-iterate`/`/tp-pr-fix`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Claude Code reference implementation** — `skills/` (38 `tp-*` skills + `/council`, including the autonomous PR-iteration loop `/tp-pr-iterate`/`/tp-pr-fix`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
 - **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
 
 ## Runtime prerequisites
@@ -140,7 +142,7 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## What's included
 
-**38 skills** organized into pipelines:
+**39 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|

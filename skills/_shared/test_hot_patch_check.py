@@ -12,6 +12,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# The #37 wiring pins read framework-check.sh, which never ships (dev-repo only).
+_needs_framework_check = pytest.mark.skipif(
+    not (REPO_ROOT / "framework-check.sh").is_file(),
+    reason="reads framework-check.sh (dev-repo only)")
 
 _GIT_IDENTITY_ENV = {
     "GIT_AUTHOR_NAME": "fixture",
@@ -313,6 +317,7 @@ def test_cli_exit_0_on_clean_commit(tmp_path, git_env):
 # Task 1.5: framework-check.sh wiring
 # ---------------------------------------------------------------------------
 
+@_needs_framework_check
 def test_framework_check_wiring():
     """framework-check.sh contains a #37 stanza delegating to hot_patch_check.py."""
     here = Path(__file__).resolve().parent
@@ -396,6 +401,7 @@ def test_protocol_prose_anchors():
 # Item 18: #37 stanza wiring pins
 # ---------------------------------------------------------------------------
 
+@_needs_framework_check
 def test_stanza_37_no_dev_null():
     """framework-check.sh #37 stanza must NOT suppress stderr with 2>/dev/null."""
     fcs = REPO_ROOT / "framework-check.sh"
@@ -410,6 +416,7 @@ def test_stanza_37_no_dev_null():
     )
 
 
+@_needs_framework_check
 def test_stanza_37_crash_branch_text():
     """framework-check.sh #37 stanza contains the fail-closed crash branch.
 

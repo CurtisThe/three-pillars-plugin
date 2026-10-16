@@ -27,7 +27,8 @@ def _guards(**kw):
 
 def test_pdw_guards_accepts_budget_keys(validator):
     validator.validate(_guards(round_cap=6, growth_multiplier=1.5, test_code_ratio=3.0,
-                               ratio_floor_lines=100, wall_clock_sec=14400, k_consecutive=3))
+                               ratio_floor_lines=100, growth_floor_lines=300,
+                               wall_clock_sec=14400, k_consecutive=3))
 
 
 def test_pdw_guards_still_accepts_deprecated_diff_growth_multiplier(validator):
@@ -38,6 +39,7 @@ def test_pdw_guards_still_accepts_deprecated_diff_growth_multiplier(validator):
     ("round_cap", 0), ("round_cap", 1.5), ("growth_multiplier", 1), ("growth_multiplier", 0.5),
     ("test_code_ratio", 0), ("ratio_floor_lines", -1), ("ratio_floor_lines", 2.5),
     ("wall_clock_sec", 0),
+    ("growth_floor_lines", -1), ("growth_floor_lines", 2.5),
 ])
 def test_pdw_guards_bounds(validator, key, bad):
     with pytest.raises(ValidationError):

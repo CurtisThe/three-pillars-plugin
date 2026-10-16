@@ -44,6 +44,17 @@ def commit(repo: Path, files: dict, msg: str = "change") -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
+def commit_pair(repo: Path, red_files: dict, green_files: dict) -> tuple[str, str]:
+    """Two commits in order (the fragile-test-prevention red/green pair).
+
+    Returns ``(red_sha, green_sha)``. The caller chooses which files are Targets;
+    a red-only task (green empty) is one commit via `commit`.
+    """
+    red = commit(repo, red_files, "red")
+    green = commit(repo, green_files, "green")
+    return red, green
+
+
 def make_seat(tmp_path: Path, slug: str = SLUG) -> tuple[Path, Path]:
     """A seat repo on ``main`` plus a live ``<repo>-wt/<slug>`` worktree on ``tp/<slug>``.
 

@@ -38,6 +38,7 @@ def _head(oid=HEAD_OID):
 
 
 CARRY_CONFIG = {
+    "schema_version": 1,
     "review": {"approval_survives_safe_base_sync": True, "base_sync_carry_max_chain": 5},
 }
 

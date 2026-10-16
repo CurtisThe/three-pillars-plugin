@@ -6,8 +6,8 @@ design: audit-pass-does-not-bind (Tasks 9.3, 9.4, 10.3; dd §Interfaces [F10][R1
 `resolve_design_dir(root, slug)`: the in-flight design dir, else the archived one, else
 `FileNotFoundError`. `coherence_state(root, slug)`: ledger + no open pending entry →
 `certified`; no ledger + open entry → `pending`; both → `stale-pending`; neither (or an
-unresolvable slug, N6) → `missing`. An open entry is an `### ` heading in `known_issues.md`
-(never the resolved archive) holding `sweep ledger pending` and the slug (never the id).
+unresolvable slug, N6) → `missing`. An open entry is an `### ` heading in `known_issues.md` or
+`known_issues_low.md` (never the resolved or cold archive) holding `sweep ledger pending` and the slug (never the id).
 `gate_outcome(state)`: the coherence gate's action — `skip` for `pending` only, `assert` for
 `certified`, `fail` otherwise.
 
@@ -17,7 +17,9 @@ of the committed inventory + triage snapshots, paths relative to the ledger's di
 certify's (`unverified:cap` / `:budget` distinct); triage rows read `not-a-claim`,
 `unverified:cap` or `unverified`; a claim row with no result is `unverified`
 (`no-result`). `ledger verify` re-renders from the header's snapshots (never a live
-inventory) and exits 1 on any difference. `issues render|apply` live in `certify_issues.py`.
+inventory) and exits 1 on any difference. `issues render|apply` live in `certify_issues.py`;
+`apply` files each miss under a placeholder `M-new-<slug>` (numbered at landing), never a
+next-free number.
 
     certify_ledger.py design-dir <slug> [--root R]    # prints resolve_design_dir(R, slug)
     certify_ledger.py ledger render --inventory I --triage T [--result R]...
@@ -62,13 +64,20 @@ def resolve_design_dir(root, slug: str) -> Path:
 
 
 def open_pending_heading(root, slug: str) -> str | None:
-    """The first open "sweep ledger pending" heading for `slug` (without `### `), else None."""
-    path = Path(root) / KNOWN_ISSUES
-    if not path.is_file():
-        return None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("### ") and PENDING_PHRASE in line and slug in line:
-            return line[4:].strip()
+    """The first open "sweep ledger pending" heading for `slug` (without `### `), else None.
+
+    The slug must match a whole heading token — bounded by a non-slug character or the line
+    edge — so it never matches a longer slug that merely contains it (`audit-pass` does not
+    match a heading written for `audit-pass-does-not-bind`).
+    """
+    token = re.compile(r"(?<![a-zA-Z0-9-])" + re.escape(slug) + r"(?![a-zA-Z0-9-])")
+    for rel in certify_issues.LIVE_ISSUE_DOCS:  # known_issues.md, then known_issues_low.md
+        path = Path(root) / rel
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("### ") and PENDING_PHRASE in line and token.search(line):
+                return line[4:].strip()
     return None
 
 

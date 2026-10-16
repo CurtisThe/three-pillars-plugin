@@ -2,6 +2,7 @@
 name: tp-implementation-audit
 description: "Final audit of a completed plan — verify the full implementation against both design.md and detailed-design.md."
 argument-hint: "{design-name} [--auto] [--force-takeover] [--certify-sweep]"
+effort: xhigh
 ---
 
 # Implementation Audit
@@ -72,6 +73,12 @@ Things the implementation added that weren't in the design:
 - Behaviors beyond what design.md specified
 - Flag these — they may be legitimate discoveries during implementation, but they should be acknowledged
 
+### 7b. Shipped promises
+Read the diff for shipped text (docs, SKILL.md prose, CLI help, error messages) that cites a dev-only mechanism as *the* enforcement a user can rely on — per `skills/_shared/consumer-repo-rule.md`. In the three-pillars dev repo, also run `skills/_shared/devonly_citation.py` if present (run-if-present, framework repo only; its absence means no extra findings, never a failure). This dimension is a reviewer read of the diff and applies in any repo; only the script itself is dev-repo only. Per `skills/_shared/forge-parity-rule.md`, the same read flags a silent Gitea no-op or a github.com-only path in the diff as a shipped-promises finding.
+
+**7c. Fragility.** Follow `skills/tp-implementation-audit/fragility-audit.md` (rule: `skills/_shared/test-fragility.md`): lint the diff, record the changed-tests run, write the blocking fragile-class findings as items.
+
+**7d. Security.** Run `python3 "$TP_ROOT"/skills/_shared/trust_boundary.py --base <base> --head HEAD` (`<base>` = the design's base-branch merge-base — the same range the other steps read) and read the brief: `SECURITY.md` at the repo root when it is a file, else `skills/_shared/trust-boundary-checklist.md`. Apply the security bar: a security finding blocks only with a demonstrated exploit path — the attacker-controlled input, the trust boundary it crosses and the effect, with a reproducer; hardening ideas without one are notes. Exit 2 (git read failed) fails closed: review every touched file yourself. Record the result under `## Security`.
 ### 8. Compile findings
 
 Write `three-pillars-docs/tp-designs/{design-name}/implementation-audit.md`:
@@ -101,6 +108,12 @@ Write `three-pillars-docs/tp-designs/{design-name}/implementation-audit.md`:
 ## Unintended Additions
 - <things implemented that weren't in the design — note if beneficial or accidental>
 
+## Shipped Promises
+- <shipped text citing a dev-only mechanism as enforcement — file, line, what it claims — or exactly `No findings.`>
+
+## Security
+- <trust-boundary surfaces and any finding with a demonstrated exploit path — file, line, input, effect — or exactly `No findings.`>
+
 ## Cross-Phase Drift
 - <inconsistencies between phases, if any>
 
@@ -122,13 +135,15 @@ if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TO
 CERT="$(python3 "$RS" certify.py)" || exit 1
 ```
 The artifact is always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <implementation-audit.md>` prints the `verdict` to join into `## Verdict`; with claims, steps 1–3:
-1. Dispatch `Agent(subagent_type="tp-certifier", isolation="worktree", model="opus")` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
 2. Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/impl-audit.json`. Exit ≠ 0: step 3 uses `--unverified records-handoff` in place of `--records`.
 3. Run the caller's certification. Fill `## Guards certified` from its statuses; `## Verdict` is the worse of Step 8's and the printed `verdict` (protocol §Verdicts order):
 ```bash
 python3 "$CERT" run --claims <claims> --records <records> --repo . --ref <S> --name impl-audit --artifact <implementation-audit.md>
 ```
 Running as a subagent (no Agent tool), or `--auto` without a certifier result: every claim is `unverified` (`certifier-unavailable`) → BLOCKED, `Cause: certification-unverified`.
+
+A known issue you file here uses a placeholder ID, numbered later (see `skills/_shared/issue-id-placeholders.md`).
 
 ### 9. Commit the artifact
 Commit per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
@@ -166,7 +181,7 @@ A post-merge mode, run once a design that shipped sweep and self claims has been
 
 ## Auto Mode
 
-`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8b run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition checks, write `implementation-audit.md`). Step 10's interactive walk-through **and the prompt-to-invoke-`/tp-design-learn`** are both skipped — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict. This skill must NOT invoke `/tp-design-learn` from inside `--auto` mode: that would double-fire learn on the autonomous path and would re-introduce the "audit also writes docs" coupling that Shape C verdict-only explicitly forbids.
+`--auto` is **Shape C verdict-only** per `skills/_shared/auto-mode.md` — this skill produces an audit verdict in `--auto`, never edits code regardless of finding confidence. Steps 1–8b run unchanged (load artifacts, scope coverage, interface fidelity, test suite, drift, gap, addition, shipped-promises checks, write `implementation-audit.md`). Step 10's interactive walk-through **and the prompt-to-invoke-`/tp-design-learn`** are both skipped — the autonomous chain is `/tp-run-full-design` Tier 5's responsibility, which already calls `/tp-design-learn --auto` after a clean audit verdict. This skill must NOT invoke `/tp-design-learn` from inside `--auto` mode: that would double-fire learn on the autonomous path and would re-introduce the "audit also writes docs" coupling that Shape C verdict-only explicitly forbids.
 
 In `--auto`:
 - **Per-finding self-assessment.** While compiling findings in step 8, self-assess **Confidence: High | Medium | Low** for each finding per the auto-mode convention. Confidence drives the verdict, not severity. Record confidence alongside the finding in the Gaps / Unintended Additions / Cross-Phase Drift sections of `implementation-audit.md`.

@@ -166,7 +166,7 @@ def test_every_mechanical_lane_decisions_log_yields_at_least_one_atom():
     bare = [(p, t) for p, _lp, t in lane if not _decision_atoms(t)]
     assert bare, "no bare-shape file left — the 92/10 split this test partitions has collapsed"
     for p, t in bare:
-        assert verify(t, t, t, mechanical_applied=True).verdict == UNVERIFIABLE, (
+        assert verify(t, t, t, base=None, mechanical_applied=True).verdict == UNVERIFIABLE, (
             f"{p} parses to zero atoms yet does NOT verdict UNVERIFIABLE — silent pass is back")
 
 

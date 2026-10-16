@@ -11,7 +11,8 @@ object on stdin. Emits a single-line JSON envelope on stdout and exits:
                      case=None for a wrapper-internal failure with event_token
                      "stdin-invalid" / "invalid-worktree-path" /
                      "artifact-write-failed" / "cleanup-failed" /
-                     "sha-check-failed" / "rerun-error" — exit 1 is RESERVED for case c
+                     "sha-check-failed" / "rerun-error" / "missing-dependency"
+                     (an import-time ImportError, e.g. no jsonschema) — exit 1 is RESERVED for case c
                      retry, so any uncaught helper exception or
                      contract-violating input must be mapped to
                      escalate.)
@@ -41,17 +42,27 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from parse_candidate_response import (  # noqa: E402
-    NoCandidateBlockError,
-    SchemaValidationError,
-    UnknownSchemaVersionError,
-    parse_candidate_response,
-)
-from write_candidate_artifacts import write_candidate_artifacts  # noqa: E402
-from cleanup_worker_worktree import cleanup_worker_worktree  # noqa: E402
-import rerun_phase_tests  # noqa: E402 — called via the module attribute (test stub seam)
-import tier_3_5_rerun  # noqa: E402
-from rerun_budget import LS_REMOTE_TIMEOUT_S  # noqa: E402 — fits BASH_TIMEOUT_MS
+# A missing Python dependency (the parser's `jsonschema`) must not crash at import:
+# that exits 1, the case-(c) retry code. `main()` maps it to escalate / exit 2.
+try:
+    from parse_candidate_response import (  # noqa: E402
+        NoCandidateBlockError,
+        SchemaValidationError,
+        UnknownSchemaVersionError,
+        parse_candidate_response,
+    )
+    from write_candidate_artifacts import write_candidate_artifacts  # noqa: E402
+    from cleanup_worker_worktree import cleanup_worker_worktree  # noqa: E402
+    import rerun_phase_tests  # noqa: E402 — called via the module attribute (test stub seam)
+    import tier_3_5_rerun  # noqa: E402
+    from rerun_budget import LS_REMOTE_TIMEOUT_S  # noqa: E402 — fits BASH_TIMEOUT_MS
+    _SHARED = str(SCRIPTS_DIR.parent.parent / "_shared")
+    if _SHARED not in sys.path:
+        sys.path.insert(0, _SHARED)
+    import dispatch_tasks  # noqa: E402 — the full-design task-attempt ndjson writer (G1)
+    _IMPORT_ERROR: ImportError | None = None
+except ImportError as _exc:  # noqa: BLE001 — reported by main(), never raised
+    _IMPORT_ERROR = _exc
 
 
 def _emit(envelope: dict, code: int) -> int:
@@ -64,7 +75,19 @@ def _envelope(status: str, case: str | None, event_token: str, detail: str | Non
     return {"status": status, "case": case, "event_token": event_token, "detail": detail}
 
 
+def _missing_dependency(exc: ImportError) -> dict:
+    name = getattr(exc, "name", None) or "a required module"
+    return _envelope(
+        "escalate", None, "missing-dependency",
+        f"cannot import {name} ({exc}). Install the Python prerequisite where Claude Code "
+        f"runs (pip install {name if name == 'jsonschema' else '<the missing module>'}; see "
+        f"README 'Runtime prerequisites'). An environment error, never a worker retry.",
+    )
+
+
 def main() -> int:
+    if _IMPORT_ERROR is not None:
+        return _emit(_missing_dependency(_IMPORT_ERROR), 2)
     # Stdin parsing and required-key access can raise JSONDecodeError,
     # KeyError, or TypeError. Without a guard these exit 1 (Python
     # default), colliding with the case-(c) retry contract. Map to
@@ -185,6 +208,14 @@ def main() -> int:
             2,
         )
 
+    # Task-attempt telemetry: this wrapper is the ONE full-design writer of the
+    # `dispatch-telemetry.ndjson` task rows (tp-worker never writes them), keyed per
+    # attempt so a re-fed envelope never doubles a row. Telemetry never gates Tier 3.5.
+    try:
+        dispatch_tasks.write_task_tiers(design_dir, parsed.get("telemetry"))
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"run_tier_3_5: task telemetry not written ({type(exc).__name__}: {exc})\n")
+
     # Clean up the worker worktree. Locked worktrees self-log via the
     # helper; the wrapper never surfaces them as a case. A non-lock
     # failure (worktree gone, permission denied) must escalate, not retry.
@@ -277,7 +308,9 @@ def main() -> int:
         )
     if failure is not None:
         return _emit(_envelope("escalate", "f", "rerun-failed", failure), 2)
-    return _emit(_envelope("ok", None, "ok", None), 0)
+    ok_env = _envelope("ok", None, "ok", None)
+    ok_env["sha"] = parsed_sha
+    return _emit(ok_env, 0)
 
 
 if __name__ == "__main__":

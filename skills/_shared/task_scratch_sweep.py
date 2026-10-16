@@ -10,7 +10,8 @@ dispatcher preflight, the orchestrator's Cleanup and the ``/tp-design-complete``
 preflight clear them too.
 
 Only this slug's names are touched; a worktree is removed only when it sits directly
-under ``<toplevel>/.claude/worktrees/``; a branch still checked out elsewhere survives
+under a scratch parent (``scratch_root.scan_parents``: ``.tp-scratch/``, then the legacy
+``.claude/worktrees/``); a branch still checked out elsewhere survives
 (``git branch -D`` refuses). Stdlib only.
 
 **Assumes no live re-run or red-at-base for the slug** (impl-audit-2 #8). Unlike the
@@ -27,9 +28,8 @@ import os
 import re
 import shutil
 
+import scratch_root
 import task_attempts
-
-_PARENT = os.path.join(".claude", "worktrees")
 
 
 def _patterns(slug: str) -> tuple[re.Pattern, re.Pattern]:
@@ -59,21 +59,22 @@ def sweep(root, slug: str) -> dict:
     """Remove this slug's leftover scratch → ``{worktrees: [...], branches: [...]}``.
     Only when no re-run / red-at-base of the slug is live (see the module docstring)."""
     top = task_attempts.toplevel(root)
-    parent = os.path.realpath(os.path.join(top, _PARENT))
+    parents = [os.path.realpath(p) for p in scratch_root.scan_parents(top)]
     branch_re, dir_re = _patterns(task_attempts._safe(slug))
     removed: list[str] = []
     task_attempts._git(top, "worktree", "prune", check=False)
     for path, branch in _registered(top):
-        if os.path.dirname(path) == parent and branch_re.match(branch):
+        if os.path.dirname(path) in parents and branch_re.match(branch):
             task_attempts._git(top, "worktree", "remove", "--force", "--force", path,
                                check=False)
             removed.append(path)
     live = {p for p, _b in _registered(top)}
-    for name in sorted(os.listdir(parent)) if os.path.isdir(parent) else []:
-        path = os.path.join(parent, name)
-        if dir_re.match(name) and path not in live and os.path.isdir(path):
-            shutil.rmtree(path, ignore_errors=True)
-            removed.append(path)
+    for parent in parents:
+        for name in sorted(os.listdir(parent)) if os.path.isdir(parent) else []:
+            path = os.path.join(parent, name)
+            if dir_re.match(name) and path not in live and os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+                removed.append(path)
     task_attempts._git(top, "worktree", "prune", check=False)
     deleted: list[str] = []
     listed = task_attempts._out(top, "branch", "--list", "--format=%(refname:short)",

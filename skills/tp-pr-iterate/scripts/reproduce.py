@@ -6,7 +6,9 @@ Review bar: "Only a demonstrated shipped-behaviour defect with a reproducer
 blocks; mutation survivors, test-tightening, exotic env, lint-guard bypasses,
 style and perf are non-blocking notes."
 
-Per blocking (structural, non-sentinel) finding:
+Per blocking (structural, non-sentinel) finding with a valid reproducer, the
+outcome is recorded on the finding as `reproduction` (`reproduced` / `refuted` /
+`inconclusive`); `severity.finalize` in the CLI has the last word on severity:
 - reproduced (stays blocking): pytest exit 1, or a command whose exit/stdout
   violates its `expect` (the expectation describes correct behaviour);
 - not-reproduced (ran and passed): `blocking=False`, `verdict="minor"`,
@@ -16,10 +18,18 @@ Per blocking (structural, non-sentinel) finding:
 - round-dir mode: a structural finding without a valid reproducer (legacy
   shape) is downgraded with `schema_note="legacy-no-reproducer"`.
 
-Sentinels are never touched. Test reproducers are written to
-`scratch_dir/repro_<i>.py` and run as `python3 -m pytest -q -p no:cacheprovider`;
-command reproducers run as argv lists, never through a shell, always with a
-timeout.
+Sentinels are never touched. A test reproducer is written to `scratch_dir/repro_<i>.py`
+(the audit copy) and run from a transient, uniquely named copy INSIDE the reviewed
+tree, `<cwd>/.three-pillars/repro-scratch/<pid>-<uuid>/` (`SCRATCH_PARTS`), as
+`python3 -m pytest -q -p no:cacheprovider <copy>` with cwd `<cwd>`. pytest's own
+discovery then gives the tree's rootdir, config file and full conftest chain, exactly
+as when the round scratch was in-tree. The round scratch itself now sits outside the
+tree (in a linked worktree, under `<main>/.git/worktrees/`): a script run from there
+takes its config and conftest from the MAIN checkout's ancestors, and emulating
+pytest's discovery with `--rootdir`/`-c`/`--confcutdir` dropped the tree's own root
+conftest. The in-tree copy is removed in a `finally`, a stale leftover of a dead run
+is cleared first, and `.three-pillars/` is left as found. Command reproducers run as
+argv lists, never through a shell, always with a timeout.
 
 CLI: `reproduce.py --round-dir R --cwd W --head <sha>` refuses (exit 2) unless
 HEAD in W equals `--head` and tracked code is clean (`tree_scope.tracked_dirty`:
@@ -34,8 +44,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -45,10 +59,13 @@ _SHARED = _HERE.parent.parent / "_shared"
 if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
+import finder_round  # noqa: E402
 import tree_scope  # noqa: E402
+from angles import SKIPPED_REPLY  # noqa: E402
 from argv_runner import OUTPUT_CAP, run_argv, tail as _tail  # noqa: E402,F401 — OUTPUT_CAP re-exported
 from finding_class import is_sentinel, note_line, tally, valid_reproducer  # noqa: E402
 from review_merge import merge_codereview_angles  # noqa: E402
+import round_tail  # noqa: E402
 
 DEFAULT_TIMEOUT = 120
 PYTHON = sys.executable or "python3"
@@ -59,6 +76,11 @@ NOT_REPRODUCED = "not-reproduced"
 INCONCLUSIVE = "inconclusive"
 LEGACY = "legacy-no-reproducer"
 
+# The finding's `reproduction` field for each runner outcome (review-convergence D1):
+# today's `not-reproduced` log/reason vocabulary stays, the finding says `refuted`.
+REPRODUCTION_OF = {REPRODUCED: "reproduced", NOT_REPRODUCED: "refuted",
+                   INCONCLUSIVE: "inconclusive"}
+
 
 def _run(runner, argv, cwd, timeout):
     """→ (returncode | None, stdout, output<=500). None: the run itself failed."""
@@ -66,15 +88,71 @@ def _run(runner, argv, cwd, timeout):
     return r.rc, r.stdout, r.tail
 
 
-def _outcome_test(repro, i, *, cwd, scratch_dir, runner, timeout):
-    scratch = Path(scratch_dir)
+# The transient in-tree home of a running reproducer. It is NOT the legacy proof root
+# (`.three-pillars/review-proof/`, which `proof_root`'s one-time migration keys on),
+# and it lives only for the pytest subprocess, so no machine-path file persists in
+# the tree into a commit or push.
+SCRATCH_PARTS = (".three-pillars", "repro-scratch")
+
+
+def _alive(pid: int) -> bool:
     try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # another user's process, for one: treat as alive
+        return True
+    return True
+
+
+def _clear_stale(parent: Path) -> None:
+    """Remove leftovers of runs whose process is gone (a killed loop never reached its
+    `finally`); a live sibling run's dir is left alone."""
+    try:
+        entries = list(parent.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        pid = entry.name.split("-", 1)[0]
+        if not (pid.isdigit() and _alive(int(pid))):
+            shutil.rmtree(entry, ignore_errors=True)
+
+
+@contextmanager
+def _in_tree_scratch(cwd):
+    """A uniquely named dir under `<cwd>/.three-pillars/repro-scratch/` that exists for
+    one pytest run only. Removed on every exit (an exception or a timeout included);
+    the parents go when empty, and `.three-pillars/` only if it was absent before."""
+    base = Path(cwd).resolve() / SCRATCH_PARTS[0]
+    had_base = base.is_dir()
+    parent = base / SCRATCH_PARTS[1]
+    _clear_stale(parent)
+    scratch = parent / f"{os.getpid()}-{uuid.uuid4().hex}"
+    scratch.mkdir(parents=True, exist_ok=False)
+    try:
+        yield scratch
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+        for d in (parent,) if had_base else (parent, base):
+            try:
+                d.rmdir()
+            except OSError:
+                pass
+
+
+def _outcome_test(repro, i, *, cwd, scratch_dir, runner, timeout):
+    """Keep the audit copy at `scratch_dir/repro_<i>.py`; run the in-tree copy."""
+    name = f"repro_{i}.py"
+    try:
+        scratch = Path(scratch_dir)
         scratch.mkdir(parents=True, exist_ok=True)
-        script = scratch / f"repro_{i}.py"
-        script.write_text(repro["source"], encoding="utf-8")
+        (scratch / name).write_text(repro["source"], encoding="utf-8")
+        with _in_tree_scratch(cwd) as tree_scratch:
+            script = tree_scratch / name
+            script.write_text(repro["source"], encoding="utf-8")
+            rc, _, out = _run(runner, [PYTHON, *PYTEST_ARGS, str(script)], cwd, timeout)
     except OSError as exc:
         return INCONCLUSIVE, _tail(f"could not write reproducer: {exc}")
-    rc, _, out = _run(runner, [PYTHON, *PYTEST_ARGS, str(script)], cwd, timeout)
     if rc == 1:
         return REPRODUCED, out
     if rc == 0:
@@ -141,6 +219,7 @@ def run_reproducers(findings, *, cwd, scratch_dir, runner=subprocess.run,
             continue
         outcome, output = _outcome_any(f, i, cwd=cwd, scratch_dir=scratch_dir,
                                        runner=runner, timeout=timeout)
+        f["reproduction"] = REPRODUCTION_OF[outcome]
         if outcome == REPRODUCED:
             continue
         f["downgrade"] = {"reason": outcome, "output": output}
@@ -191,7 +270,10 @@ def _load_manifest(round_dir: Path) -> dict:
 
 
 def _read_reply(round_dir: Path, entry) -> str:
-    """Missing/empty reply → "" (parses as the unparseable sentinel: fail-closed)."""
+    """Missing/empty reply → "" (parses as the unparseable sentinel: fail-closed); a
+    skipped (never dispatched) angle → `angles.SKIPPED_REPLY`."""
+    if isinstance(entry, dict) and entry.get("skipped"):
+        return SKIPPED_REPLY
     try:
         rp = Path(entry["reply_path"])
         rp = rp if rp.is_absolute() else round_dir / rp
@@ -208,21 +290,59 @@ def _downgrade_line(round_n, finding, reason) -> str:
             f"{finding.get('file', '')}:{start} — {summary}")
 
 
-def run_cli(round_dir, cwd, head, *, timeout=DEFAULT_TIMEOUT, runner=subprocess.run) -> dict:
-    """The round-dir run; raises `Refused` on a failed pre/post tree check."""
+def _apply_adopted(round_dir, merged, adopted, head) -> tuple:
+    """Restore a claim's reproducer from an accepted scaffold — lazy import of
+    `review_prep_scaffold` (plan-audit #4 import cycle); adoption only restores
+    the claim, the scaffold still has to reproduce in `run_reproducers`."""
+    import review_prep_scaffold as rps  # noqa: E402 — lazy by design
+    reps, refusals = rps.adopted_reproducers(round_dir, adopted, head)
+    out = [dict(f) for f in merged]
+    for key, rep in reps.items():
+        i = next((i for i, f in enumerate(out)
+                  if not is_sentinel(f) and f.get("schema_note") == rps.TARGET_NOTE
+                  and rps.finding_key(f) == key), None)
+        if i is None:
+            refusals.append(f"scaffold-adopt-refused: {key}: not a target")
+            continue
+        out[i].pop("schema_note", None)
+        out[i].update(reproducer=rep, verdict="structural", blocking=True,
+                      reproducer_origin=rps.ORIGIN)
+    return out, refusals
+
+
+def run_cli(round_dir, cwd, head, *, timeout=DEFAULT_TIMEOUT, runner=subprocess.run,
+            adopted=None, dispositions=None) -> dict:
+    """The round-dir run; raises `Refused` on a failed pre/post tree check.
+
+    `adopted` (`tail/adopted.json` path) restores a claim's reproducer from an
+    accepted scaffold before the reproducers run; without it the path is byte-identical.
+    `dispositions` (the impl audit's carry path) is threaded to the round tail —
+    round 1 only, and without it the path is byte-identical."""
     round_dir = Path(round_dir)
     manifest = _load_manifest(round_dir)
     _assert_tree(cwd, head)
-    replies = [_read_reply(round_dir, e) for e in manifest.get("angles") or ()]
+    keep = {e["name"] for e in finder_round.merge_entries(manifest)}
+    replies = [t for e, t in finder_round.aligned_replies(round_dir) if e["name"] in keep]
     tail_dir = round_dir / "tail"
-    findings, records = run_reproducers(merge_codereview_angles(replies), cwd=cwd,
+    merged = merge_codereview_angles(replies)
+    refusals = []
+    if adopted is not None:
+        merged, refusals = _apply_adopted(round_dir, merged, adopted,
+                                          _rev(cwd, head) or head)
+    findings, records = run_reproducers(merged, cwd=cwd,
                                         scratch_dir=tail_dir, runner=runner, timeout=timeout)
     _assert_tree(cwd, head, after=True)
+    # The round's tail: origin, then severity.finalize last (round_tail).
+    findings = round_tail.annotate(findings, manifest=manifest, cwd=cwd,
+                                   head=_rev(cwd, head) or head,
+                                   rounds_dir=round_dir.parent,
+                                   dispositions=dispositions)
     round_n = manifest["round"]
     touched = {r["index"] for r in records}
     notes = [f for i, f in enumerate(findings) if i not in touched
              and not is_sentinel(f) and f.get("verdict") != "structural"]
-    lines = [_downgrade_line(round_n, findings[r["index"]], r["reason"]) for r in records]
+    lines = refusals + [_downgrade_line(round_n, findings[r["index"]], r["reason"])
+                        for r in records]
     lines += [note_line(round_n, f) for f in notes]
     tail_dir.mkdir(parents=True, exist_ok=True)
     (tail_dir / "findings.json").write_text(json.dumps(findings, indent=2) + "\n",
@@ -244,10 +364,16 @@ def main(argv=None) -> int:
     ap.add_argument("--round-dir", required=True)
     ap.add_argument("--cwd", required=True)
     ap.add_argument("--head", required=True)
+    ap.add_argument("--adopted", default=None,
+                    help="path to tail/adopted.json: restore a claim's reproducer "
+                         "from an accepted scaffold (the scaffold still has to reproduce)")
+    ap.add_argument("--dispositions", default=None,
+                    help="impl-audit carry (audit-dispositions.json); round 1 only")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     args = ap.parse_args(argv)
     try:
-        summary = run_cli(args.round_dir, args.cwd, args.head, timeout=args.timeout)
+        summary = run_cli(args.round_dir, args.cwd, args.head, timeout=args.timeout,
+                          adopted=args.adopted, dispositions=args.dispositions)
     except Refused as exc:
         print(json.dumps({"refused": str(exc)}))
         return 2

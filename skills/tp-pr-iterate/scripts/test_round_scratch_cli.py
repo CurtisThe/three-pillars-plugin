@@ -21,7 +21,7 @@ def _run(*args, cwd):
 def _prepare(tmp_path):
     return _run("prepare", "--root", str(tmp_path), "--pr-url", PR, "--base", "b0",
                 "--head", "h1", "--state", str(tmp_path / "s.json"),
-                "--log", str(tmp_path / "log.md"), cwd=tmp_path)
+                "--log", str(tmp_path / "log.md"), "--rulings", "r.md", cwd=tmp_path)
 
 
 def test_prepare_prints_round_dir(tmp_path):
@@ -30,7 +30,9 @@ def test_prepare_prints_round_dir(tmp_path):
     r = Path(p.stdout.strip())
     assert r == tmp_path / "rounds" / "42" / "r1"
     m = json.loads((r / "angles.json").read_text(encoding="utf-8"))
-    assert [e["model"] for e in m["angles"]] == ["opus"] * 3
+    # The round plan appends the `security` confirmer to every round-1 manifest, so
+    # the last two entries are the Opus check and the security lens.
+    assert [e["model"] for e in m["angles"]] == ["sonnet"] * 3 + ["opus", "opus"]
 
 
 def test_prepare_tail_failed_exit_2(tmp_path):
@@ -89,7 +91,8 @@ def _prepare_with(tmp_path, pr_url, cfg):
     cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
     return _run("prepare", "--root", str(tmp_path / "root"), "--pr-url", pr_url,
                 "--base", "a", "--head", "b", "--state", str(tmp_path / "s.json"),
-                "--log", str(tmp_path / "l.log"), "--config", str(cfg_path), cwd=tmp_path)
+                "--log", str(tmp_path / "l.log"), "--config", str(cfg_path),
+                "--rulings", "r.md", cwd=tmp_path)
 
 
 def test_prepare_unsafe_angle_name_refuses_with_json_exit_2(tmp_path):

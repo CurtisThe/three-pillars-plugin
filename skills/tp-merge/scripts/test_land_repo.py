@@ -18,6 +18,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent.parent / "tp-merge-from-main" / "scripts"))
 
 import land  # noqa: E402
+import placeholder_gate  # noqa: E402  (on sys.path via land)
 from merge_gate import MergeGateBlocked  # noqa: E402
 
 PR_URL = "https://github.com/example/repo/pull/7"
@@ -95,24 +96,31 @@ class TestLandMainRepoFlag:
             return 0
 
         monkeypatch.setattr(land, "land", fake_land)
+        monkeypatch.setattr(placeholder_gate, "head_unnumbered_ids", lambda *a, **k: [])
         rc = land.main(["--repo", str(nested), PR_URL])
 
         assert rc == 0
         assert captured["pr_url"] == PR_URL
         assert captured["repo_root"] == str(repo.resolve())
 
-    def test_main_no_repo_flag_calls_land_with_pr_url_only(self, monkeypatch):
+    def test_main_no_repo_flag_calls_land_with_pr_url_only(self, tmp_path, monkeypatch):
+        # main resolves the cwd's toplevel for the unnumbered-ID check, so it runs inside
+        # a repo (outside one it refuses, fail-closed) -- a non-git shipped copy included.
+        monkeypatch.chdir(_git_repo(tmp_path))
         captured = {}
 
-        def fake_land(pr_url):  # no repo_root param at all
+        def fake_land(pr_url, *, pre_merge_check):  # no repo_root param at all
             captured["pr_url"] = pr_url
+            captured["check"] = pre_merge_check
             return 0
 
         monkeypatch.setattr(land, "land", fake_land)
+        monkeypatch.setattr(placeholder_gate, "head_unnumbered_ids", lambda *a, **k: [])
         rc = land.main([PR_URL])
 
         assert rc == 0
         assert captured["pr_url"] == PR_URL
+        assert captured["check"]() is None  # the unnumbered-ID check, run post-gate by land()
 
     def test_repo_path_that_does_not_resolve_is_usage_error(self, tmp_path):
         not_a_repo = tmp_path / "not-a-repo"

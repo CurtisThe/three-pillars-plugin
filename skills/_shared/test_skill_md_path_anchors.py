@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+import skill_text
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # (relpath, locator) — catalog G5's six executable-reference sites.
@@ -46,10 +48,16 @@ def _window(text: str, locator: str) -> str:
     return "\n".join(lines[max(0, upto - 3):upto + 4])
 
 
+def _text(relpath):
+    if relpath == "skills/tp-run-full-design/SKILL.md":
+        return skill_text.read_skill_text("tp-run-full-design")
+    return (_REPO_ROOT / relpath).read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("relpath,locator", _SITES)
 def test_executable_reference_carries_anchor(relpath, locator):
     """Each G5 executable-reference site is $TP_ROOT/sys.path-anchored."""
-    text = (_REPO_ROOT / relpath).read_text(encoding="utf-8")
+    text = _text(relpath)
     window = _window(text, locator)
     assert "$TP_ROOT" in window or "sys.path" in window, (
         f"{relpath}: {locator!r} has no $TP_ROOT/sys.path anchor within its "
@@ -61,7 +69,7 @@ def test_zero_unanchored_g5_sites():
     """None of the six catalog G5 sites remain unanchored (aggregate pin)."""
     unanchored = []
     for relpath, locator in _SITES:
-        text = (_REPO_ROOT / relpath).read_text(encoding="utf-8")
+        text = _text(relpath)
         window = _window(text, locator)
         if "$TP_ROOT" not in window and "sys.path" not in window:
             unanchored.append(relpath)

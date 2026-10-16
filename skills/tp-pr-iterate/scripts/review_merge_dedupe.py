@@ -1,7 +1,7 @@
 """review_merge_dedupe — the collapse-near-duplicates half of review_merge.
 
-Split out of `review_merge.py` purely for the file-size cap (CLAUDE.md
-§File Size Limits); `review_merge` re-exports every name defined here, so
+Split out of `review_merge.py` purely for the file-size cap
+(skills/_shared/file-size-caps.md); `review_merge` re-exports every name defined here, so
 `review_merge.dedupe(...)` / `review_merge._is_duplicate(...)` call sites are
 unchanged. This module is the single home of the collapse predicate family.
 

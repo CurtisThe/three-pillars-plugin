@@ -43,6 +43,31 @@ def test_classifier_is_case_insensitive():
     assert _is_genuinely_outside_any_repo(128, stderr) is True
 
 
+def test_classifier_accepts_mount_point_marker():
+    """git's own "searched every parent, found nothing" signal in its filesystem-boundary
+    phrasing (emitted when discovery stops at a mount point with
+    GIT_DISCOVERY_ACROSS_FILESYSTEM unset) is the same confirmed-absence signal as the
+    parent-directories qualifier and must be accepted -- including case-insensitively."""
+    stderr = (
+        "fatal: not a git repository (or any parent up to mount point /)\n"
+        "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n"
+    )
+    assert _is_genuinely_outside_any_repo(128, stderr) is True
+    assert _is_genuinely_outside_any_repo(
+        128,
+        "FATAL: NOT A GIT REPOSITORY (OR ANY PARENT UP TO MOUNT POINT /)\n"
+        "STOPPING AT FILESYSTEM BOUNDARY (GIT_DISCOVERY_ACROSS_FILESYSTEM NOT SET).\n",
+    ) is True
+
+
+def test_classifier_refuses_unsafe_repository():
+    """git's `safe.directory`-style "unsafe repository" refusal (rc 128) carries NEITHER
+    parent-chain qualifier -- an ambiguous provenance error, not a confirmed absence of any
+    repository. Must refuse, never be treated as external-install."""
+    stderr = "fatal: unsafe repository: /some/dir\n"
+    assert _is_genuinely_outside_any_repo(128, stderr) is False
+
+
 def test_classifier_refuses_dangling_gitfile_message():
     """Same rc (128) and even the same "not a git repository" substring, but WITHOUT the
     "(or any of the parent directories)" qualifier -- a dangling/corrupt gitfile, not a

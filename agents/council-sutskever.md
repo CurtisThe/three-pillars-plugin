@@ -2,6 +2,7 @@
 name: council-sutskever
 description: "Council member. Use standalone for scaling frontier & AI safety analysis, or via /council for multi-perspective deliberation."
 model: opus
+effort: high
 color: ice-blue
 tools: ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
 ---

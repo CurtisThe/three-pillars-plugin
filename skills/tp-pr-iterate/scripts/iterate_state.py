@@ -38,7 +38,8 @@ from pathlib import Path
 # are written, but nothing reads them: ``round_budget.tick`` (called by
 # ``loop_driver.run_round`` on every ``run_round.py`` round) enforces the round cap and
 # the wall clock from ``round_budget.limits(config)`` (``pdw.guards.*`` over its
-# defaults: ``round_cap`` 6, ``wall_clock_sec`` 14400) and counts ``iteration`` itself.
+# defaults: ``round_cap`` 3 by review weight, ``wall_clock_sec`` 14400) and counts
+# ``iteration`` itself.
 DEFAULT_MAX_ITERATIONS = 6
 DEFAULT_MAX_WALL_CLOCK_SEC = 14400
 

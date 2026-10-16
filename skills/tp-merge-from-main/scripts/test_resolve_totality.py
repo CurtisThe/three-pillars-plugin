@@ -99,12 +99,15 @@ def test_r0_is_not_vacuous_because_hundreds_of_hunks_really_do_resolve():
     # round 18 four more (44 / 1168) and round 19 eleven more (33 / 1179) — each a refusal of a
     # shape the old resolvers mis-merged — round 20 two more, by gating `id-renumber-collision`
     # (31 / 1181), and round 21 two more, inventory hunks whose rows could change tables.
+    # basesync-three-way-verifier Phase 4: 31 -> 32 resolved, deferred unchanged at 1184 (the new
+    # `shaped-line-merge` fixture is the one added RESOLVED hunk), so the floor is the measure.
     # The breakdown is in `test_every_deferral_has_a_named_cause_and_the_breakdown_is_pinned`.
-    assert len(resolved) >= 29, len(resolved)
+    assert len(resolved) >= 32, len(resolved)
     assert len(deferred) >= 900, len(deferred)
     # ...and EVERY class that may auto-resolve is represented, so none is silently inert, while a
     # GATED class never resolves. (Measured round 21: log-insertion 11, inventory 8,
-    # decision-insertion 6, append-log 4. Round 19's two id-renumber resolutions are now `gated`.)
+    # decision-insertion 6, append-log 4. Round 19's two id-renumber resolutions are now `gated`;
+    # `last-updated-preamble` is represented by the corpus's one `fixed:last-updated` hunk.)
     assert set(resolved) == set(AUTO_RESOLVE), sorted(set(resolved))
     assert GATED and not GATED & set(resolved) and AUTO_RESOLVE | GATED == MECHANICAL
 
@@ -216,13 +219,31 @@ def test_every_deferral_has_a_named_cause_and_the_breakdown_is_pinned():
     allowlist (`line_shapes.keep_both_refusal`) reads as a line opening an HTML block, so the class
     predicate refuses it before the marker check runs. Its other arms and the inventory
     carriage-return arm moved no corpus hunk.
+
+    The keyed-heading-insertion wiring moved exactly one hunk: `hunk:428` (ours one `### L9:` entry,
+    theirs `### L5:` and `### L4:`, distinct numbered keys, empty base) went `generic-prose` ->
+    RESOLVED as keep-both, so `semantic` 1164 -> 1163. No other bucket moved.
+
+    The `last-updated-preamble` wiring moved none: no seeded hunk is one date-only line per side,
+    and the one `fixed:last-updated` hunk the corpus now ends with RESOLVES, so every bucket holds.
+
+    PR #206 round 1 moved 2 RESOLVED `log-entry-insertion` hunks to `cannot-place` (11 -> 13):
+    `log-entry-insertion` now emits the whole entries both blocks open or close with once and
+    REFUSES when the differing middles still share an entry start, which plain concatenation wrote
+    twice. `hunk:347` (theirs carries ours' `2026-07-04` entry three times above the shared
+    `design-slug` suffix) and `hunk:689` (both carry the `design-slug` entry, but only ours gives it
+    a body line, so it is no common suffix).
+
+    This design (basesync-three-way-verifier) added `shaped-line-merge` and moved NO bucket: the
+    seeded corpus holds no hunk of the class but its own fixture, which RESOLVES (resolved 31 ->
+    32, deferred 1184 -> 1184), so semantic stays 1163 and every other bucket holds.
     """
     def bucket(r):
         return r.code if r.code in DEFER_CODES else f"UNCATEGORISED: {r.reason}"
 
     counts = Counter(bucket(r) for _n, _h, r in _resolutions(_corpus()) if r.status == DEFER)
-    assert counts == Counter({"semantic": 1164, "not-confident": 1, "malformed-hunk": 4,
-                              "cannot-place": 11, "gated": 3}), counts
+    assert counts == Counter({"semantic": 1163, "not-confident": 1, "malformed-hunk": 4,
+                              "cannot-place": 13, "gated": 3}), counts
 
 
 def test_the_would_drop_bucket_is_reachable_through_resolve_hunks_real_dispatch(monkeypatch):
@@ -450,6 +471,7 @@ def test_r2_the_pure_class_fixtures_all_still_auto_resolve():
                  "decisions-observed", "decisions-collision", "decisions-nested"):
         assert resolved[name][0] == RESOLVED, (name, resolved[name])
     assert resolved["id-renumber"] == (DEFER, [("id-renumber-collision", "gated")])
+    assert resolved["shaped-line-merge"] == (RESOLVED, [("shaped-line-merge", "")])
 
 
 def test_r2_the_inventory_class_is_still_reachable_end_to_end():

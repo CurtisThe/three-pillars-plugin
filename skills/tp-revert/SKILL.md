@@ -31,8 +31,12 @@ continue (the slug is used for labeling, not enforcement here).
 
 ```bash
 python3 "$TP_ROOT"/skills/tp-revert/scripts/revert_probe.py \
-    --repo . (--pr {pr#} | --sha {merge-sha}) [--base master] --json
+    --repo . (--pr {pr#} | --sha {merge-sha}) [--base {default-branch}] --json
 ```
+
+`--base` defaults to the repo's resolved default branch (via
+`skills/_shared/default_branch.py`) when omitted — pass it explicitly only to
+override.
 
 On `error` field non-null: print the error and stop.
 
@@ -59,7 +63,8 @@ git worktree add .claude/worktrees/revert-{slug} -b revert/{slug} origin/{base}
 **Slug derivation**: `{slug}` is taken from the probe JSON `slug` field. When `slug` is null (--sha path, or a re-land where the head is `revert/{slug}`), derive it from the original landing PR's `headRefName` via `gh pr view` on the commit's associated PR (strip `tp/`); for a re-land, strip `revert/` from the reverted PR's head to recover the original slug. If the slug remains underivable, ask the operator.
 
 Placement under `.claude/worktrees/` and non-`tp/` branch keep the isolation guards
-green: not the seat, not a tp/* worktree.
+green (they run only when the commit guard, `commit_guard.py`, is installed): not
+the seat, not a tp/* worktree.
 
 ### Step 4 — Revert
 
@@ -101,6 +106,8 @@ removes the resurrected untracked in-flight files. The carve-out covers the enti
 
 ### Step 6 — Regenerate doc state
 
+- **Roll the doc to its cap in the same commit**: for each living doc you wrote, run `python3 "$TP_ROOT"/skills/_shared/doc_rollover.py --doc <repo-relative doc>` and keep the condensed form per `skills/_shared/living-doc-format.md` §Condensed shape and caps (one bullet or row per item, history to the archive); stage the doc's archive in the same commit.
+
 Append the dated amendment to `three-pillars-docs/completed-tp-designs/{slug}/decisions.md`
 per `skills/_shared/reconcile-protocol.md`. Use the template verbatim:
 
@@ -122,7 +129,9 @@ Done — PR #NN — [design](…)
 Bump `*Last updated:*` and add one History line.
 
 **6c.** Add one `three-pillars-docs/known_issues.md` entry (the revert ledger): what
-landed bad, what was reverted, links to both PRs.
+landed bad, what was reverted, links to both PRs. File it under a placeholder ID
+`<S>-new-<slug>` (e.g. `### L-new-revert-{slug}`), never the next number: the numbering
+pass assigns it at landing (`skills/_shared/issue-id-placeholders.md`).
 
 **6d.** Verify with the reporter (never `--apply` in the revert path):
 
@@ -180,8 +189,8 @@ The operator lands via `/tp-merge` — all seven predicates (including `pred_hum
 satisfied by a current APPROVED human review) apply unchanged. `review_proof_on_head` is
 among them: run a proof-bearing review round on the **revert head** (the `/tp-pr-iterate`
 ANGLES fan-out posts the trusted-author digest comment) before landing, or the gate blocks
-INDETERMINATE with "no head-bound proof comment". No direct master commit (hot-patch
-anomaly flag).
+INDETERMINATE with "no head-bound proof comment". No direct default branch commit
+(hot-patch anomaly flag).
 
 The standard gate applies: the PR must PASS before `gh pr merge` is called.
 
@@ -199,17 +208,17 @@ gh api repos/{owner}/{repo}/issues/{pr#}/labels --method POST \
     --field 'labels[]=tp:reverted'
 ```
 
-Caveat: `gh pr edit --add-label` silently no-ops on this repo — use the REST labels
-API above instead.
+Caveat: `gh pr edit --add-label` silently no-ops on some repos (observed where label edits
+silently no-op) — use the REST labels API above instead.
 
 Design stays archived; lock and branch are **not resurrected**; MRU is untouched
 (already cleared at post-merge).
 
 ### Step 10 — Re-land path
 
-The revert PR is itself a landing — it creates a true merge commit on master. While
-it is the newest landing (probe depth 0), `/tp-revert <revert-pr#>` re-lands the
-original work through the same machinery (revert-of-a-revert).
+The revert PR is itself a landing — it creates a true merge commit on the default
+branch. While it is the newest landing (probe depth 0), `/tp-revert <revert-pr#>`
+re-lands the original work through the same machinery (revert-of-a-revert).
 
 Before re-entering Step 3 for a revert-of-a-revert, remove the leftover `revert/{slug}`
 worktree and branch from the original revert (fail-open if absent):

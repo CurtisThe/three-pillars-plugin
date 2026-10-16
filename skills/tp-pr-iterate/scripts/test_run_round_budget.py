@@ -1,8 +1,9 @@
 """Budget wiring through `loop_driver.run_round` (in-process) and `run_round.py` (CLI).
 
 design: iterate-convergence-budget (Tasks 3.3, 3.4). `round_budget.tick` runs on
-every round, before two-stable; a budget terminal labels needs-human-attention and
-returns `action: "noop"` with the tick detail as `budget`.
+every round, before two-stable; a budget terminal returns `action: "noop"` with the
+tick detail as `budget`. A newly fired one carries `finalizer_stop` instead of the
+needs-human-attention label (fable-first-stops Task 2.2; a held one still labels).
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -57,7 +58,9 @@ def test_run_round_budget_terminal_round_cap():
     assert s["phase"] == "budget-exhausted" and s["termination_reason"] == "round-cap"
     assert s["transitions"][-1]["phase"] == "budget-exhausted"
     assert out["budget"]["signal"] == "round-cap" and out["budget"]["iteration"] == 6
-    assert ("+", "tp:needs-human-attention") in labels
+    # Newly fired: the finalizer's escalate path applies the label (fable-first-stops 2.2).
+    assert ("+", "tp:needs-human-attention") not in labels
+    assert out["finalizer_stop"]["signal"] == "round-cap"
     assert ("-", "tp:ready-for-human-merge") in labels
     assert (s["budget_last_head"], s["budget_last_round"], s["budget_last_action"]) == (
         "h6", "r6", "noop")
@@ -66,7 +69,7 @@ def test_run_round_budget_terminal_round_cap():
 def test_run_round_budget_runs_before_two_stable():
     """A clean, convergence-eligible round over the wall clock stops, never converges."""
     labels = []
-    st = _state(started_at=(NOW - timedelta(hours=5)).isoformat())
+    st = _state(budget_active_elapsed_sec=5 * 3600)
     out = _round(st, [], labels=labels)
     assert out["terminal"] == "cap-exhausted"
     assert out["state"]["termination_reason"] == "wall-clock"

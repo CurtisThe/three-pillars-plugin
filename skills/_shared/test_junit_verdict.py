@@ -148,6 +148,52 @@ def test_rootdir_is_the_one_the_report_fits(tmp_path):
         "unverified", "rootdir-ambiguous")
 
 
+def _fake_run(body: str, root: str = "testsuites", rc: int = 1):
+    """A `run_judged` ``run`` callback that writes a canned report instead of a real
+    pytest process, so `failed_out` can be pinned without a subprocess."""
+    def run(extra_args, targets):
+        path = next(a.split("=", 1)[1] for a in extra_args if a.startswith("--junitxml="))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f'<{root}><testsuite>{body}</testsuite></{root}>')
+        return rc, ""
+    return run
+
+
+def test_run_judged_failed_out_appends_resolved_failed_ids(tmp_path):
+    _tree(tmp_path, "t/test_a.py")
+    body = "".join([_case("t.test_a", "test_x"), _case("t.test_a", "test_y", outcome=FAIL)])
+    failed = []
+    result, (kind, why) = jv.run_judged(_fake_run(body), "t/test_a.py", tmp_path,
+                                        failed_out=failed)
+    assert result == (1, "")
+    assert kind == "red" and why == "red"
+    assert failed == ["t/test_a.py::test_y"]
+
+
+def test_run_judged_failed_out_skips_foreign_failures(tmp_path):
+    """A failed case with no resolved node id (foreign: its classname is not its
+    ``file``'s own module) never lands in `failed_out`."""
+    _tree(tmp_path, "t/test_a.py")
+    body = "".join([_case("t.test_a", "test_x"),
+                    _case("t.base", "test_inh", outcome=FAIL)])  # foreign
+    failed = []
+    result, (kind, why) = jv.run_judged(_fake_run(body), "t/test_a.py", tmp_path,
+                                        failed_out=failed)
+    assert result == (1, "")
+    assert kind == "unverified" and why == "foreign-failure"
+    assert failed == []
+
+
+def test_run_judged_without_failed_out_is_unaffected(tmp_path):
+    """Omitting ``failed_out`` leaves the return value exactly as before (module
+    docstring): existing callers never observe a change."""
+    _tree(tmp_path, "t/test_a.py")
+    body = _case("t.test_a", "test_x")
+    result, (kind, why) = jv.run_judged(_fake_run(body, rc=0), "t/test_a.py", tmp_path)
+    assert result == (0, "")
+    assert (kind, why) == ("pass", "")
+
+
 @pytest.mark.parametrize("extra", [[], ["-n", "2"]])
 def test_real_report_shape(tmp_path, extra):
     """`report_args` after the targets yields ``file`` + module classnames under the
