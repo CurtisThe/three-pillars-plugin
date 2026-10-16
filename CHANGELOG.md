@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-10-16
+
+### Changed
+
+- **Install guide rewritten** — the README now covers installing from the Claude Code terminal (shell and `/plugin` forms), the Claude desktop app (Cowork/chat plugin marketplace, which syncs to your account, and the Code tab), and a manual install from a clone (`--plugin-dir` or a local marketplace), plus a one-line prompt that lets an AI assistant do the install from a "For AI assistants" section. It fixes the old steps: plugins load with `/reload-plugins` (no restart needed), the marketplace is removed by its name `three-pillars`, and updating refreshes the marketplace first.
+
 ## [2.5.0] — 2026-10-16
 
 Batch release of the October waves on top of v2.4.0: unattended runs now start every easy task on the cheap engine by default (Sonnet, or a local Strata model under `--local`), with Opus kept for judgment; the PR review loop converges in fewer rounds and a Fable first stop answers run questions before the operator; PR-facing actions go through one forge interface with GitHub and Gitea backends; a new explainer agent turns rulings and PRs into plain, visual briefs; and the framework's own instructions and living docs were cut hard to save context on every run. A round of launch, scratch-space and worktree-hygiene fixes rounds it out.

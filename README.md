@@ -6,39 +6,104 @@ The discipline: design before plan before code, with council-based deliberation 
 
 ## Install
 
-**Prerequisites**: [Claude Code](https://claude.ai/code) installed on your machine.
+### Let your AI set it up
 
-Two commands in your terminal:
+Do you use an AI coding assistant (Claude Code, Cursor, Codex, ...)? Paste this into it:
+
+> Set up the three-pillars plugin for Claude Code on this computer for me: https://github.com/CurtisThe/three-pillars-plugin - follow the "For AI assistants" section of README.md in that repository.
+
+It checks for `git`, `gh` and Python, adds the plugin marketplace, installs the plugin, and tells you how to load it.
+
+### Or do it yourself
+
+Pick **one** route per Claude account. A plugin added in the desktop app also syncs into Claude Code (as `three-pillars@synced`), so installing it both ways gives you every skill twice.
+
+#### Claude Code (terminal)
+
+**Prerequisites**: [Claude Code](https://claude.ai/code), `git`, GitHub CLI (`gh`) and Python 3.
+
+In your shell:
 
 ```bash
 claude plugin marketplace add CurtisThe/three-pillars-plugin
 claude plugin install three-pillars@three-pillars
 ```
 
-Restart Claude Code. That's it — 39 skills and 18 council agents are live.
+Or inside a Claude Code session:
 
-**Verify** by typing `/tp-guide` in any project. If the skill runs, you're set.
+```
+/plugin marketplace add CurtisThe/three-pillars-plugin
+/plugin install three-pillars@three-pillars
+```
+
+The in-session `/plugin install` opens the plugin panel; choose a scope there (**user** makes it available in every project). Then run `/reload-plugins`, or start a new session. 39 skills and their agents are now live.
+
+To share it with everyone working in one repo, add `--scope project` to the shell commands. That records the marketplace and plugin in the repo's `.claude/settings.json`.
+
+#### Claude desktop app
+
+The desktop app (Mac and Windows) has two places that take plugins.
+
+- **Cowork and chat** — open **Customize → Plugins → Add → Add marketplace**, enter `CurtisThe/three-pillars-plugin`, then install **three-pillars** from the list. The plugin syncs to your Claude account, and Claude Code on any machine signed in to that account sees it as `three-pillars@synced`.
+- **Code tab** — local Code-tab sessions use the same plugins as Claude Code on that machine. Either add the marketplace from the account (above), or type `/plugin marketplace add CurtisThe/three-pillars-plugin` in a Code-tab session. Then click **+** next to the prompt box → **Plugins** → **Add plugin** and pick **three-pillars**. **Manage plugins** in the same menu turns it off or removes it. Plugins are not available in cloud sessions or WSL.
+
+#### Manual install (no marketplace)
+
+For trying a checkout or working offline:
+
+```bash
+git clone https://github.com/CurtisThe/three-pillars-plugin ~/three-pillars-plugin
+
+# One session only (shows as three-pillars@inline):
+claude --plugin-dir ~/three-pillars-plugin
+
+# Or keep it installed from the local clone:
+claude plugin marketplace add ~/three-pillars-plugin
+claude plugin install three-pillars@three-pillars
+```
+
+A local marketplace is read in place, so `git pull` in the clone followed by `/reload-plugins` picks up a new release. Cloning alone does nothing: Claude Code does not scan arbitrary folders for plugins.
+
+### For AI assistants
+
+Steps for an AI agent installing this plugin for a person:
+
+1. Check that `claude`, `git`, `gh` and `python3` are on the PATH. If `python3 -c "import jsonschema"` fails, run `pip install jsonschema` (a few skills need it). Claude Code plugins never install Python packages themselves.
+2. Run `claude plugin marketplace add CurtisThe/three-pillars-plugin`, then `claude plugin install three-pillars@three-pillars`. Use these shell forms: the in-session `/plugin install` opens a panel and waits for the person to pick a scope.
+3. The plugin ID is `three-pillars@three-pillars`. The part after `@` is the marketplace `name` from `.claude-plugin/marketplace.json`, not the repo name `three-pillars-plugin`.
+4. Do not also install `three-pillars-pro`. It already contains every core skill, so both together give duplicate skills.
+5. If `claude plugin list` already shows `three-pillars@synced`, it is installed through the person's account (desktop app). Stop there and do not install a second copy.
+6. Tell the person to run `/reload-plugins` or start a new Claude Code session, then type `/tp-guide` in a project to confirm it works.
+
+### Verify
+
+Type `/tp-guide` in any project. If the skill runs, you're set. `claude plugin list` shows the installed version.
 
 ## Update
 
-Releases ship new skills, bug fixes, and refinements. Check the [releases page](https://github.com/CurtisThe/three-pillars-plugin/releases) or the top of the commit log to see what's new.
+Releases ship new skills, bug fixes, and refinements. See [CHANGELOG.md](CHANGELOG.md) or the [releases page](https://github.com/CurtisThe/three-pillars-plugin/releases) for what's new.
 
 ```bash
+claude plugin marketplace update three-pillars
 claude plugin update three-pillars@three-pillars
 ```
 
-Restart Claude Code after updating so the new skills are loaded. Your existing designs, plans, and session state are untouched — updates only replace the plugin's own files (`skills/`, `agents/`, `CLAUDE.md`, etc.).
+Then run `/reload-plugins` or start a new session. Auto-update is off by default for third-party marketplaces; turn it on in `/plugin` → **Marketplaces** → **three-pillars** → **Enable auto-update**. A desktop-app install updates from **Customize → Plugins**.
+
+Updates only replace the plugin's own files (`skills/`, `agents/`, `CLAUDE.md`, etc.). Your designs, plans and session state are untouched.
 
 ## Uninstall
 
 ```bash
 claude plugin uninstall three-pillars@three-pillars
-claude plugin marketplace remove CurtisThe/three-pillars-plugin
+claude plugin marketplace remove three-pillars
 ```
 
-Your project's `three-pillars-docs/tp-designs/` directories are **not** removed — those belong to your project, not the plugin.
+Removing the marketplace also uninstalls its plugins. In the desktop app, remove it from **Customize → Plugins** (or **+ → Plugins → Manage plugins** in the Code tab).
 
-### Optional extras
+Your project's `three-pillars-docs/` directories are **not** removed. Those belong to your project, not the plugin.
+
+## Optional extras
 
 Both extras are **optional**. The plugin's core features (skills, agents, session management) work without them.
 
