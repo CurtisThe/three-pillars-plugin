@@ -542,7 +542,42 @@
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Optional argv (run from the repo root, no shell) that exits 0 when the file is up to date."
+              },
+              "timeout": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Seconds the write/check argv may run before the resolver gives up on this generator."
+              },
+              "inputs": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "description": "Repo-relative source files whose conflicts this generator can resolve by regenerating."
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Repo-relative directory the write/check argv runs in instead of the repo root."
               }
+            }
+          }
+        },
+        "generator_offer": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Record of the lockfile-catalog offer (basesync-generator-catalog): which generated files were already put to the operator, so the detector never re-offers them. Written by the /tp-merge-from-main offer site.",
+          "properties": {
+            "offered_at": {
+              "type": "string",
+              "description": "ISO-8601 UTC timestamp when the offer was last recorded."
+            },
+            "declined": {
+              "type": "boolean",
+              "description": "True if the operator declined adding the offered generators."
+            },
+            "offered_paths": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Repo-relative generated paths already offered — deduped and sorted."
             }
           }
         }

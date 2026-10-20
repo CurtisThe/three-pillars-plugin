@@ -37,6 +37,7 @@
 - Phase 1 creates `candidate/{slug}/single`; Phase 2+ continues it.
 - `worker_prompt = compose(design.md, plan.md, phase=N, tier_table=T, route=R if --local) + explicit_artifact_contract` (`cheap-tier.md` §Tier 3), then `Agent(subagent_type=agent_ref("tp-worker"), isolation="worktree", description="candidate/{slug}/phase-{N}", prompt=worker_prompt)`, no `model` (default model `sonnet`).
 - `isolation="worktree"` is mandatory; the auto-entry branch is `worktree-agent-<id>`, not `tp/{slug}`, so contract item 1 requires an explicit branch setup.
+- `worker_prompt` carries a literal `TP_ROOT: <absolute $TP_ROOT>` line (the orchestrator renders `$TP_ROOT` once): inside the worktree `tp-worker` has no `$TP_ROOT` to expand, and every `<TP>` in the commands it runs is that line verbatim.
 ### `explicit_artifact_contract` — 6 worker responsibilities
 
 Append the six-item list from `boundary-contracts.md` §explicit_artifact_contract to `worker_prompt` verbatim.

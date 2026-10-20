@@ -64,6 +64,10 @@ _HERE = Path(__file__).resolve().parent
 _MERGE_SCRIPTS = _HERE.parent / "tp-merge-from-main" / "scripts"
 if str(_MERGE_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_MERGE_SCRIPTS))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import low_doc_parts  # noqa: E402  (the one list of the Low-doc parts)
 
 from decisions_union import union_decisions  # noqa: E402
 from resolve import resolve_file, RESOLVED, DEFER  # noqa: E402,F401
@@ -111,9 +115,16 @@ _DESIGN_DECISIONS_RE = re.compile(r"three-pillars-docs/tp-designs/([^/\n]+)/deci
 
 def is_auto_safe_path(path) -> bool:
     """True iff `path` may be mechanically resolved: exact `AUTO_SAFE_PATHS` membership OR a
-    design's `decisions.md`. Total -- any exception (non-str input included) fails closed."""
+    design's `decisions.md` OR any Low-doc part (part 1 and the numbered parts a Low split
+    creates -- design: basesync-count-line-and-low-headroom 2.1). Total -- any exception
+    (non-str input included) fails closed. `AUTO_SAFE_PATHS` itself stays an exact set: the
+    strict certifier conjunct `base_sync_cert._cond3_allowlist` tests it directly, and a
+    single-definition guard pins it equal to the driver's list, so the parts join through
+    THIS predicate and never by widening the set."""
     try:
         if path in AUTO_SAFE_PATHS:
+            return True
+        if low_doc_parts.is_part_rel(path):
             return True
         m = _DESIGN_DECISIONS_RE.fullmatch(path)
         return bool(m) and m.group(1) not in (".", "..")

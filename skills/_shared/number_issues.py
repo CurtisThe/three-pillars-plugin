@@ -50,13 +50,15 @@ if _SHARED not in sys.path:
 
 from task_scope import _git_env  # noqa: E402
 
+import low_doc_parts  # noqa: E402  (the one list of the Low-doc parts)
+
 # The cold Low doc (skill-context-diet D5b) is scanned too: the next free `L` counts past the
 # highest `L` in all three, and a placeholder may be filed in the low file itself. A repo without
 # the file is tolerated exactly as before — every reader here uses ``doc.get(path, "")``.
 ISSUE_FILES = (
-    "three-pillars-docs/known_issues.md",
+    "three-pillars-docs/known_issues.md",           # index 0: `_compute` checks this one
     "three-pillars-docs/known_issues_resolved.md",
-    "three-pillars-docs/known_issues_low.md",
+    *low_doc_parts.PART_RELS,                      # part 1, then _2 … _9
 )
 
 DEFINED = re.compile(r"^### ([HML])-new-([a-z0-9]+(?:-[a-z0-9]+)*)(?=[ \t:(])", re.M)

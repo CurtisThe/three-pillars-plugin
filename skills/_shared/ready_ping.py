@@ -26,6 +26,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from finalizer import stop_key  # noqa: E402  (sibling _shared module)
+from ready_ping_owed import record_owed  # noqa: E402  (sibling _shared module)
 LEDGER_DIR = "tp-ready-ping"
 _GIT_TIMEOUT_S = 10
 
@@ -72,13 +73,13 @@ def _git_common_dir(root="."):
     return path if path.is_absolute() else (Path(root) / path).resolve()
 
 
-def ledger_path(slug):
+def ledger_path(slug, root="."):
     """`<git-common-dir>/tp-ready-ping/<slug>.ndjson`, absolute.
 
     Falls back to a literal `.git` directory when git cannot answer (no git,
     not a repo), so the caller still gets a usable path.
     """
-    common = _git_common_dir()
+    common = _git_common_dir(root)
     if common is None:
         common = Path(".git").resolve()
     return Path(common) / LEDGER_DIR / f"{slug}.ndjson"
@@ -245,6 +246,13 @@ def ping_ready(pr_url, head, *, info_fn=None, ledger=None, decisions=None,
     try:
         info = _safe_info(info_fn or pr_info, pr_url)
         if info.get("mergeable") == "CONFLICTING":
+            owed_slug = _slug_from_ref(info.get("headRefName"))
+            try:
+                record_owed(owed_slug, pr_number(pr_url), head,
+                            ledger if ledger is not None
+                            else ledger_path(owed_slug))
+            except Exception:
+                pass  # fail-open: the skip result is returned regardless
             return {"status": "skipped", "reason": "conflicting"}
         slug = _slug_from_ref(info.get("headRefName"))
         summary = info.get("title") or "pull request ready"

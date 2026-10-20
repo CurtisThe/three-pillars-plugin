@@ -65,7 +65,9 @@ def test_ping_ready_conflicting_skips(tmp_path):
     assert sent["status"] == "skipped"
     assert sent["reason"] == "conflicting"
     assert out.getvalue() == ""
-    assert records(ledger) == []
+    held = records(ledger)
+    assert len(held) == 1, f"a conflicting skip records one owed entry, got {held!r}"
+    assert held[0]["kind"] == "owed", f"the entry must be owed, got {held[0]!r}"
 
 
 def test_ping_ready_empty_info_pings_unchecked(tmp_path):

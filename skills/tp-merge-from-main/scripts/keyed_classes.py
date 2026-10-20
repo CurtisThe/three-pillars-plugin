@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Two insert-only living-doc classes: `keyed-heading-insertion` and `last-updated-preamble`.
+"""Three insert-only living-doc classes: `keyed-heading-insertion`, `last-updated-preamble` and
+`low-count-line`.
 
-Both are predicates over one `conflict_parse.Hunk` plus a merge that returns the region's lines.
-Neither reads or emits a base line, and neither drops one: a keep-both merge is a permutation of
-ours' and theirs' lines, and the preamble merge replaces exactly one line on each side with one.
+All three are predicates over one `conflict_parse.Hunk` plus a merge that returns the region's lines.
+The first two neither read nor emit a base line, and neither drops one: a keep-both merge is a
+permutation of ours' and theirs' lines, and the preamble merge replaces exactly one line on each side
+with one. The third reads the base's number to compute the merged one (see its paragraph).
 
 **`keyed-heading-insertion`** (`is_keyed_heading_insertion`, `merge_keyed_heading_lines`). Both
 sides inserted whole entries at one point, each headed by a KEYED heading (`KEYED_HEADING`):
@@ -31,6 +33,21 @@ theirs are each exactly one `*Last updated: YYYY-MM-DD …*` line and base is em
 The merge is the later-dated line (ours on a tie) when the text after the date is the same, and
 otherwise the later date and summary followed by the other side's summary.
 
+**`low-count-line`** (`is_low_count_line`, `merge_low_count_lines`). `known_issues.md` ends its
+Medium section with one `N Low issues → …` count line, both sides of a base-sync edit `N`, and the
+region defers as `generic-prose`. The value is derivable — `ours + theirs − base`, each side having
+added its own Lows to the same base — so the class accepts a 3-way region whose base is exactly that
+one line and whose sides are each whole keyed entries (optional, so an entry-only insert on one side
+still merges) followed by the count line, with the SAME text after the number on both sides, distinct
+keys, and a level 1-3 heading or EOF below the region. The merge is `merge_keyed_heading_lines` over
+the two entry blocks plus the one recomputed count line. A negative value, a second count line, a
+count line that is not a side's last line, no blank line before it, or any other base or side line is
+refused: each is a shape in which the arithmetic would mis-state how many Lows the doc holds.
+The merged entry block must ALSO end in a blank line: `merge_keyed_heading_lines` sorts whole
+numbered entries, so a side whose entries are out of document order can leave the sorted block
+ending in an entry's own body line, where the count line would be that entry's list continuation
+rather than a line of the document. The class refuses that shape rather than inventing the blank.
+
 `extra_label` and `extra_confident` are what `classify` calls; `extra_confident` also re-verifies
 `shaped-line-merge`. This module imports `line_shapes`, `conflict_parse` and one leaf, `shaped_merge`
 (which imports only those two), never `classify` (which imports it) or `resolvers`. Stdlib only.
@@ -56,6 +73,11 @@ KEYED_HEADING = re.compile(
     r"|`([a-z0-9][a-z0-9-]*)`[ \t]+\([0-9]{4}-[0-9]{2}-[0-9]{2}\))")
 LAST_UPDATED = re.compile(r"^\*Last updated:[ \t]+([0-9]{4}-[0-9]{2}-[0-9]{2})(.*)\*[ \t]*$")
 NUMBERED_KEY = re.compile(r"[HML][0-9]+")
+# `249 Low issues → [known_issues_low.md](…)`. Group 1 the number, group 2 everything after the
+# arrow, which must be identical on both sides. The class stops at the line end, and `\r` is not
+# in its character class, so a CRLF or a bare CR in the middle refuses the line rather than merging.
+COUNT_LINE = re.compile(r"^([0-9]+) Low issues → ([^\r\n]*)$")
+LOW_COUNT_LABEL = "low-count-line"
 
 
 def _heading_at(side: list[str], i: int) -> bool:
@@ -172,8 +194,84 @@ def merge_last_updated_lines(h: Hunk) -> list[str]:
     return [f"*Last updated: {later.group(1)}{later.group(2)}; {tail}*"]
 
 
+def _base_count(h: Hunk) -> re.Match | None:
+    """`COUNT_LINE` matched against `h.base` when the base is exactly one count line, else None."""
+    return COUNT_LINE.match(h.base[0]) if len(h.base) == 1 else None
+
+
+def _count_side(side: list[str]) -> tuple[list[str], re.Match] | None:
+    """`(entries, match)` when `side` is whole keyed entries (possibly none) and then exactly one
+    `COUNT_LINE` line, or None: the side is empty, its last line is not a count line, an earlier line
+    is one too (two count lines on one side is not one count line being edited), the entries before it
+    are not whole keyed entries (`_side_keys`), or they do not end in a blank line — without that
+    blank the count line would be the last entry's own paragraph text, not a line of the document."""
+    if not side or not (m := COUNT_LINE.match(side[-1])):
+        return None
+    if any(COUNT_LINE.match(ln) for ln in side[:-1]):
+        return None
+    entries = side[:-1]
+    if entries and (entries[-1].strip(" \t") or _side_keys(entries) is None):
+        return None
+    return entries, m
+
+
+def _entry_keys(entries: list[str]) -> list[str] | None:
+    """The keys of an entry block: none when the block is empty, else `_side_keys`'s."""
+    return _side_keys(entries) if entries else []
+
+
+def low_count_value(h: Hunk) -> int | None:
+    """`ours + theirs − base` over the three count lines, or None when the shape does not hold or the
+    result is negative (more Lows removed than added: not an insert-only merge)."""
+    ours, theirs, base = _count_side(h.ours), _count_side(h.theirs), _base_count(h)
+    if ours is None or theirs is None or base is None:
+        return None
+    value = int(ours[1].group(1)) + int(theirs[1].group(1)) - int(base.group(1))
+    return value if value >= 0 else None
+
+
+def is_low_count_line(h: Hunk) -> bool:
+    """Both sides are the same count line, optionally preceded by whole keyed entries with distinct
+    keys, and base is that one line alone (see the module docstring for each refusal)."""
+    if h.base_marker is None or _base_count(h) is None:
+        return False
+    ours, theirs = _count_side(h.ours), _count_side(h.theirs)
+    if ours is None or theirs is None or ours[1].group(2) != theirs[1].group(2):
+        return False
+    eo, et = ours[0], theirs[0]
+    ko, kt = _entry_keys(eo), _entry_keys(et)
+    if ko is None or kt is None or len(set(ko + kt)) != len(ko + kt):
+        return False
+    if not _ends_at_boundary(h, ENTRY_SECTION_END):
+        return False
+    merged = _merged_entries(eo, et)
+    if merged and merged[-1].strip(" \t"):
+        return False                 # the sorted block ends in an entry's body line (see above)
+    return low_count_value(h) is not None
+
+
+def _merged_entries(eo: list[str], et: list[str]) -> list[str]:
+    """The two entry blocks merged as a `keyed-heading-insertion` (sorted when every key is a numbered
+    ID) — the block `merge_low_count_lines` appends the recomputed count line after."""
+    return merge_keyed_heading_lines(Hunk(ours=eo, base=[], theirs=et)) if eo or et else []
+
+
+def merge_low_count_lines(h: Hunk) -> list[str]:
+    """The two entry blocks merged as a `keyed-heading-insertion` (sorted when every key is a numbered
+    ID), then the one count line: `ours + theirs − base` and ours' text after the arrow verbatim. A
+    hunk that is not the exact shape keeps both sides' lines, as `merge_last_updated_lines` does."""
+    if not is_low_count_line(h):
+        return list(h.ours) + list(h.theirs)
+    (eo, om), (et, _) = _count_side(h.ours), _count_side(h.theirs)
+    return _merged_entries(eo, et) + [f"{low_count_value(h)} Low issues → {om.group(2)}"]
+
+
 def extra_label(h: Hunk) -> str | None:
-    """The class of `h` when it is one of the two classes of this module, else None."""
+    """The class of `h` when it is one of the three classes of this module, else None. Checked
+    BEFORE `keyed-heading-insertion`: a count-line region carries keyed entries too, and only this
+    class computes the merged count line."""
+    if is_low_count_line(h):
+        return LOW_COUNT_LABEL
     if is_last_updated_preamble(h):
         return "last-updated-preamble"
     if is_keyed_heading_insertion(h):
@@ -187,6 +285,8 @@ def extra_confident(h: Hunk) -> bool | None:
         return is_last_updated_preamble(h)
     if h.label == "keyed-heading-insertion":
         return is_keyed_heading_insertion(h)
+    if h.label == LOW_COUNT_LABEL:
+        return is_low_count_line(h)
     if h.label == "shaped-line-merge":
         return shaped_merge.is_shaped_line_merge(h)
     return None

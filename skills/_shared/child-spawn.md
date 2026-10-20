@@ -35,8 +35,9 @@ Start a child only with `child_spawn.py start` (it detaches itself), never throu
    arguments as before this design. The line only makes the degrade visible.
    If the probe JSON carries a `model`, run the `Agent(...)` call with that model instead of `{model}`
    (a direct session has no Strata route in-process, so a `local-*` model would reach Anthropic's real Haiku).
-4. **`child`** — write the prompt (with the slot-loss suffix from `strata-spawn.md`) to a file under
-   the project the child works in, then
+4. **`child`** — write the prompt (with the slot-loss suffix from `strata-spawn.md`) to a file inside
+   the tree its `--cwd` names, never under `<git-common-dir>` (a worktree-isolated agent cannot Write
+   there), then
    `python3 <TP>/skills/_shared/child_spawn.py start --site <site> --agent-ref {agent_ref} --model {model} --prompt-file <file> --cwd <dir>`
    (`<site>` is the calling site's id, `S1` to `S4` above).
    Exit 0 prints `{"child_session", "pid", "inner_agent_id", "state_path", "state": "running"}`.

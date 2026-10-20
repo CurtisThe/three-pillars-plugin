@@ -26,6 +26,7 @@ from typing import Mapping, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model_policy  # noqa: E402
+import design_run_role  # noqa: E402
 
 MARKER = "TP_DESIGN_RUN"
 # The session-level effort pin that must not leak into a launched run.
@@ -147,16 +148,37 @@ def window_command(
 ) -> str:
     """Full shell command for a tmux window (or manual paste). `mcp` (a `design_run_mcp` argv
     fragment, empty = none) goes before `--model`: `--mcp-config` is variadic and would swallow
-    a slash prompt after it as a second config file. `extra_env`/`unset`: see `env_prefix`. `--name` = RC label."""
+    a slash prompt after it as a second config file. `extra_env`/`unset`: see `env_prefix`. `--name` = RC label; a role launch (see `design_run_role.remote_control_args`) also carries `--remote-control=<slug>`."""
     model = _require_model(model, configured=configured)
     args = effort_args(effort)
     lead = f"{mcp} " if mcp else ""
-    slash = slash_command(slug, mode=mode, skip_design=skip_design, local=local,
-                          cheap_tier=cheap_tier)
+    slash = slash_command(slug, mode=mode, skip_design=skip_design, local=local, cheap_tier=cheap_tier)
     return (
         f"cd {shlex.quote(worktree)} && {env_prefix(config_dir, backend_env, extra_env, unset)}"
         f"claude {lead}--model {shlex.quote(model)} {args} --name {shlex.quote(slug)} "
-        f"{shlex.quote(slash)}; exec bash"
+        f"{design_run_role.remote_control_args(slug, backend_env)}{shlex.quote(slash)}; exec bash"
+    )
+
+
+_SID_RE = re.compile(r"^[A-Za-z0-9-]+$")
+
+
+def resume_window_command(
+    slug: str, worktree: str, sid: str, *, config_dir: Optional[str] = None,
+    model: str = DEFAULT_MODEL, configured: Optional[str] = None,
+    effort: str = DEFAULT_EFFORT, backend_env: str = "", mcp: str = "",
+    extra_env: Sequence[Tuple[str, str]] = (), unset: Sequence[str] = (),
+) -> str:
+    """Like `window_command` but `claude [mcp] --resume <sid> …` with no slash prompt."""
+    _require_slug(slug)
+    if not isinstance(sid, str) or not _SID_RE.match(sid):
+        raise ValueError(f"invalid session id {sid!r}; must match [A-Za-z0-9-]+")
+    model = _require_model(model, configured=configured)
+    lead = f"{mcp} " if mcp else ""
+    return (
+        f"cd {shlex.quote(worktree)} && {env_prefix(config_dir, backend_env, extra_env, unset)}"
+        f"claude {lead}--resume {sid} --model {shlex.quote(model)} {effort_args(effort)} "
+        f"--name {shlex.quote(slug)}; exec bash"
     )
 
 

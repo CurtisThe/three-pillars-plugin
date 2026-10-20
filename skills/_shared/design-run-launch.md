@@ -1,9 +1,6 @@
 # Design-run launch rule
 
-A **design run** (`/tp-run-full-design <slug> …`) is always its own top-level Claude Code
-session in its own tmux session — visible to the operator, attachable, resumable, and on its own
-budget. The **seat** (the operator's orchestration session, `/tp-promote`, a fleet batch)
-*launches* design runs; it never *hosts* one.
+A **design run** (`/tp-run-full-design <slug> …`) is always its own top-level Claude Code session in its own tmux session — visible to the operator, attachable, resumable, and on its own budget. The **seat** (the operator's orchestration session, `/tp-promote`, a fleet batch) *launches* design runs; it never *hosts* one.
 
 ## The rule
 
@@ -16,7 +13,7 @@ budget. The **seat** (the operator's orchestration session, `/tp-promote`, a fle
 - Launch it through the one sanctioned launcher:
 
   ```bash
-  python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> [--mode M] [--skip-design] [--local | --no-local] [--local-mode {wait,fallback,exclusive}] [--direct] [--cheap-tier[=ab] | --no-cheap-tier] [--base-sync] [--brief FILE] [--wait SECONDS] [--dry-run]
+  python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> [--mode M] [--skip-design] [--local | --no-local] [--local-mode {wait,fallback,exclusive}] [--direct] [--cheap-tier[=ab] | --no-cheap-tier] [--base-sync] [--resume [--session SID]] [--brief FILE] [--wait SECONDS] [--dry-run]
   ```
 
   It resolves the `tp/<slug>` worktree, pre-trusts it in the route profile's `.claude.json`,
@@ -33,9 +30,7 @@ budget. The **seat** (the operator's orchestration session, `/tp-promote`, a fle
   A design run launches with role `run` (direct, Remote Control allowed); a launcher without `run` falls back to `seat` and one line says so.
   `--local-mode` exports `TP_LOCAL_MODE`; the command unsets every launcher name in the seat's `CLAUDE_LAUNCHER_OWNED` so the run's own launcher plans from the worktree.
   See [`design-run-launch-flags.md`](design-run-launch-flags.md), which also covers `close --worktree`.
-  It then links that window into the launching session (next free index), so the run shows up
-  where it was launched; it prints the seat-side target (`<seat>:<index>`) and a
-  `tmux attach -t <slug>` hint.
+  It then links that window into the launching session (next free index), so the run shows up where it was launched; it prints the seat-side target (`<seat>:<index>`) and a `tmux attach -t <slug>` hint.
 - **Fail visibly, never in-context.** Exit 2 means the launcher could not open the session
   (tmux missing, not inside tmux, no worktree, disallowed model). It prints the manual command
   when it can build one (not when a run is already live: then it prints only the attach line) — relay that verbatim to the operator and stop. Do not fall back to
@@ -58,12 +53,7 @@ All tmux logic lives in `skills/_shared/design_run_tmux.py` (injectable runner; 
 | Launched from inside tmux | links the first window into the launching session at the next free index (once) |
 | Launched outside tmux | no link (the launcher already prints the manual command) |
 
-`close <slug>` (run by `/tp-post-merge` after the worktree is removed) kills only the slug session's
-lowest-index (run) window by window id, so its seat link goes too, then the session; windows
-hand-linked in from other sessions survive. It never kills the window holding the caller's own
-pane (teardown may run inside the run's window) and leaves the session open when `$TMUX` is set
-but `$TMUX_PANE` is not. It never errors and prints one report line (`closed`, `left open`, or
-`close failed`). Fleet launch scripts keep their own session model.
+`close <slug>` (run by `/tp-post-merge` after the worktree is removed) kills only the slug session's lowest-index (run) window by window id, so its seat link goes too, then the session; windows hand-linked in from other sessions survive. It never kills the window holding the caller's own pane (teardown may run inside the run's window) and leaves the session open when `$TMUX` is set but `$TMUX_PANE` is not. It never errors and prints one report line (`closed`, `left open`, or `close failed`). Fleet launch scripts keep their own session model.
 
 ## Launch defaults (seat brief, routing, first message, watcher)
 
@@ -105,6 +95,17 @@ The launcher encodes the standing launch rulings so the seat stops re-stating th
 
 Every failure in steps 2 to 5 is fail-open: one line, and the launch keeps its exit code.
 
+## After a reboot
+
+A machine restart kills every run's `claude`; putting a run back on its own conversation is an operator or seat gesture — nothing resumes at boot:
+
+- `python3 "$TP_ROOT"/skills/_shared/launch_design_run.py --list-resumable` (no slug, read-only) prints `<slug> <sid> <mtime>` for each `tp/*` worktree a reboot left without a run, or `none`.
+- `launch_design_run.py <slug> --resume [--session SID]` reopens `<slug>` on `claude --resume <sid>` — the newest top-level transcript in the worktree's project dir, or `--session SID`'s (an unknown SID exits 2 and names that dir) — with the same profile, model, MCP and env as a fresh launch, and **no seat brief, no fable notice, no fresh first line**. A live run is refused with exit 2 and the attach line; with no transcript it exits 2, prints `no session to resume for <slug>` plus the plain fresh-launch command, and launches nothing.
+- It prints `resumed <slug>: session <sid> (last written <ts>)` and the routing line, then refreshes the run state: `run.pid` and `state.json`'s `supervisor.pid` take the run window's `#{pane_pid}` (the process-group leader, never the `claude` pid) and **only where those files already existed** (a fleet worker); one line says which happened. `--wait 0` skips the wait and prints `design_run_resume_run.py refresh <slug> <worktree>` to redo it once `claude` is up.
+- The fixed continue line goes in through `design_run_send`: `Seat (under operator delegation): the machine restarted and this session was resumed; check git status and the plan, then continue from where the run stopped`. `--wait 0` skips it and prints the `design_run_send.py` retry command.
+- Last it prints the `re-arm:` line — `python3 "$TP_ROOT"/skills/_shared/design_run_watch.py <slug>` — and the liveness checklist: `/proc/<claude pid>/environ` carries the profile, `/proc/<claude pid>/cwd` is the worktree, and the transcript's mtime advances.
+- **The seat re-arms both watchers by hand**: that run watcher and the rollover driver it feeds (step 5's `context_rollover_drive.py <slug>` on each `idle`), both killed by the reboot. When the resumed sid's rollover ledger entry is still `claimed` the restart cut a rollover off, so none will fire for that session again — the launcher prints one warning and you save, `/clear` and restore by hand near ~300k context (`context-rollover.md`).
+
 ## Backstop inside the design run (Tier 0)
 
 `/tp-run-full-design` checks for the marker before pickup:
@@ -115,5 +116,4 @@ Every failure in steps 2 to 5 is fail-open: one line, and the launch keeps its e
 | Marker absent **and** this session was started by a parent agent's task prompt (a subagent dispatch, not the operator) | **Refuse** before pickup; print the launcher call above for the parent to run instead. |
 | Marker absent and the operator typed the command in a top-level session, or unsure | **Warn once** (suggest the launcher next time) and continue. |
 
-Check the marker with `printenv TP_DESIGN_RUN`. The self-check has no harness signal to lean
-on; it is an honest self-assessment of how this session was started.
+Check the marker with `printenv TP_DESIGN_RUN`. The self-check has no harness signal to lean on; it is an honest self-assessment of how this session was started.

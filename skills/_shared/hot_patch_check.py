@@ -62,6 +62,7 @@ EXCLUDED_FILES = frozenset({
     "skills/_shared/gate_roster.py",
     "skills/_shared/human_approval.py",
     "skills/_shared/file_size_guard.py",
+    "skills/_shared/low_doc_parts.py",
     "skills/tp-merge/scripts/land.py",
     "skills/tp-merge-from-main/scripts/gate_cli.py",
     "skills/tp-merge-from-main/scripts/merge_gate.py",

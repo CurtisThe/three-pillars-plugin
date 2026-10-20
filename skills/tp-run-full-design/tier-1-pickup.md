@@ -24,7 +24,7 @@ Validate the returned contract first: schema/rules in `boundary-contracts.md` §
 
 - `python3 "$TP_ROOT"/skills/_shared/weight_class.py read three-pillars-docs/tp-designs/{slug}` (`weight-class.md`) — direct design.md frontmatter read; the class never rides the contract. A `("full","default")` read routes as `full`.
 - `full` — documented pipeline; `light` — light slot mapping (`SKILL.md` ## Per-slot budget table light column).
-- `just-do-it` — escalate to `light` (unattended runs need the audit floor); log `[tp-run-full-design] weight-class escalation: just-do-it → light`.
+- `just-do-it` — run `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir three-pillars-docs/tp-designs/{slug} --base origin/<base> --head HEAD`; `route: just-do-it` → `SKILL.md` ### Just-do-it slot mapping, log `[tp-run-full-design] weight-class route: just-do-it`; `route: light` → append the escalation line it prints to decisions.md and route `light` (the script already stamped `design.md` + `seed.md`). On `route: light` commit the stamped `design.md` + `seed.md` with the escalation's decisions.md entry (scoped `git add` on `tp/{slug}`) before Tier 2. A script exit 2 (`ESCALATE bad-input`) is logged the same way and routes `light` as well.
 - `spike` — refuse: `/tp-spike-auto` Phase 1 is interactive, cannot run unattended; never re-class silently. BLOCKED `**Cause**: weight-class-spike-refusal`, exit non-zero.
 - De-escalation refused: escalate above the declared class (logged), never below; a lighter run than declared → BLOCKED `**Cause**: weight-class-de-escalation-refused`.
 

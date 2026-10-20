@@ -220,11 +220,15 @@ def required_artifacts(mode: str, *, weight_class: Optional[str] = "full") -> Tu
     Tuple order is the canonical check order — the precondition gate reports
     missing files in this order.  weight_class is the Tier-1 weight class; a
     light design has no detailed-design.md, so light + build needs only
-    design.md + plan.md.  Any value other than "light" is treated as "full"
-    (fail safe to more checking).
+    design.md + plan.md.  A just-do-it design has no detailed-design.md and
+    its plan.md is generated mechanically by the run, so just-do-it + build
+    needs design.md alone.  Any other value is treated as "full" (fail safe
+    to more checking).
     """
     require_mode(mode)
     required = _REQUIRED_ARTIFACTS[mode]
+    if weight_class == "just-do-it" and mode == "build":
+        return ("design.md",)
     if weight_class == "light" and mode == "build":
         required = tuple(a for a in required if a != "detailed-design.md")
     return required

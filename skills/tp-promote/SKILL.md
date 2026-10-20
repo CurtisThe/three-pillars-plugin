@@ -199,6 +199,11 @@ tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.m
       `TP_DESIGN_RUN=1 claude --model 'sonnet[1m]' '/tp-run-full-design <slug> --skip-design'`
       run from the worktree — and stop. Do not start the run in this session.
 
+    - A `just-do-it` seed promotes to a floor-passing mini design (no
+      `## State space` section) and launches with this same `--skip-design`
+      command; Tier 1 then routes it via `jdi_eligibility.py route` —
+      `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir three-pillars-docs/tp-designs/{slug} --base origin/<base> --head HEAD`.
+
     Only when the launch failed (exit 2, no run live) may the slug instead be staged as
     `design-ready` in a fleet batch; a launched run is never staged again.
 

@@ -179,6 +179,16 @@ def test_jdi_warning_lines_and_silences(tmp_path):
     assert phase_check.jdi_warning(absent) is None
 
 
+def test_a_closed_jdi_phase_leaves_no_warning(tmp_path):
+    """prepare --jdi then close --phase jdi: the carry has the entry, so no warning."""
+    repo = _repo(tmp_path)
+    base = git(repo, "rev-parse", "HEAD")
+    head = commit(repo, {"impl/a.py": "A = 1\n"}, "work")
+    res = _prepare(repo, base, head)
+    phase_check.close(repo / DD, "jdi", scratch=res["scratch"])
+    assert phase_check.jdi_warning(repo / DD) is None
+
+
 def test_cli_jdi_warn_prints_the_line_and_exits_zero(tmp_path, capsys):
     repo = _repo(tmp_path)
     assert phase_check.main(["jdi-warn", "--design-dir", str(repo / DD)]) == 0

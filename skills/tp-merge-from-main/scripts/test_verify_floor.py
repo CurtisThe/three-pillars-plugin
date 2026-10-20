@@ -77,6 +77,14 @@ _FLOOR_SHAPES = {
     "ENTRY": _F_ENTRY.pattern, "ROW": _F_ROW.pattern, "LOG": _F_LOG.pattern,
     "DECISION_ENTRY": _F_DECISION_ENTRY.pattern,
 }
+# `LOG` is the one floor shape the module has WIDENED since (plain-date bullets, `- 2026-10-16 — …`,
+# basesync-generator-catalog 4.1). The floor keeps master's original spelling, so the superset
+# assertion still proves the widened `atoms()` loses nothing master caught; the module and a
+# post-merge master are held to the widened spelling instead.
+_WIDENED_SHAPES = {
+    "LOG": (r"^-\s+((?:\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*|\d{4}-\d{2}-\d{2})"
+            r"\s+—.*)$"),
+}
 # Branch-local by construction: everything this branch ADDS to master's three atom kinds. Since
 # round 9 deleted the marker strip that is exactly one name — the decision-entry atom. The former
 # `CONFLICT_*` shape names went with the strip and are NOT listed here any more: naming a shape
@@ -178,7 +186,8 @@ def test_the_floor_shapes_have_not_drifted_from_the_module_under_test():
     """
     with open(_MODULE_SRC, encoding="utf-8") as fh:
         declared = _declared_patterns(fh.read())
-    drift = {name: (pat, declared.get(name)) for name, pat in _FLOOR_SHAPES.items()
+    expected = {**_FLOOR_SHAPES, **_WIDENED_SHAPES}
+    drift = {name: (pat, declared.get(name)) for name, pat in expected.items()
              if declared.get(name) != pat}
     assert not drift, (
         "verify_atoms.py's shapes no longer match this module's inlined floor. If the change is "
@@ -246,7 +255,8 @@ def _provenance_drift(declared):
     branch-local shape may be ABSENT (master before this branch lands) or present as the floor's
     literal (master after); present with any other spelling means the floor needs re-deriving."""
     drift = [f"{name}: {sorted(declared.get(name, ()))!r} != {[_FLOOR_SHAPES[name]]!r}"
-             for name in _MASTER_SHAPES if declared.get(name) != {_FLOOR_SHAPES[name]}]
+             for name in _MASTER_SHAPES
+             if declared.get(name) not in ({_FLOOR_SHAPES[name]}, {_WIDENED_SHAPES.get(name)})]
     drift += [f"{name}: {sorted(declared[name])!r} != {[_FLOOR_SHAPES[name]]!r}"
               for name in _BRANCH_LOCAL_SHAPES
               if name in declared and declared[name] != {_FLOOR_SHAPES[name]}]

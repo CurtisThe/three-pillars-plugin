@@ -62,6 +62,7 @@ import landed_regression  # noqa: E402 — in-repo, stdlib-only sibling
 import local_implement_config  # noqa: E402 — in-repo, stdlib-only sibling
 import no_oracle_review  # noqa: E402 — in-repo, stdlib-only sibling (step 6, no oracle)
 import registry_edit  # noqa: E402 — in-repo, stdlib-only sibling
+import scratch_root  # noqa: E402 — in-repo, stdlib-only sibling (the scratch base)
 import targets_frozen  # noqa: E402 — in-repo, stdlib-only sibling (the pair rule)
 import task_attempts  # noqa: E402 — in-repo, stdlib-only sibling
 import task_scope  # noqa: E402 — in-repo, stdlib-only sibling
@@ -150,6 +151,7 @@ def _step_commits(adir: str, base: str, row: dict, res: dict) -> None:
 
 
 _CACHE_NAMES = {"__pycache__", ".pytest_cache"}
+_UNNAMED_NAMES = _CACHE_NAMES | {scratch_root.SCRATCH_DIR}  # scratch: scrubbed, unnamed
 
 
 def _git_z(adir: str, *args: str) -> tuple[int, list[str]]:
@@ -178,7 +180,7 @@ def _materialize_head(adir: str) -> None:
 
 def _scrub_ignored(attempt: dict) -> list[str]:
     """Delete the attempt's ignored files (A32) → one ``ignored-removed`` note per path,
-    bytecode caches unnamed. Only in place (A33): ``attempt_dir`` must pass
+    caches and scratch unnamed. Only in place (A33): ``attempt_dir`` must pass
     ``task_attempts.removable`` and be its own git toplevel, else exit 2
     ``ignored-scrub-refused``. A scrub that fails is exit 2: the tree is unknown."""
     adir = str(attempt["attempt_dir"])
@@ -191,8 +193,8 @@ def _scrub_ignored(attempt: dict) -> list[str]:
     done = task_attempts._git(adir, "clean", "-ffdX", "-q", check=False)
     if rc or done.returncode:
         raise _EnvError(f"ignored-scrub-failed (rc {rc or done.returncode})")
-    return [f"ignored-removed: {p}" for p in paths
-            if not _CACHE_NAMES & set(Path(p).parts) and not p.endswith((".pyc", ".pyo"))]
+    return [f"ignored-removed: {p}" for p in paths if not _UNNAMED_NAMES & set(Path(p).parts)
+            and not p.endswith((".pyc", ".pyo"))]
 
 
 def _registry_files(adir: str) -> list[str]:

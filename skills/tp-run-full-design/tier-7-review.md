@@ -32,6 +32,10 @@
 - **Ping.** When the converge terminal JSON carries `ready_ping.status == "sent"`, append its `decisions_line` to `decisions.md` and, when the `PushNotification` tool is available (`ToolSearch select:PushNotification`), call it with the `message`. The marked line is already printed, so an unavailable tool changes nothing; `duplicate` and `skipped` do nothing.
 - Base moved mid-loop: run `/tp-merge-from-main`, never a free-hand `git merge`.
 
+### Just-do-it round
+
+- When `python3 "$TP_ROOT"/skills/_shared/weight_class.py review-weight <design_dir>` prints `just-do-it`, the loop is one round: round 1 fans out on the full PR diff. Clean → `converge.py` as usual. Blocking → one inline tail fix, then one confirm round scoped to the fix delta (the round cap the text above relies on is 2 for `just-do-it`). Still blocking at the cap → `budget-exhausted` → the finalizer path (`SKILL.md` § Cleanup step 0). Never skip Tier 7 for a just-do-it run. A run escalated to `light` by Tier 1 uses the light round instead.
+
 ### The merge-only gate
 
 - Tier 7 pushes fix commits, never merges: a human reviews the reviewed-stable PR, runs `/tp-merge`. Never hand-merge or auto-merge: autonomous through push + PR + review-response, paused before `/tp-merge`. Never escalate a non-converged loop past the gate.

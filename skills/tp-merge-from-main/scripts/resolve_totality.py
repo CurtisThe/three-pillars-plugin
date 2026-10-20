@@ -59,6 +59,9 @@ and it now names WHICH KEYS it covers as well as what it permits (S-K2):
 | `last-updated-preamble`      | two one-line sides become ONE line: the | cross-side on the one     |
 |                              | later one, or a union of the two        | `*Last updated:` key      |
 |                              | summaries (see below).                  | only                      |
+| `low-count-line`             | the two edited count lines become ONE   | cross-side on the one     |
+|                              | recomputed `N Low issues \u2192` line (see   | `<low-count>` key         |
+|                              | below).                                 |                           |
 | `shaped-line-merge`          | per-line merge against BASE: a shaped   | BASE-AWARE: exact, but a  |
 |                              | base line a side changed or removed is  | let-go shaped base line   |
 |                              | let go; a shared add is placed once.    | and a shared add collapse |
@@ -69,6 +72,17 @@ Every `*Last updated:` line keys on ONE constant, so the output must carry at le
 (the cross-side `max` of two lines of one key is one); and `overproduced` exempts the result only
 when it is exactly one `LAST_UPDATED` line, so a second line or a different invented line is still
 reported.
+
+**`low-count-line`** is the second class whose output may be a line NEITHER side wrote: both sides
+edited the one `N Low issues \u2192` count line at the end of `known_issues.md`'s Medium section, and
+the merge recomputes it as `ours + theirs \u2212 base` (each side added its own Lows to the same base),
+keeping ours' text after the arrow verbatim. Every count line keys on ONE constant, so the output
+must carry at least one (the cross-side `max` of two lines of one key is one) while every keyed
+entry line around it stays at exact multiplicity; and `overproduced` exempts the result only when
+exactly ONE output line is a count line, so a second count line or an invented prose line is still
+reported. The class predicate refuses anything but that shape — a differing text after the number, a
+second count line on a side, a base that is not exactly one count line, or entry blocks that the
+entry merge would leave with no blank line before the count line.
 
 **`shaped-line-merge`** is the FIRST BASE-AWARE licence. A side's change to a base line makes the old
 line rightly absent from the output, so the count is `(C(ours) & C(theirs) & C(base)) + ((C(ours) -
@@ -134,7 +148,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from conflict_parse import (  # noqa: E402
     Hunk, MARK_BASE, MARK_CLOSE, MARK_OPEN, MARK_SEP,
 )
-from keyed_classes import LAST_UPDATED  # noqa: E402
+from keyed_classes import COUNT_LINE, LAST_UPDATED, LOW_COUNT_LABEL  # noqa: E402
 from line_shapes import LOG_ENTRY  # noqa: E402
 
 ID_HEADING = re.compile(r"^### ([A-Z])(\d+):")
@@ -262,6 +276,14 @@ def _row_key(line: str) -> str:
 
 
 LAST_UPDATED_KEY = "<last-updated>"
+LOW_COUNT_KEY = "<low-count>"
+
+
+def _low_count_key(line: str) -> str:
+    """Every `N Low issues \u2192` count line keys on ONE constant: the class emits ONE recomputed line
+    for the two it was handed (`ours + theirs \u2212 base`), so a key on the text would see a drop. Any
+    other line keys on itself."""
+    return LOW_COUNT_KEY if COUNT_LINE.match(line) else line
 
 
 def _last_updated_key(line: str) -> str:
@@ -312,6 +334,8 @@ def key_for(label: str, renumbered: dict[str, str] | None = None):
         return _row_key
     if label == "last-updated-preamble":
         return _last_updated_key
+    if label == LOW_COUNT_LABEL:
+        return _low_count_key
     return lambda line: line
 
 
@@ -322,7 +346,7 @@ def key_for(label: str, renumbered: dict[str, str] | None = None):
 # including any class added later, which is not in this set — is held to exact multiplicity.
 CROSS_SIDE_DEDUPE = frozenset(
     {"append-only-log", "design-inventory-row-merge", "last-updated-preamble",
-     "log-entry-insertion"})
+     "log-entry-insertion", LOW_COUNT_LABEL})
 
 
 def shared_entry_affix(h: Hunk) -> tuple[int, int]:
@@ -368,6 +392,8 @@ def licensed_keys(h: Hunk, key, label: str) -> frozenset[str] | None:
         return frozenset(rows | {key(line) for line in frame})
     if label == "last-updated-preamble":
         return frozenset({LAST_UPDATED_KEY})       # the one key, and nothing else
+    if label == LOW_COUNT_LABEL:
+        return frozenset({LOW_COUNT_KEY})          # the one count line, and nothing else
     if label == "log-entry-insertion":
         k, m = shared_entry_affix(h)          # the whole shared entries, emitted once
         ours = list(h.ours)
@@ -422,7 +448,12 @@ def overproduced(h: Hunk, label: str, out_lines: list[str]) -> list[str]:
         return []
     if label == "last-updated-preamble" and len(out_lines) == 1 and LAST_UPDATED.match(out_lines[0]):
         return []
-    surplus = Counter(out_lines) - Counter(list(h.ours) + list(h.base) + list(h.theirs))
+    src = list(out_lines)
+    if label == LOW_COUNT_LABEL:
+        counts = [ln for ln in src if COUNT_LINE.match(ln)]
+        if len(counts) == 1:
+            src.remove(counts[0])     # the one recomputed line; a second is still invention
+    surplus = Counter(src) - Counter(list(h.ours) + list(h.base) + list(h.theirs))
     return list(surplus.elements())
 
 

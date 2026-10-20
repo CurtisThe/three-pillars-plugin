@@ -18,6 +18,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/wait_ttl_hook.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/delete_fence_hook.py\"",
+            "timeout": 10
           }
         ]
       },

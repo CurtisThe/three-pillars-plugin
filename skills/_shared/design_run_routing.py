@@ -40,10 +40,13 @@ def parse_environ(raw: bytes) -> "dict[str, str]":
 
 def routing_line(env: Mapping[str, str], argv: "Optional[list[str]]" = None) -> str:
     """`routing: base_url=… haiku=… profile=… backend=… remote_control=…` from a run's
-    environment and argv (None = unreadable). No `role=`: the launcher deletes
+    environment and argv (None = unreadable). Remote Control is on for a bare
+    `--remote-control` or any `--remote-control=<name>` form. No `role=`: the launcher deletes
     CLAUDE_LAUNCHER_ROLE from the final env, so a running session's role cannot be read back."""
     config_dir = env.get("CLAUDE_CONFIG_DIR", "")
-    rc = "unknown" if argv is None else ("on" if "--remote-control" in argv else "off")
+    rc = ("unknown" if argv is None else
+          ("on" if any(a == "--remote-control" or a.startswith("--remote-control=")
+                       for a in argv) else "off"))
     return ("routing: base_url=" + (env.get("ANTHROPIC_BASE_URL") or "unset")
             + " haiku=" + (env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") or "unset")
             + " profile=" + (os.path.basename(config_dir.rstrip("/")) or "default")

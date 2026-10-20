@@ -30,7 +30,7 @@ def opus(ts: str, sess: str, effort: str = "high", size: int = 5000) -> str:
             f"  effort={effort}  -> upstream  ({size}B)")
 
 
-def strata(ts: str, sess: str, size: int = 304) -> str:
+def strata(ts: str, sess: str, size: int = 229011) -> str:
     """An unagented Strata request — the main thread reaching the local slot."""
     return (f"[{ts}] POST /v1/messages  model=strata  sess={sess}"
             f"  -> local strata (proxy up)  ({size}B)")

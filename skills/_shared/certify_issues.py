@@ -28,7 +28,14 @@ any of them is skipped, so a re-run applies nothing twice.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import low_doc_parts  # noqa: E402  (the one list of the Low-doc parts)
 
 PENDING_MARK = "<!-- certification known-issues pending v1 -->"
 PLACEHOLDER = "M?"
@@ -36,7 +43,9 @@ SWEEP_MISS = ("not-binding", "false-red")
 SELF_OK = ("binds", "known-bypass")
 MEDIUM = "## Medium"
 _DOCS = "three-pillars-docs/"
-LIVE_ISSUE_DOCS = (_DOCS + "known_issues.md", _DOCS + "known_issues_low.md")
+# Part 1 plus every numbered Low part (design: basesync-count-line-and-low-headroom 2.1).
+# A repo with no Low doc still resolves none of them, so it behaves exactly as before.
+LIVE_ISSUE_DOCS = (_DOCS + "known_issues.md", *low_doc_parts.PART_RELS)
 ISSUE_ID_DOCS = LIVE_ISSUE_DOCS + (_DOCS + "known_issues_resolved.md",)
 COLD_ISSUE_DOCS = (_DOCS + "known_issues_resolved.md", _DOCS + "known_issues_archive.md")
 _KEY_RE = re.compile(r"\[certification ([^\]\s]+#[^\]\s]+)\]")
@@ -115,9 +124,10 @@ def apply(pending: str, known_issues, resolved=None) -> list[str]:
     """Insert the pending entries under `## Medium`; return the placeholder ids filed."""
     known_issues = Path(known_issues)
     resolved = Path(resolved) if resolved else known_issues.parent / "known_issues_resolved.md"
-    low = known_issues.parent / Path(LIVE_ISSUE_DOCS[1]).name
+    low = "\n".join(_read(known_issues.parent / Path(r).name)
+                     for r in low_doc_parts.PART_RELS)  # every Low part, in part order
     text = _read(known_issues)
-    archive = _read(resolved) + "\n" + _read(low)  # every other ID doc: dedupe only
+    archive = _read(resolved) + "\n" + low  # every other ID doc: dedupe only
     lines = text.splitlines(keepends=True)
     at = next((i for i, ln in enumerate(lines) if ln.rstrip() == MEDIUM), None)
     if at is None:

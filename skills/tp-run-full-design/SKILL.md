@@ -119,6 +119,26 @@ Runs `/tp-design-learn {slug} --auto --cheap-tier`. **generator-return** class; 
 - Slots 3 and 5 skipped; Slots 4 + 6 merge into one fan-out, `--light` prompts (`skills/tp-plan-audit/SKILL.md` §Light mode prompts), **single round**.
 - **Slot 8 = regression check + a single fidelity auditor**: regression check still gates; **one** verdict-only auditor works `skills/_shared/weight-class.md` §Light fidelity checklist, confidences via `auto_verdict.compute_verdict` (`"$TP_ROOT"/skills/_shared/auto_verdict.py`); returns at most 6 `guard_claims[]`, in the auditor's order, each with a production-file subject in the design diff; Step 2b lints them with `--light`.
 
+### Just-do-it slot mapping (`weight-class: just-do-it`)
+
+Reached only when Tier 1's `jdi_eligibility.py route` prints `route: just-do-it` (`tier-1-pickup.md` §Weight-class consumption). Slot 2 skipped (Mode B holds the mini design.md); Slots 3-6 skipped **as dispatches** - the plan is written by a script, never a council.
+
+Before Slot 7 (`<d>` = `three-pillars-docs/tp-designs/{slug}`):
+
+```bash
+python3 "$TP_ROOT"/skills/_shared/jdi_plan.py write --design-dir <d>
+python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/plan_couplings.py <d> --root .
+python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_artifact.py --write <d> --mode jdi-mechanical
+```
+
+- Log `[tp-run-full-design] jdi plan: mechanical one-task plan.md written`, then commit `plan.md` + `.plan-audit-pass.json` with the slot's `decisions.md` entry (scoped `git add` on `tp/{slug}`, before the Slot 7 dispatch - as [`throughput.md`](throughput.md) §Plan-audit prechecks does for light; the Slot 7 worktree is cut from committed HEAD).
+- **Any non-zero exit** (incl. `plan_couplings.py` findings) -> `python3 "$TP_ROOT"/skills/_shared/weight_class.py escalate <d> --to light --reason <step>`, logged, then the light route. Never continue jdi.
+- `write` is idempotent: a cold resume with a `**Status**`-bearing plan.md or another class leaves it `unchanged`. Every plan-dependent gate then runs unchanged.
+- **Slot 7** = one implement phase on that plan, normal `--local` routing.
+- **Eligibility re-checkpoints**: after Slot 7 and after Slot 8 (before Slot 9 / Tier 5.6, `<d>` still in flight), both `--base $(git merge-base origin/{default} HEAD) --head origin/candidate/{slug}/single`: `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir <d> --base <mb> --head <head>`. `route: light` or exit 2 -> log the line, run the **light** Slot 8 on the existing diff and plan.md (no second implementation). When the check stamps `plan.md` and the siblings, commit them with the escalation's decisions.md entry (scoped `git add` on `tp/{slug}`) before the light Slot 8 runs, so the Tier 5.6 fold of a candidate that changed `plan.md` Status lines does not refuse.
+- **Slot 8** reviews the **candidate**, not `tp/{slug}` HEAD — HEAD carries no implementation until the Tier 5.6 fold. Same `<mb>`/`<head>` as the re-checkpoints bullet: `/code-review` + `python3 "$TP_ROOT"/skills/_shared/phase_check.py prepare --jdi --design-dir <d> --phase jdi --base <mb> --head origin/candidate/{slug}/single`, `/code-review` on that same range, and each finding is fixed by a worker on the candidate branch (`skills/_shared/phase-check.md` §Worker once) — never the orchestrator window — before `close --phase jdi`. Certifier skipped.
+- Slot 9 + Tier 5.6 as light; the advisory `phase_check.py jdi-warn` before `pr-create` stays (`tier-6-pr.md` ## Tier 6); Tier 6 via `/tp-design-complete`.
+
 ## Handoff protocol — pre-split (M2)
 
 - A subagent **cannot self-yield mid-call**; an oversized dispatch is caught only at the next slot boundary.
@@ -133,20 +153,21 @@ Context rollover: `skills/_shared/context-rollover.md`.
 - Static: each slot has a **soft budget** (sizing hint into `compose(...)`) and the same **hard ceiling of 500k tokens / slot**.
 - Soft budgets are advisory; the whole-run `--max-tokens` cap is the real limit, checked only at slot boundaries (an in-flight slot finishes; `run-safety.md` ## Token budget).
 - The **Light** column applies when Tier 1 reads `weight-class: light` (### Light slot mapping).
+- The **Just-do-it** column applies when Tier 1 routes `just-do-it` (### Just-do-it slot mapping).
 
-| Slot | Soft | Light |
-|---|---|---|
-| `pickup` | 50k | 50k |
-| `design` | 80k | 100k |
-| `detail` | 60k | — |
-| `design-audit` | 200k | 150k |
-| `plan` | 100k | — |
-| `plan-audit` | 200k | — |
-| `phase-implement` | 200k / phase | 200k / phase |
-| `impl-audit` | 200k | 80k |
-| `certifier` (Slots 4/8, if claims) | 150k / dispatch | 150k / dispatch |
-| `design-learn` | 100k | 100k |
-| `PR` | 50k | 50k |
+| Slot | Soft | Light | Just-do-it |
+|---|---|---|---|
+| `pickup` | 50k | 50k | 50k |
+| `design` | 80k | 100k | — |
+| `detail` | 60k | — | — |
+| `design-audit` | 200k | 150k | — |
+| `plan` | 100k | — | — |
+| `plan-audit` | 200k | — | — |
+| `phase-implement` | 200k / phase | 200k / phase | 100k / 1 phase |
+| `impl-audit` | 200k | 80k | 40k |
+| `certifier` (Slots 4/8, if claims) | 150k / dispatch | 150k / dispatch | — |
+| `design-learn` | 100k | 100k | 50k |
+| `PR` | 50k | 50k | 50k |
 
 ### Audit-tier dispatch accounting — the reader IS counted (F1)
 

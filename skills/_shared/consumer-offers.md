@@ -215,6 +215,19 @@ test files are exactly the staged ones.
   only when its `## Consumer offers` section already runs for another
   unsettled offer — never on the hot path.
 
+## Offer (f): generated lockfiles
+
+A lockfile such as `package-lock.json` or `uv.lock` that both sides of a
+base-sync changed conflicts as a whole file. Declaring it as a generator lets
+`/tp-merge-from-main` rebuild it from its manifest instead of deferring.
+
+- **Check first**: run `python3 "$TP_ROOT"/skills/tp-merge-from-main/scripts/generator_catalog.py detect --repo . --json` (optionally narrowed with `--only <path>`, repeatable). It prints a JSON list of `{path, tool, tool_on_path, entry}` for tracked lockfiles the catalog knows (`package-lock.json`, `uv.lock`) that are not yet declared and not yet offered. It writes nothing; an empty list means there is nothing to offer.
+- **The offer**: show each match, whether its `tool` is on PATH, and the exact write argv from `entry`, and say plainly that the rebuild uses the network (the package manager may fetch metadata) and runs inside the repo.
+- **Yes**: at the `/tp-merge-from-main` site the base-sync merge is still open and git refuses any commit while a file is unmerged, so abort it first with `git merge --abort` (nothing is lost: the offer comes before any hand resolution and the driver redoes its auto-resolutions on the re-run). Then run `python3 "$TP_ROOT"/skills/tp-merge-from-main/scripts/generator_catalog.py accept --repo . --paths <path> [<path> ...]` — it adds the generator entries and the offer record to `.three-pillars/config.json` — commit that file as `config: declare generated lockfiles`, and re-run `/tp-merge-from-main`, which now rebuilds the lockfile. An operator who would rather keep the merge open runs `accept` and the config commit after the merge commit instead. At the first-run site no merge is open: run `accept` and commit the file directly. Only on a confirmed yes, never silently.
+- **No**: run `python3 "$TP_ROOT"/skills/tp-merge-from-main/scripts/generator_catalog.py decline --repo . --paths <path> [<path> ...]`; it records `merge_from_main.generator_offer` (`offered_at`, `declined`, `offered_paths`) so the same lockfile is not offered again.
+- **`--auto`**: never writes; appends a `[tp-merge-from-main]` suggestion holding the match's `entry` to `decisions.md`.
+- **Where it is raised**: `/tp-merge-from-main` raises it after step 4's report, for the deferred lockfiles. First-run raises it only when its `## Consumer offers` section already runs for another unsettled offer, never on the hot path.
+
 ## Enforcer
 
 `file_size_guard.py` is the file-size cap predicate the commit guard's

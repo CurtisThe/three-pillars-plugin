@@ -33,6 +33,7 @@ from regenerate import load_generators, regenerate_file  # noqa: E402
 from stage_oracle import index_disagreement  # noqa: E402
 from verify import UNVERIFIABLE  # noqa: E402
 from driver_moves import verify_living  # noqa: E402
+from post_merge import apply_post_merge_passes  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "_shared"))
 from auto_safe_resolution import (  # noqa: E402
@@ -307,7 +308,7 @@ def _dirty(repo: str) -> dict:
     return {p: f.read_bytes() if (f := Path(repo, p)).is_file() else None for p in names if p}
 
 
-def resolve_generated(repo: str, gen) -> FileOutcome:
+def resolve_generated(repo: str, gen, conflicted=()) -> FileOutcome:
     """Regenerate a declared generated file (`regenerate.py`) instead of text-merging it. Accept
     only when both sides rebuild to the same bytes AND no other tracked file changed; else restore
     what the generator wrote, put the conflict markers back and defer. Never raises."""
@@ -316,7 +317,7 @@ def resolve_generated(repo: str, gen) -> FileOutcome:
         before = _dirty(repo)
         ours, theirs = _stage_blob(repo, 2, path), _stage_blob(repo, 3, path)
         text, why = ((None, "a side is absent (add/delete conflict)") if None in (ours, theirs)
-                     else regenerate_file(repo, gen, ours, theirs))
+                     else regenerate_file(repo, gen, ours, theirs, conflicted=conflicted))
         after = _dirty(repo)
         touched = sorted(p for p in before.keys() | after.keys() if p != path
                          and (p in before, before.get(p)) != (p in after, after.get(p)))
@@ -441,7 +442,7 @@ def merge_back(repo: str, base_ref: str, living_docs=None,
             # ones (a `write_bytes`/`_git` OSError after the guards, say) and still produces a
             # total report.
             try:
-                outcome = (resolve_generated(repo, gens[path]) if path in gens
+                outcome = (resolve_generated(repo, gens[path], files) if path in gens
                            else resolve_living_doc(repo, path))
             except Exception as e:                     # noqa: BLE001 — deliberate totality
                 outcome = FileOutcome(path, "generated" if path in gens else "living-doc", "deferred",
@@ -455,6 +456,7 @@ def merge_back(repo: str, base_ref: str, living_docs=None,
                   "partially-resolved": report.partially_resolved,
                   "deferred": report.deferred}[outcome.action]
         bucket.append(path)
+    apply_post_merge_passes(repo, report)
     report.needs_human = bool(report.partially_resolved or report.deferred)
     return report
 

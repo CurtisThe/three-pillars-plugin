@@ -5,7 +5,14 @@ Pure functions, no I/O.
 
 import copy
 import json
+import sys
 from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import low_doc_parts  # noqa: E402  (the one list of the Low-doc parts)
 
 import finalizer_ruling as fr
 
@@ -33,7 +40,7 @@ DESIGN_DOCS = ("design.md", "decisions.md")  # in the stopped design's own direc
 # contains its name, so it matches too. The cold `known_issues_low.md` is not read by default
 # (not in GROUNDING_DOCS) but a Low cited by ID there still grounds a ruling.
 CITE_TOKENS = (tuple(Path(d).name + ("/" if d.endswith("/") else "") for d in GROUNDING_DOCS)
-               + DESIGN_DOCS + ("known_issues_low.md",))
+               + DESIGN_DOCS + tuple(Path(r).name for r in low_doc_parts.PART_RELS))
 
 
 def cites_grounding(reasoning: str) -> bool:

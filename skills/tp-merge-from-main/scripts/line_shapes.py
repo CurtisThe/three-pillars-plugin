@@ -94,7 +94,9 @@ from typing import Iterator
 #   name-keyed `- **`design-slug`** — …` (product_roadmap.md `### Recent completions`)
 # The name-keyed arm is a kebab design-slug (`[a-z0-9][a-z0-9-]*`), which EXCLUDES file-path
 # description bullets like `- **`scripts/foo.py`** — …` (those carry `/` / `.`, deferring to a human).
-LOG_ENTRY = re.compile(r"^-[ \t]+\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*[ \t]+—")
+#   plain-date `- 2026-10-16 — …`       (a History / archive bullet with no bold lead)
+LOG_ENTRY = re.compile(
+    r"^-[ \t]+(?:\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*|\d{4}-\d{2}-\d{2})[ \t]+—")
 # A column-0 ATX heading. Used where a heading is ACCEPTED (`classify._ends_at_boundary`: the line
 # after a log region may be one), so it stays narrow: an INDENTED `  ## x` after a list item can be
 # that item's own content, and accepting it would let the line move between entries.

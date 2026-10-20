@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-10-20
+
+Fleet churn and reboot recovery, a stronger `/tp-merge-from-main`, a fairer local-GPU queue, and a runtime delete fence for tp sessions.
+
+### Added
+
+- **Just-do-it tier for unattended runs** — /tp-run-full-design routes small, eligible just-do-it designs through a one-phase path (one-task plan, jdi check, one light review round) instead of escalating to light. (#324)
+- **Resume a design run after a machine reboot** — `launch_design_run.py --resume [--session SID]` reopens the run's tmux window with `claude --resume`, and `--list-resumable` is read-only; a stale `run.pid` boot guard stops fleet teardown, the pro worktree kill command and the fleet watch from signalling a process group that predates the last boot. (#314)
+- **Fair queue for the local GPU lease** — the Strata lease joins the router's FIFO queue, and `strata_spawn wait` prints the queue position. (#315)
+- **Base-sync generator catalog** — `/tp-merge-from-main` detects tracked npm and uv lockfiles and offers to declare them as generators, hardens regeneration (`timeout`, `inputs`, `cwd`), merges plain-date History bullets, and adds a hard-cap backstop for a living doc the merge pushed over its cap. (#316)
+- **Continuous fleet churn** (pro) — the pro fleet keeps a persistent roster with `adopt`, holds and one churn watcher, so a wave keeps launching and releasing on merge without the seat re-planning after `/clear`. (#317)
+- **Base-sync count line and Low-doc headroom** — the `N Low issues →` count line resolves mechanically, and the Low issues doc scales through numbered parts (`known_issues_low.md`, `_2` … `_9`) behind one shared helper. (#321)
+- **Runtime delete fence** — a fourth `PreToolUse` Bash hook (`delete_fence_hook.py`) makes a tp design delete only inside its own tree, so a wrong-scope cleanup cannot remove another session's worktree, another repo or the home directory. (#323)
+
+### Changed
+
+- **Ready ping re-arms after a base-sync** — a design run's "ready to merge" ping fires again for the new head after `/tp-merge-from-main`. (#318)
+- **Isolated worker writes stay in its own tree** — an isolated `tp-worker`'s child-spawn prompt and ladder files now live under its worktree (`.tp-scratch/`), fixing a `--local` Slot 7 halt. (#319)
+- **Router alarm and Remote Control name** — local requests under 2048 bytes no longer raise the false `main_thread_strata` alarm, and a run's command passes `--remote-control=<slug>` so Remote Control shows the run's name. (#320)
+- **README: run your main session inside tmux** — the install section now says to start Claude Code inside tmux (`tmux new -s <repo>`, then `claude`) so design runs and the pro fleet can link their sessions; without tmux the launcher prints a manual command.
+
+### Fixed
+
+- **Shipped tests pass in a plugin install** — 17 test files that read dev-repo or pro-only files (`CLAUDE.plugin.md`, `.claude/settings.json`, `.three-pillars/config.json`, pro skill files) or depend on the dev-only `conftest.py` stubs no longer ship in core; before this, the shipped `skills/` tree had about 40 failing tests when run on its own.
+
 ## [2.5.1] — 2026-10-16
 
 ### Changed

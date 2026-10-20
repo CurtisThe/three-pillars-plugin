@@ -79,8 +79,16 @@ def generated_hunks(n: int = 700):
         text = ("<<<<<<< ours\n" + _block(ours) + "\n" + base_section
                 + "=======\n" + _block(theirs) + "\n>>>>>>> theirs")
         yield f"hunk:{k}", ((pre + "\n") if pre else "") + text
-    # After the seeded loop, so no seeded draw moves: the one `last-updated-preamble` hunk the
-    # vocabularies above cannot produce (each side is exactly one date-only `*Last updated:*` line).
+    # After the seeded loop, so no seeded draw moves: the two hunks the vocabularies above cannot
+    # produce — the one `low-count-line` hunk (the 308a replay shape: one count line per side, base
+    # one count line) and the one `last-updated-preamble` hunk (each side exactly one date-only
+    # `*Last updated:*` line).
+    _C = lambda n: (f"{n} Low issues → [known_issues_low.md](known_issues_low.md) (one line "
+                    "each; promote a Low to Medium by moving its entry back into this doc in the "
+                    "same commit).")                      # noqa: E731
+    yield "fixed:low-count-line", ("### M76: x\n- body\n<<<<<<< ours\n" + _C(223) + "\n"
+                                   "||||||| base\n" + _C(219) + "\n=======\n" + _C(224) +
+                                   "\n>>>>>>> theirs\n\n## History\n")
     yield "fixed:last-updated", ("# Title\n<<<<<<< ours\n*Last updated: 2026-07-05*\n"
                                  "||||||| base\n*Last updated: 2026-07-04*\n=======\n"
                                  "*Last updated: 2026-07-06*\n>>>>>>> theirs")

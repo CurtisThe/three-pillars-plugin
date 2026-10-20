@@ -27,6 +27,18 @@ A `TP_LOCAL` the seat's launcher set (listed in `CLAUDE_LAUNCHER_OWNED`) no long
 repo's `local_implement.default_run_flag`; the launch prints one `note:` line saying it was
 ignored. An operator-set `TP_LOCAL` keeps its precedence, and `--local` / `--no-local` still win.
 
+## Resume flags (`--resume`, `--session SID`, `--list-resumable`)
+
+The reboot gesture, in full prose in [`design-run-launch.md`](design-run-launch.md) §After a reboot:
+
+| Flag | What it does |
+|---|---|
+| `--resume` | reopens `<slug>`'s session on `claude --resume <sid>` (its newest top-level transcript) with this launch's profile, model, MCP and env — no seat brief, no fable notice, no fresh first line. A live run is refused (exit 2); with no transcript it prints the fresh-launch command and launches nothing. Not with `--base-sync`; `--dry-run` prints `would resume <slug>: session <sid>` then the window command |
+| `--session SID` | with `--resume` only: resume that session id instead of the newest. An unknown SID exits 2 and names the transcript dir |
+| `--list-resumable` | no slug, read-only: `<slug> <sid> <mtime>` for each `tp/*` worktree a reboot left without a run, or `none` |
+
+`--wait SECONDS` bounds both the wait for the run's `claude` and the continue line; `--wait 0` skips them and prints the `design_run_resume_run.py refresh` and `design_run_send.py` retry commands. Without tmux (or when tmux cannot open the session) `--resume` exits 2 and prints the manual resume command.
+
 ## Backend (`design_run_backend`)
 
 `--direct`, or the repo key `design_run_backend: "direct"`, launches the window direct

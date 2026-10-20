@@ -15,6 +15,8 @@ The executable companion is `skills/_shared/weight_class.py` (`recommend`,
   before the merge OK hand-off, so the archive lands with the merge.
   Before the PR, step 6g runs the per-phase check once (`skills/_shared/phase-check.md`
   §Just-do-it, phase `jdi`).
+  Unattended, `tp-run-full-design` writes a mechanical one-task plan.md for it
+  (`skills/_shared/jdi_plan.py`): no plan dispatch, no council.
 - `light` — small but real production work. One `/tp-design` sitting
   produces a **collapsed design.md** (design + detail merged, ~60 lines)
   **and a thin plan.md**; `/tp-design-detail` and `/tp-plan` are skipped.
@@ -81,8 +83,9 @@ Consumers may **escalate** a design's ceremony above its declared class,
 never **de-escalate** below it. Escalation is always allowed and logged
 (decisions.md in autonomous runs); a request to run lighter than the
 declared class is refused. Autonomous consumption (`tp-run-full-design`):
-`just-do-it` escalates to `light` (an unattended run warrants the audit
-floor); `spike` is **refused** with BLOCKED guidance to run
+`just-do-it` routes through `skills/_shared/jdi_eligibility.py route`, which
+either keeps it just-do-it or escalates it to `light` with the reason logged (an
+unattended run warrants the audit floor); `spike` is **refused** with BLOCKED guidance to run
 `/tp-spike-auto` interactively — its Phase 1 is interactive by design.
 
 ## Light fidelity checklist

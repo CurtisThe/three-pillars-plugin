@@ -38,7 +38,9 @@ hold through ``release_agent`` — ``lease: released (<outcome>)``, exit 0 whate
 first records the session's busy policy for the router (``router_busy_policy``; ``--busy-policy``,
 else ``TP_LOCAL_MODE``), so under ``wait`` a request the router can't admit is held, never
 rewritten to Sonnet. A probe that loses the router's lock budget reads its lock-free ``peek``
-instead of answering ``unchecked``. Stdlib only.
+instead of answering ``unchecked``. Under ``wait`` a router with the fair queue (strata-fair-queue)
+queues the probe: ``lease: busy (queued <pos> of <n>)``, read from the router's own queue
+(``lease_queue``; the lease keeps none). Stdlib only.
 """
 from __future__ import annotations
 
@@ -53,6 +55,7 @@ from pathlib import Path
 from typing import Mapping
 
 import children_route
+import lease_queue
 import measure_window
 import router_busy_policy
 import wait_budget
@@ -192,9 +195,10 @@ def _peek_on_contention(owner, ep, why) -> str:
     return "unowned" if free else f"slot held by {holder}"
 
 
-def _note_policy(env, module, which, busy_policy) -> None:
+def _note_policy(env, module, which, busy_policy) -> str | None:
     """Record this session's busy policy for the router (``router_busy_policy``), so a request
-    the router can't admit waits instead of going to Sonnet under ``wait``. Never raises."""
+    the router can't admit waits instead of going to Sonnet under ``wait``. -> the policy it
+    resolved (the probe's waiter flag uses the same one). Never raises."""
     policy = busy_policy
     try:
         if policy is None:  # TP_LOCAL_MODE, else the repo's strata_spawn.busy (lazy: it imports us)
@@ -209,51 +213,59 @@ def _note_policy(env, module, which, busy_policy) -> None:
                   file=sys.stderr)
     except Exception:  # noqa: BLE001 — the note never blocks a spawn
         pass
+    return policy
 
 
-def _probe(endpoint, env, module, which) -> tuple[str, str]:
-    """One router probe: ``(state, why)``, ``free`` | ``busy`` | ``unchecked``. Never raises.
+def _probe(endpoint, env, module, which, policy=None) -> tuple[str, str, dict | None]:
+    """One router probe: ``(state, why, queue_info)``, ``free`` | ``busy`` | ``unchecked``.
 
     The session probe answers per conversation; a live agent hold of this session's is read
     from the state file alongside it (Behavior 6) — ``slot held by agent <id8>``, the same
-    answer the next spawn would have got from the router itself.
+    answer the next spawn would have got from the router itself. Under ``wait`` a router with
+    the fair queue queues it (``lease_queue``): ``queued <pos> of <n>``. Never raises.
     """
     try:
         module = module or slot_owner_module(which)
         if module is None:
-            return "unchecked", "no local router install (tp-local / slot_owner.py)"
+            return "unchecked", "no local router install (tp-local / slot_owner.py)", None
         owner = module.SlotOwner()
         slots = _slot_state(owner)
         if slots is None:
-            return "free", "no slot state"
-        mine, ours = (env.get("CLAUDE_CODE_SESSION_ID") or "")[:8], False
+            return "free", "no slot state", None
+        session = env.get("CLAUDE_CODE_SESSION_ID")
+        mine, ours = (session or "")[:8], False
+        key, kwargs = lease_queue.probe_args(owner, env, policy)
         for ep in [endpoint] if endpoint else slots:
-            _token, why = owner.acquire(ep, "tp-lease-probe", subagent=False)
+            _token, why = owner.acquire(ep, key, **kwargs)
             why = _peek_on_contention(owner, ep, why)
+            if queued := lease_queue.answer(owner, ep, why, session):
+                return queued
             held = why.startswith("slot held by ")
             if held and (not mine or why.removeprefix("slot held by ") != mine):
-                return "busy", why
+                return "busy", why, None
             if not held and why != "unowned":
-                return "unchecked", why
+                return "unchecked", why, None
             ours = ours or held
             if held:  # this session owns it — is one of its agents still holding?
                 holder = _agent_holder(_fresh_slot(owner, ep, slots), module, owner)
                 if holder:
-                    return "busy", f"slot held by agent {holder[:8]}"
-        return "free", "held by this session" if ours else "unowned"
+                    return "busy", f"slot held by agent {holder[:8]}", None
+        return "free", "held by this session" if ours else "unowned", None
     except Exception as exc:  # noqa: BLE001 — a probe failure never blocks a spawn
-        return "unchecked", f"slot probe failed: {exc}"
+        return "unchecked", f"slot probe failed: {exc}", None
 
 
 def acquire_timed(endpoint: str | None = None, *, env: Mapping[str, str] | None = None,
                   module=None, which=shutil.which, design: str | None = None,
                   wait_s: float | None = None, clock=time.monotonic,
-                  sleep=time.sleep, busy_policy: str | None = None) -> tuple[str, str, float]:
+                  sleep=time.sleep, busy_policy: str | None = None,
+                  on_poll=None) -> tuple[str, str, float]:
     """``(state, why, waited_s)``: a live window not ``design``'s is ``busy-measure``, unprobed;
     ``wait_s=None`` is ``MAX_WAIT_S`` for its owner, else 0; clamped to it. First records the
-    session's ``busy_policy`` (else ``TP_LOCAL_MODE``'s) for the router. Never raises."""
+    session's ``busy_policy`` (else ``TP_LOCAL_MODE``'s) for the router. After each probe
+    ``on_poll(state, why, queue_info)`` (``lease_queue.position``'s read, or None). Never raises."""
     env = os.environ if env is None else env
-    _note_policy(env, module, which, busy_policy)
+    policy = _note_policy(env, module, which, busy_policy)
     try:
         window = measure_window.load(env)
         role = measure_window.role(window, design) if window else "off"
@@ -263,10 +275,12 @@ def acquire_timed(endpoint: str | None = None, *, env: Mapping[str, str] | None 
             wait_s = MAX_WAIT_S if role == "owner" else 0
         wait = min(max(float(wait_s), 0.0), MAX_WAIT_S)
         start = clock()
-        state, why = _probe(endpoint, env, module, which)
+        state, why, info = _probe(endpoint, env, module, which, policy)
+        lease_queue.notify(on_poll, state, why, info)
         while state == "busy" and (left := start + wait - clock()) > 0:
             sleep(min(POLL_S, left))
-            state, why = _probe(endpoint, env, module, which)
+            state, why, info = _probe(endpoint, env, module, which, policy)
+            lease_queue.notify(on_poll, state, why, info)
         return state, why, round(clock() - start, 1)
     except Exception as exc:  # noqa: BLE001 — a lease failure never blocks a spawn
         return "unchecked", f"slot probe failed: {exc}", 0.0

@@ -155,6 +155,47 @@ def check_consistency(design_dir: Path) -> list:
     return findings
 
 
+# Ceremony rungs for escalation, lightest first. ``spike`` is absent: it is a
+# different axis (unknown approach), never an escalation target.
+ESCALATION_ORDER = ("just-do-it", "light", "full")
+
+
+def escalate(design_dir: Path, reason: str, to: str) -> str:
+    """Stamp a heavier weight class into design.md and every present sibling.
+
+    Upward only: the target must rank strictly above ``design.md``'s declared
+    class in ``ESCALATION_ORDER``, so the same class, a lighter one, ``spike``
+    or an unknown value raise ``ValueError`` with **no file touched**
+    (de-escalation is refused by the weight-class protocol). A design whose
+    class came from the default (no frontmatter) has nothing above it and is
+    refused too. On success every artifact in ``_SIBLING_ARTIFACTS`` that
+    exists is stamped, and the one log line for the run is returned.
+    """
+    design_dir = Path(design_dir)
+    current, source = read_class(design_dir)
+    if to not in ESCALATION_ORDER:
+        raise ValueError(
+            f"cannot escalate to {to!r}; expected one of {ESCALATION_ORDER}"
+        )
+    if source != "frontmatter" or current not in ESCALATION_ORDER:
+        raise ValueError(
+            f"design.md declares no escalatable weight-class (current {current!r})"
+        )
+    if ESCALATION_ORDER.index(to) <= ESCALATION_ORDER.index(current):
+        raise ValueError(
+            f"refused de-escalation: {to!r} is not heavier than {current!r}"
+        )
+    write_class(design_dir / "design.md", to)
+    for name in _SIBLING_ARTIFACTS:
+        sibling = design_dir / name
+        if sibling.is_file():
+            write_class(sibling, to)
+    return (
+        f"[tp-run-full-design] weight-class escalation: "
+        f"{current} \u2192 {to} ({reason})"
+    )
+
+
 def write_class(artifact_path: Path, klass: str) -> None:
     """Insert or update ``weight-class`` in the artifact's frontmatter block.
 
@@ -189,7 +230,8 @@ def main(argv=None) -> int:
 
     Subcommands: ``recommend --risk … --blast-radius … --reversibility …
     --novelty …`` | ``read {design_dir}`` | ``check {design_dir}`` (exit 0
-    clean, 1 findings).
+    clean, 1 findings) | ``escalate {design_dir} --to {class} --reason {r}``
+    (exit 0 with the log line, 1 refused).
     """
     parser = argparse.ArgumentParser(prog="weight_class.py", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -207,6 +249,13 @@ def main(argv=None) -> int:
     chk = sub.add_parser("check", help="cross-artifact consistency findings")
     chk.add_argument("design_dir")
 
+    esc = sub.add_parser(
+        "escalate", help="stamp a heavier class into design.md + siblings"
+    )
+    esc.add_argument("design_dir")
+    esc.add_argument("--to", required=True)
+    esc.add_argument("--reason", required=True)
+
     args = parser.parse_args(argv)
     if args.command == "recommend":
         klass, why = recommend_class(
@@ -221,6 +270,13 @@ def main(argv=None) -> int:
     if args.command == "review-weight":
         weight, _ = read_review_weight(Path(args.design_dir))
         print(weight)
+        return 0
+    if args.command == "escalate":
+        try:
+            print(escalate(Path(args.design_dir), args.reason, args.to))
+        except ValueError as exc:
+            print(f"{exc}", file=sys.stderr)
+            return 1
         return 0
     findings = check_consistency(Path(args.design_dir))
     for finding in findings:

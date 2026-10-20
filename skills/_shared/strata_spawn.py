@@ -12,11 +12,15 @@ ceiling. `wait` wraps one `local_lease.acquire_timed` call and returns
 degrade), a `router-down` route is `unhealthy` (exit 4, the halt); a probe that
 cannot answer is fail-open and says so in `why`. `decide` never names Opus. The default probe is `local_route_check.check()` and runs only for the
 real lease — an injected lease is the test seam, so no test reaches a live
-router. Stdlib-only.
+router. Under `wait` each poll writes one stderr line (strata-fair-queue
+Behavior 9): `queued, position <p> of <n>, waited <XmYs>` from the router's
+queue, else the old `busy (<why>)`; a grant ends with the total wait since
+`started_at`. stdout stays the one JSON object. Stdlib-only.
 """
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -29,6 +33,7 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 import cheap_engine  # noqa: E402
+import lease_queue  # noqa: E402
 import local_lease  # noqa: E402
 import local_route_check  # noqa: E402
 import model_policy  # noqa: E402
@@ -110,6 +115,29 @@ def _route_verdict(probe) -> tuple[str, str]:
                f"(got {type(result).__name__})"
 
 
+def _takes_on_poll(lease) -> bool:
+    """`lease.acquire_timed` accepts `on_poll` (a lease from before the fair queue does not)."""
+    try:
+        params = inspect.signature(lease.acquire_timed).parameters
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return "on_poll" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
+def _print_poll(state, why, info) -> None:
+    """One stderr line per busy poll: the queue position and the router's wait, else the
+    old busy text (an older router reports no queue)."""
+    if state != "busy":
+        return
+    try:
+        line = (f"queued, position {info['position']} of {info['total']}, "
+                f"waited {lease_queue.fmt_wait(info['waited_s'])}")
+    except (KeyError, TypeError):
+        line = f"busy ({why})"
+    print(f"strata_spawn: {line}", file=sys.stderr)
+
+
 def wait(design=None, budget_s=wait_budget.WAIT_BUDGET_S, started_at=None, ceiling_s=CEILING_S,
          policy=DEFAULT_BUSY, *, lease=local_lease, clock=time.time, sleep=time.sleep,
          route_check=None):
@@ -127,8 +155,14 @@ def wait(design=None, budget_s=wait_budget.WAIT_BUDGET_S, started_at=None, ceili
     waiting = policy == "wait"
     if waiting and started_at is not None and clock() - started_at >= ceiling_s:
         return "wait-exhausted", f"waited past the {ceiling_s} s ceiling", 0.0
+    since = started_at if started_at is not None else clock()
+    progress = {"on_poll": _print_poll} if waiting and _takes_on_poll(lease) else {}
     state, why, waited = lease.acquire_timed(
-        design=design, wait_s=budget_s if waiting else BUSY_GRACE_S, busy_policy=policy)
+        design=design, wait_s=budget_s if waiting else BUSY_GRACE_S, busy_policy=policy,
+        **progress)
+    if waiting and state == "free":
+        print(f"strata_spawn: granted, waited {lease_queue.fmt_wait(clock() - since)}",
+              file=sys.stderr)
     if note:
         why = f"{why}; {note}"
     if state == "busy-measure":

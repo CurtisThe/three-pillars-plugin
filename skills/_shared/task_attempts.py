@@ -140,10 +140,14 @@ def _new_record(top: str, task_id: str, design_dir_rel: str, guard_ref, dirty) -
     guard_root = worktree_for_ref(top, guard_ref) if guard_ref else None
     guard_sha = _out(top, "rev-parse", "--verify", f"{guard_ref}^{{commit}}") if guard_ref else None
     guard_dirty = task_scope.dirty_outside(guard_root, design_dir_rel) if guard_root else []
+    adir = os.path.join(top, ATTEMPT_PARENT, f"{DIR_PREFIX}{slug}-{task}-{nonce}")
     return {
         "attempt_id": f"{slug}/{task}-{nonce}", "task_id": str(task_id), "slug": slug,
         "status": "opening", "common_dir": common_dir(top), "design_dir_rel": design_dir_rel,
-        "attempt_dir": os.path.join(top, ATTEMPT_PARENT, f"{DIR_PREFIX}{slug}-{task}-{nonce}"),
+        "attempt_dir": adir,
+        # the child prompt an isolated worker Writes: inside its own tree, never the common dir
+        "child_prompt": os.path.join(adir, scratch_root.CHILD_SPAWN_DIR,
+                                     f"{task}.child-prompt.md"),
         "branch": f"{BRANCH_PREFIX}{slug}/{task}-{nonce}",
         "base_sha": head, "dispatcher_head": head, "dispatcher_branch": branch,
         "guard_ref": guard_ref, "guard_sha": guard_sha, "guard_root": guard_root,
@@ -169,6 +173,9 @@ def open_attempt(root, task_id: str, design_dir_rel: str, *, guard_ref: str | No
     _write_record(rec)
     try:
         _add_worktree(top, rec)
+        # The child prompt an isolated worker Writes sits in its own tree (the harness refuses a
+        # Write under the common dir); the dir exists before `open` prints the record.
+        os.makedirs(os.path.dirname(rec["child_prompt"]), exist_ok=True)
     except Exception:
         discard(rec, root=top)
         raise

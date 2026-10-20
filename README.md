@@ -40,6 +40,10 @@ The in-session `/plugin install` opens the plugin panel; choose a scope there (*
 
 To share it with everyone working in one repo, add `--scope project` to the shell commands. That records the marketplace and plugin in the repo's `.claude/settings.json`.
 
+##### Run your main session inside tmux
+
+Autonomous design runs open each run as its own tmux session, linked into the session you launched from. Start Claude Code inside tmux: `tmux new -s <repo>`, then `claude` (or `claude --continue` to keep a conversation). Without tmux the launcher stops and prints a manual command. Interactive skills work without it.
+
 #### Claude desktop app
 
 The desktop app (Mac and Windows) has two places that take plugins.

@@ -38,6 +38,9 @@ def diff3_empty_base(ours: str, theirs: str, pre: str = "") -> str:
     return (pre + "\n" + block) if pre else block
 
 
+LIVING_DOC_KIND = "living-doc"  # the FileOutcome.kind of a living-doc outcome
+
+
 # ---- log-entry-insertion (the two live log shapes) -------------------------------------------
 
 NAME_KEYED_LOG = diff3_empty_base(
@@ -227,6 +230,21 @@ COINCIDENTAL_PROSE_THEN_CONFLICT = "\n".join([
 ])
 
 
+# ---- low-count-line ----------------------------------------------------------------------------
+
+# The live `known_issues.md` shape (replay 306): both sides edit the one `N Low issues →` count
+# line that ends the Medium section, and theirs also inserts two keyed entries above it. The
+# `### M77:` heading is this fixture's verify atom.
+_COUNT_REST = ("Low issues → [known_issues_low.md](known_issues_low.md) (one line each; promote "
+               "a Low to Medium by moving its entry back into this doc in the same commit).")
+LOW_COUNT_LINE = diff3(
+    "215 " + _COUNT_REST,
+    "213 " + _COUNT_REST,
+    "### M77: M77 title\n- M77 body\n\n### M78: M78 title\n- M78 body\n\n222 " + _COUNT_REST,
+    pre="### M76: x\n- body\n",
+) + "\n\n## History\n"
+
+
 ALL_FIXTURES = [
     ("name-keyed-log", NAME_KEYED_LOG),
     ("wrapped-dated-log", WRAPPED_DATED_LOG),
@@ -241,4 +259,5 @@ ALL_FIXTURES = [
     ("last-updated-preamble", LAST_UPDATED_PREAMBLE),
     ("keyed-row-insertion", KEYED_ROW_INSERTION),
     ("shaped-line-merge", SHAPED_LINE_MERGE),
+    ("low-count-line", LOW_COUNT_LINE),
 ]

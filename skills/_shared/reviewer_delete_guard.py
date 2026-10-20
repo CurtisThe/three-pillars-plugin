@@ -8,7 +8,10 @@ import os
 import re
 from collections import namedtuple
 
-from reviewer_delete_shell import SEMI, WRAPPERS, SHELLS, Unmodelled, parse, resolve
+from delete_fence_verbs import (DELETE_WORD, cd_target, fence_git, fence_mv,
+                                strip_single_quoted, tree_env, unknown_separator)
+from reviewer_delete_shell import (SEMI, WRAPPERS, SHELLS, Unmodelled, cut_heredocs,
+                                   parse, resolve)
 
 Verdict = namedtuple("Verdict", "allowed reason")
 
@@ -31,19 +34,26 @@ def _refuse(reason):
     return Verdict(False, reason)
 
 
+def _roots(scratch):
+    """Normalise a scratch spec (one root, or a list of roots) to a list."""
+    if scratch is None:
+        return []
+    return list(scratch) if isinstance(scratch, (list, tuple)) else [scratch]
+
+
 def _inside(path, scratch, cwd):
-    """True when path (relative ones against cwd) is strictly inside scratch."""
+    """True when path (relative ones against cwd) is strictly inside a root."""
     if not os.path.isabs(path):
         if cwd is None:
             return False
         path = os.path.join(cwd, path)
-    root = os.path.realpath(scratch)
-    return os.path.realpath(path).startswith(root + os.sep)
+    target = os.path.realpath(path)
+    return any(target.startswith(os.path.realpath(r) + os.sep) for r in _roots(scratch))
 
 
 def _operand_ok(op, scratch, cwd):
     """Return None when op is provably inside scratch, else the reason."""
-    if scratch is None:
+    if not _roots(scratch):
         return _NO_SCRATCH
     if re.search(r"[${}`]", op) or op.startswith("~"):
         return "unprovable operand %r (expansion)" % op
@@ -55,8 +65,8 @@ def _operand_ok(op, scratch, cwd):
             return "unprovable operand %r (glob with ..)" % op
         head = re.split(r"[*?\[]", full, maxsplit=1)[0]
         base = os.path.realpath(os.path.dirname(head) or os.sep)
-        root = os.path.realpath(scratch)
-        if base != root and not base.startswith(root + os.sep):
+        if not any(base == os.path.realpath(r) or
+                   base.startswith(os.path.realpath(r) + os.sep) for r in _roots(scratch)):
             return "glob %r outside scratch" % op
         for hit in glob.glob(full):
             if not _inside(hit, scratch, cwd):
@@ -104,7 +114,7 @@ def _check_operands(verb, ops, scratch, cwd):
         return _refuse("%s: no provable target" % verb)
     if callable(scratch):  # the hook's lazy lookup: resolved only when a delete needs it
         scratch = scratch()
-    if scratch is None:
+    if not _roots(scratch):
         return _refuse("%s: %s" % (verb, _NO_SCRATCH))
     for op in ops:
         why = _operand_ok(op, scratch, cwd)
@@ -169,25 +179,26 @@ def _exec_destructive(cmd):
     return verb in RMLIKE | {"mv", "rsync", "git", "find"}
 
 
-def _exec_check(kind, cmd, starts, scratch, cwd, depth):
+def _exec_check(kind, cmd, starts, scratch, cwd, depth, mode):
     """Check find's exec'd command like any segment; `{}` is a path under a start
     (`-execdir`/`-okdir` run in the found file's directory: cwd unknown)."""
     run_cwd = cwd if kind in ("-exec", "-ok") else None
     for start in starts:
         root = os.path.join(cwd, start) if cwd is not None else start
-        r = resolve([w.replace("{}", os.path.join(root, "__tp_found__")) for w in cmd])
+        words = [w.replace("{}", os.path.join(root, "__tp_found__")) for w in cmd]
+        r = resolve(words)
         here = None if r.chdir else run_cwd
         for text in r.nested:
-            bad = _check(text, scratch, {"cwd": here}, depth + 1)
+            bad = _check(text, scratch, {"cwd": here, "mode": mode}, depth + 1)
             if bad:
                 return bad
-        bad = _check_verb(r, scratch, here, depth)
+        bad = _check_verb(r, scratch, here, depth, mode, tree_env(words, r.args))
         if bad:
             return bad
     return None
 
 
-def _find(args, scratch, cwd, depth):
+def _find(args, scratch, cwd, depth, mode):
     i, hard = 0, False
     while i < len(args):
         a = args[i]
@@ -217,7 +228,7 @@ def _find(args, scratch, cwd, depth):
                 cmd.append(expr[k])
                 k += 1
             destructive = destructive or _exec_destructive(cmd)
-            bad = _exec_check(w, cmd, starts, scratch, cwd, depth)
+            bad = _exec_check(w, cmd, starts, scratch, cwd, depth, mode)
             if bad:
                 return bad
             j = k
@@ -226,17 +237,29 @@ def _find(args, scratch, cwd, depth):
         return None
     if hard:
         return _refuse("find delete with -L/-follow/-files0-from")
-    return _check_operands("find", starts, scratch, cwd)
+    if mode == "fence" and cwd is not None:
+        # `find` never removes its own start directory, so a start of `.` is safe
+        # at a root for `-delete` as well as for `-exec` (design 2.3)
+        if os.path.realpath(cwd) in {os.path.realpath(r) for r in _roots(
+                scratch() if callable(scratch) else scratch)}:
+            starts = [s for s in starts if os.path.normpath(s) != "."]
+    return _check_operands("find", starts, scratch, cwd) if starts else None
 
 
-def _check_verb(r, scratch, cwd, depth=0):
+def _check_verb(r, scratch, cwd, depth=0, mode="reviewer", env=()):
     verb, args = r.verb, r.args
     if verb in RMLIKE or verb == "mv":
         if args and all(a in ("--help", "--version") for a in args):
             return None
         if r.stdin_fed:
             return _refuse("%s: operands from stdin" % verb)
-        ops = _operands(args, _ARGOPTS.get(verb, ()), {"t", "target-directory"} if verb == "mv" else ())
+        if verb == "mv" and mode == "fence":
+            ops, why = fence_mv(args, _operands, cwd)
+            if why:
+                return _refuse(why)
+        else:
+            ops = _operands(args, _ARGOPTS.get(verb, ()),
+                            {"t", "target-directory"} if verb == "mv" else ())
         return _check_operands(verb, ops, scratch, cwd)
     if verb == "rsync":
         if not any(a.startswith("--del") or a == "--remove-source-files" for a in args):
@@ -248,19 +271,35 @@ def _check_verb(r, scratch, cwd, depth=0):
             return _refuse("rsync: unprovable remote operand")
         return _check_operands("rsync", ops, scratch, cwd)
     if verb == "find":
-        return _find(args, scratch, cwd, depth)
+        return _find(args, scratch, cwd, depth, mode)
     if verb == "git":
-        why = _git(args)
+        why = _git(args) if mode != "fence" else fence_git(
+            args, _roots(scratch() if callable(scratch) else scratch), cwd, env)
         return _refuse(why) if why else None
     return None
 
+
+def _fence_prescan(command):
+    """The expansion scan text for fence mode: the command with its genuinely
+    single-quoted spans stripped, plus each unquoted heredoc body unstripped."""
+    text, docs = cut_heredocs(command)
+    return strip_single_quoted(text) + "".join("\n" + d.body for d in docs if not d.quoted)
 
 def _check(command, scratch, state, depth):
     if depth > _DEPTH:
         return _refuse("unparseable: nested shell strings too deep")
     try:
         segs, scan = parse(command)
-        if _EXPANSION.search(scan) and DESTRUCTIVE_WORD.search(scan):
+        word = DELETE_WORD if state["mode"] == "fence" else DESTRUCTIVE_WORD
+        # fence mode follows a literal `cd`; a subshell / pipeline / `&` or an
+        # unprovable cd target makes the cwd unknown instead (design 1.3).
+        track = state["mode"] == "fence" and not unknown_separator(scan)
+        # Fence mode reads single-quoted text as data: the shell expands nothing
+        # inside '…', so a backtick written there cannot pair with a delete word
+        # (design 2.1). The strip is quote-aware and skips unquoted heredoc
+        # bodies, where a quote is a plain character. Reviewer mode strips nothing.
+        pre = scan if state["mode"] != "fence" else _fence_prescan(command)
+        if _EXPANSION.search(pre) and word.search(pre):
             return _refuse("unparseable: expansion alongside a destructive word")
         for seg in segs:
             r = resolve(seg.argv, seg.heredocs, seg.stdin)
@@ -269,9 +308,10 @@ def _check(command, scratch, state, depth):
                 if bad:
                     return bad
             if r.verb in ("cd", "pushd", "popd"):
-                state["cwd"] = None
+                state["cwd"] = cd_target(r.args, state["cwd"]) if track and r.verb == "cd" else None
                 continue
-            bad = _check_verb(r, scratch, None if r.chdir else state["cwd"], depth)
+            bad = _check_verb(r, scratch, None if r.chdir else state["cwd"], depth,
+                              state["mode"], tree_env(seg.argv, r.args))
             if bad:
                 return bad
     except Unmodelled as exc:
@@ -279,7 +319,8 @@ def _check(command, scratch, state, depth):
     return None
 
 
-def classify(command, *, scratch, cwd):
-    """Return Verdict(allowed, reason) for a Bash command from a scoped agent."""
-    bad = _check(command, scratch, {"cwd": cwd}, 0)
+def classify(command, *, scratch, cwd, mode="reviewer"):
+    """Return Verdict(allowed, reason) for a Bash command from a scoped agent.
+    mode="fence" limits the destructive set to filesystem deletes."""
+    bad = _check(command, scratch, {"cwd": cwd, "mode": mode}, 0)
     return bad or Verdict(True, "allowed")

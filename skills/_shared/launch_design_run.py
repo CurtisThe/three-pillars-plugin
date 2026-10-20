@@ -8,7 +8,8 @@ exists, linked into the launching session) via
 committed `seat-brief.md` is written (design_run_brief), then design_run_delivery
 prints the brief's source + blob id and the run's routing line (design_run_routing)
 and types the first message into its input box (design_run_send), with the manual
-command printed if that fails.
+command printed if that fails. After a reboot, `--resume` hands over to design_run_resume_cli
+once the plan is built (no brief, no fable notice, no fresh first line); `--list-resumable` first.
 With no `--model` it reads the seat's `models.design_run`; a fable launch warns
 and logs once. Without tmux (or on --dry-run) it prints the manual command.
 Precedence (design_run_launch_plan): this launch's flags, then the explicit run role
@@ -26,12 +27,14 @@ Usage:
                                  [--model M] [--local | --no-local] [--local-mode M]
                                  [--cheap-tier[=ab] | --no-cheap-tier]  (deprecated no-ops)
                                  [--brief FILE] [--wait SECONDS] [--dry-run]
+                                 [--resume [--session SID]]  (not with --base-sync)
                                  (--model wins; else models.design_run; else
                                  model_policy.DEFAULTS["design_run"]; no
                                  --local/--no-local: an operator-set TP_LOCAL=on
                                  (one in CLAUDE_LAUNCHER_OWNED is ignored), else
                                  local_implement.default_run_flag;
                                  --cheap-tier is never forwarded)
+    python3 launch_design_run.py --list-resumable   (no slug; read-only)
 
 Exit codes: 0 launched (or dry-run printed), 2 refused (manual command printed
 when one could be built).
@@ -64,6 +67,7 @@ import design_run_backend  # noqa: E402  (the run's backend; its drop warning)
 import design_run_launch_plan  # noqa: E402  (the run role, the env scrub, the route profile)
 import design_run_mcp as drm  # noqa: E402  (the MCP allow-list argv + readout)
 import design_run_window_env as dwe  # noqa: E402  (LOCAL_MODES for --local-mode)
+import design_run_resume_cli as drrc  # noqa: E402  (--resume and --list-resumable)
 
 
 def find_worktree(porcelain: str, slug: str) -> Optional[str]:
@@ -119,12 +123,27 @@ def _manual(cmd: str, reason: str) -> int:
     return 2
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse plus the flag pairings it cannot express."""
+
+    def parse_args(self, *args, **kwargs):
+        ns = super().parse_args(*args, **kwargs)
+        if ns.session is not None and not ns.resume:
+            self.error("--session needs --resume")
+        if ns.resume and ns.base_sync:
+            self.error("--resume cannot be combined with --base-sync")
+        if ns.list_resumable != (ns.slug is None):
+            self.error("--list-resumable takes no slug" if ns.list_resumable
+                       else "a slug is required (or --list-resumable alone)")
+        return ns
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI parser. Extracted so launch_model_registry.py can drive
     the `--model` default through the same parser `main` uses, without
     forking a subprocess or re-declaring the argument list."""
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("slug")
+    ap = _Parser(description=__doc__.splitlines()[0])
+    ap.add_argument("slug", nargs="?")
     ap.add_argument("--mode", default=None)
     ap.add_argument("--skip-design", action="store_true")
     ap.add_argument("--model", default=None)
@@ -151,6 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
                          "Control) — the proof gate every design run crosses before "
                          'design_run_backend: "direct" is the repo default')
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--resume", action="store_true",
+                    help="after a reboot: reopen <slug>'s session on its newest conversation "
+                         "(claude --resume) instead of starting a fresh run")
+    ap.add_argument("--session", default=None, metavar="SID", help="with --resume: this session id")
+    ap.add_argument("--list-resumable", action="store_true",
+                    help="print the tp/* worktrees a reboot left without a run (no slug)")
     ap.add_argument("--base-sync", action="store_true",
                     help="print the base-sync window command for this slug (a Strata session "
                          "under --local, else a sonnet session) instead of starting a design run")
@@ -198,6 +223,8 @@ def main(
 ) -> int:
     env = os.environ if env is None else env
     args = build_parser().parse_args(argv)
+    if args.list_resumable:  # no slug: before the slug validation and find_worktree
+        return drrc.list_resumable(env, cwd)
     if args.brief and not os.path.isfile(args.brief):
         print(f"error: --brief file not found: {args.brief}", file=sys.stderr)
         return 2
@@ -272,6 +299,8 @@ def main(
     mcp_plan = drm.plan(cfg, help_fn(env), drm.read_server_defs(wt, plan.profile_dir))
     for line in mcp_plan.lines:
         print(line)
+    if args.resume:  # before the live check, the fable notice and the brief write
+        return drrc.resume(args, wt, env, plan, mcp_plan.args, model, configured)
     cmd = drc.window_command(
         args.slug, wt, mode=args.mode, skip_design=args.skip_design,
         config_dir=plan.command_config_dir, model=model, configured=configured,
@@ -292,8 +321,7 @@ def main(
     except (OSError, ValueError) as exc:
         print(f"error: could not pre-trust worktree: {exc}", file=sys.stderr)
         return _manual(cmd, "Pre-trusting the worktree failed.")
-    tmux = shutil.which("tmux", path=env.get("PATH"))
-    probe = design_run_tmux.subprocess_runner(tmux) if tmux else None
+    probe = drrc.probe(env)
     runner = probe if env.get("TMUX") else None
     busy = design_run_tmux.live(args.slug, probe) if probe else ""  # inside tmux or not
     if busy:  # a run is going: attach, never print a second launch command

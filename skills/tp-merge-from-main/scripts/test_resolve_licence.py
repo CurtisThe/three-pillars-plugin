@@ -117,10 +117,13 @@ def test_s_j3_the_dedupe_licence_is_named_not_implied():
     equality rather than membership, that no class quietly joins them. `last-updated-preamble`
     joined deliberately: its licence is narrowed to the one `*Last updated:` key.
     `log-entry-insertion` joined deliberately too (PR #206): its licence is narrowed to the whole
-    log entries both blocks open or close with (`resolve_totality.shared_entry_affix`)."""
+    log entries both blocks open or close with (`resolve_totality.shared_entry_affix`).
+    `low-count-line` joined deliberately (basesync-count-line-and-low-headroom 2.3): two sides each
+    edited the one `N Low issues \u2192` count line and the merge emits ONE recomputed line, so its
+    licence is narrowed to that one key."""
     assert CROSS_SIDE_DEDUPE == frozenset(
         {"append-only-log", "design-inventory-row-merge", "last-updated-preamble",
-         "log-entry-insertion"})
+         "log-entry-insertion", "low-count-line"})
 
 
 # ---- S-K1 / S-K2: WHERE the licence applies, not only what it says -----------------------------

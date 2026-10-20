@@ -410,6 +410,16 @@ def resolve_last_updated_preamble(h: Hunk) -> HunkResult:
     return HunkResult("last-updated-preamble", RESOLVED, keyed_classes.merge_last_updated_lines(h))
 
 
+def resolve_low_count_line(h: Hunk) -> HunkResult:
+    """Both sides edited the one `N Low issues →` count line at the end of `known_issues.md`'s Medium
+    section, optionally inserting whole keyed entries above it — `keyed_classes` decides that and does
+    the merge: the two entry blocks as a `keyed-heading-insertion`, then ONE recomputed count line
+    (`ours + theirs − base`, ours' text after the arrow verbatim). The two count lines collapse to
+    one, the single licence this class holds (`resolve_totality`: one constant key, cross-side, and the
+    recomputed line is exempt from `overproduced` only as exactly one `COUNT_LINE` line)."""
+    return HunkResult(keyed_classes.LOW_COUNT_LABEL, RESOLVED, keyed_classes.merge_low_count_lines(h))
+
+
 def resolve_keyed_row_insertion(h: Hunk) -> HunkResult:
     """Both sides appended slug-keyed table rows (`| slug | … |`) at one point, with distinct keys
     found nowhere else in the file and an EMPTY base — `keyed_rows` decides that and does the
@@ -438,6 +448,7 @@ MECH_RESOLVERS = {
     "keyed-heading-insertion": resolve_keyed_heading_insertion,
     "last-updated-preamble": resolve_last_updated_preamble,
     keyed_rows.LABEL: resolve_keyed_row_insertion,
+    keyed_classes.LOW_COUNT_LABEL: resolve_low_count_line,
     "shaped-line-merge": resolve_shaped_line_merge,
 }
 

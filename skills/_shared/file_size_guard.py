@@ -69,6 +69,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import low_doc_parts  # noqa: E402  (the one list of the Low-doc parts)
+
 LINE_CAPS: dict[str, tuple[int, int]] = {
     # class -> (soft, hard)
     "code": (350, 500),
@@ -144,9 +150,15 @@ def is_living_doc(relpath: str) -> bool:
 
 
 def is_exempt(relpath: str) -> bool:
-    """Frozen path classes: archives + in-flight design artifacts."""
+    """Frozen path classes: archives + in-flight design artifacts + every Low-doc part.
+
+    The later Low parts are exempt through `low_doc_parts`, NOT by new `EXEMPT_FILES`
+    entries: `test_readers_skip_archives.py` derives its cold-name set from that tuple,
+    so adding `_2.md` … `_9.md` there would name them as default-read cold files."""
     norm = relpath.replace("\\", "/")
     if norm in EXEMPT_FILES or any(norm.startswith(p) for p in EXEMPT_PREFIXES):
+        return True
+    if low_doc_parts.is_part_rel(norm):
         return True
     # Top-level *_archive.md only: fnmatch's `*` crosses `/`, so check depth.
     return fnmatch.fnmatchcase(norm, ARCHIVE_GLOB) and norm.count("/") == 1

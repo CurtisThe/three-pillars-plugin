@@ -14,7 +14,9 @@ An all-Strata session (sanctioned cheap-tier run) has no such upstream turn, and
 child-spawn session has every `-> local` line agent-tagged, so both stay clean. `router_checks.main`
 turns each leak into one `ALARM main_thread_strata <sess>` line and a non-zero exit.
 `REQUEST_RE` is imported, never re-declared, so the router's line shape has one source.
-Nothing here raises: an unreadable file or line is skipped.
+Nothing here raises: an unreadable file or line is skipped. A `-> local`
+request under `MIN_TURN_BYTES` is Claude Code's small-model startup call, not a
+main-thread turn.
 """
 from __future__ import annotations
 
@@ -22,6 +24,10 @@ from pathlib import Path
 
 import router_stats
 from router_checks import DEFAULT_CLASSIFIER_MODEL, REQUEST_RE
+
+# A `-> local` request smaller than this is the host's small-model startup call, not a
+# main-thread turn; exactly this size counts as a real turn (fail toward alarming).
+MIN_TURN_BYTES = 2048
 
 
 def _agented(mid: str) -> bool:
@@ -72,7 +78,8 @@ def leak_sessions(path, since=None, until=None,
             seen.add(sess)
             order.append(sess)
         mid = m["mid"] or ""
-        if m["route"].startswith("local") and not _agented(mid):
+        if (m["route"].startswith("local") and not _agented(mid)
+                and int(m["bytes"]) >= MIN_TURN_BYTES):
             local.add(sess)
         elif m["route"] == "upstream" and _main_thread_upstream(
                 m["model"], mid, classifier_model):

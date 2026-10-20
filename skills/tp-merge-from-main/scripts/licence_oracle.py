@@ -49,10 +49,25 @@ _ANCHOR_AFTER = ("#", "/", "`", "-")      # ...or followed by one: `#L4-heading`
 # the class HAS the licence; `collapsible_keys` says which of the hunk's keys it reaches (S-K2).
 MAY_COLLAPSE_A_CROSS_SIDE_DUPLICATE = (
     "append-only-log", "design-inventory-row-merge", "last-updated-preamble",
-    "log-entry-insertion")
+    "log-entry-insertion", "low-count-line")
 # `last-updated-preamble`: every `*Last updated:` line is one key, because two one-line sides become
 # one line (the later, or a union of the two summaries). Found by prefix, not by a pattern.
 _LAST_UPDATED_KEY = "<last-updated>"
+# `low-count-line`: every `N Low issues →` line is one key, because both sides edited the one count
+# line and the merge emits ONE recomputed line (`ours + theirs - base`). Found by SPLITTING the line
+# into its head and its rest — an ASCII-digit head and a rest that opens with the fixed words — not
+# by a pattern (S-J5: the oracle's half of the mechanism must not be the resolver's regex).
+_LOW_COUNT_KEY = "<low-count>"
+_LOW_COUNT_REST = "Low issues → "
+
+
+def is_count_line_by_field(line: str) -> bool:
+    """`249 Low issues → …`: split on the FIRST space, the head is a non-empty run of ASCII digits
+    and the rest opens with the fixed words. A leading space, a non-ASCII digit, a missing arrow or a
+    different case is not a count line here, exactly as `resolve_totality.COUNT_LINE` refuses it."""
+    head, sep, rest = line.partition(" ")
+    return bool(sep) and bool(head) and head.isascii() and head.isdigit(
+    ) and rest.startswith(_LOW_COUNT_REST)
 
 
 def mask_bare_ids(line: str, touched) -> str:
@@ -156,21 +171,32 @@ def frame_lines(side) -> set:
     return out
 
 
+def _is_date(token: str) -> bool:
+    """`token` is exactly `YYYY-MM-DD` in ASCII digits."""
+    return (len(token) == 10 and token[4] == "-" and token[7] == "-"
+            and all(c.isascii() and c.isdigit() for i, c in enumerate(token) if i not in (4, 7)))
+
+
 def is_log_entry_start(line: str) -> bool:
-    """`- **<date or `slug`>** —` read by walking the line, no pattern: a dash, spaces/tabs, a
-    bold key that is a `YYYY-MM-DD` date or a backticked lowercase slug, spaces/tabs, an em dash."""
+    """`- **<date or `slug`>** —` or the plain-date `- <date> —`, read by walking the line, no
+    pattern: a dash, spaces/tabs, a key (bold `YYYY-MM-DD` date or backticked lowercase slug, or a
+    bare date), spaces/tabs, an em dash."""
     if not line.startswith("-"):
         return False
     rest = line[1:]
     body = rest.lstrip(" \t")
-    if body == rest or not body.startswith("**"):
+    if body == rest:
         return False
-    close = body.find("**", 2)
-    if close < 0:
-        return False
-    token, after = body[2:close], body[close + 2:]
-    date = (len(token) == 10 and token[4] == "-" and token[7] == "-"
-            and all(c.isascii() and c.isdigit() for i, c in enumerate(token) if i not in (4, 7)))
+    if body.startswith("**"):
+        close = body.find("**", 2)
+        if close < 0:
+            return False
+        token, after = body[2:close], body[close + 2:]
+    else:                                  # plain-date bullet: a bare date, no bold lead
+        token, after = body[:10], body[10:]
+        if not _is_date(token):
+            return False
+    date = _is_date(token)
     slug = token[1:-1]
     sluggy = (len(token) > 2 and token[0] == "`" == token[-1] and (slug[0].isdigit() or
               slug[0] in "abcdefghijklmnopqrstuvwxyz") and all(
@@ -224,6 +250,8 @@ def collapsible_keys(hunk, key, label):
         return rows | {key(line) for line in frame}
     if label == "last-updated-preamble":
         return {_LAST_UPDATED_KEY}
+    if label == "low-count-line":
+        return {_LOW_COUNT_KEY}
     if label == "log-entry-insertion":
         return {key(line) for line in shared_whole_entries(list(hunk.ours), list(hunk.theirs))}
     return set()
@@ -237,6 +265,8 @@ def oracle_key(label: str, renumbered: dict | None):
         the anchor/link forms it deliberately leaves alone, are compared literally.
       * `design-inventory-row-merge` may emit ONE row per `| D<n> |` id — ours' or theirs'.
       * `last-updated-preamble` may emit ONE `*Last updated:` line for the two it was handed.
+      * `low-count-line` may emit ONE `N Low issues →` line for the two it was handed, with the
+        number recomputed.
       * every other class may change nothing at all: identity.
     """
     if label == "id-renumber-collision":
@@ -246,6 +276,8 @@ def oracle_key(label: str, renumbered: dict | None):
         return lambda line: (f"<row {row_id_by_field(line)}>" if row_id_by_field(line) else line)
     if label == "last-updated-preamble":
         return lambda line: _LAST_UPDATED_KEY if line.startswith("*Last updated:") else line
+    if label == "low-count-line":
+        return lambda line: _LOW_COUNT_KEY if is_count_line_by_field(line) else line
     return lambda line: line
 
 

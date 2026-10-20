@@ -3,11 +3,17 @@
 
 design: run-throughput (seat rulings G4, G5 — PR #178 live checks #2 and #3)
 
-``<git-common-dir>/tp-ladder/<slug>/`` holds, per task ``<id>``, the ladder record ``R``
-(``<id>.json``) and the side files one attempt writes: ``C`` (``<id>.check.json``), ``S``
-(``.scan.json``), ``F`` (``.reply.txt``), ``W`` (``.watch.json``, the watchdog state),
+``<git-common-dir>/tp-ladder/<slug>/`` (``L``) holds, per task ``<id>``, the ladder record
+``R`` (``<id>.json``) and the side files one attempt writes: ``C`` (``<id>.check.json``),
+``S`` (``.scan.json``), ``F`` (``.reply.txt``), ``W`` (``.watch.json``, the watchdog state),
 ``P`` (``.poll.json``, the latest poll) and ``V`` (``.review.txt``, a no-oracle task's Opus
-diff-review reply).
+diff-review reply). ``F``, ``V``, ``C`` and ``S`` are the four a ``tp-worker`` ever writes,
+and a worktree-isolated worker refuses a path outside its own tree, so ``paths`` prints
+those four under ``<worktree>/.tp-scratch/tp-ladder/<slug>/`` (``T``, scratch: excluded,
+never ``git status``) while the dispatcher-owned ``R``/``W``/``P`` stay in ``L``.
+Callers that pass no ``T`` (``clear_task``, legacy) keep the ``L``-only layout, and both
+``--fresh`` and ``sweep`` clear the ``F``/``V``/``C``/``S`` copies in each directory they
+cover.
 
 * ``paths`` resolves them to **literal absolute paths** and creates the directory, so a
   dispatcher's commands carry no ``$(git rev-parse …)`` substitution and no ``mkdir``
@@ -41,9 +47,12 @@ if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
 import attempt_orphans  # noqa: E402 — status (the orphans predicate)
+import scratch_root  # noqa: E402 — SCRATCH_DIR, the in-tree scratch base
 import task_attempts  # noqa: E402 — common_dir, the attempt records' home
 
 LADDER = "tp-ladder"
+TREE = scratch_root.SCRATCH_DIR + "/" + LADDER  # the in-tree copy of the ladder dir
+AGENT_WRITTEN = ("reply", "review", "check", "scan")  # F + V + C + S: what a tp-worker writes
 SIDE = {"check": ".check.json", "scan": ".scan.json", "reply": ".reply.txt",
         "watch": ".watch.json", "poll": ".poll.json", "review": ".review.txt"}
 STOPS = "stops.ndjson"  # durable per-stop record (router_daily); never a side file
@@ -61,11 +70,24 @@ def ladder_dir(root, slug: str) -> Path:
     return Path(task_attempts.common_dir(root)) / LADDER / _segment(slug, "slug")
 
 
-def paths(ldir: Path, task: str) -> dict:
-    """``{record, check, scan, reply, watch, poll, review}`` for ``task`` under ``ldir``."""
+def tree_dir(root, slug: str) -> Path:
+    """``<worktree toplevel>/.tp-scratch/tp-ladder/<slug>`` — the in-tree ladder dir."""
+    return Path(task_attempts.toplevel(root)) / TREE / _segment(slug, "slug")
+
+
+def paths(ldir: Path, task: str, tdir=None) -> dict:
+    """``{record, check, scan, reply, watch, poll, review}`` for ``task``.
+
+    ``AGENT_WRITTEN`` keys resolve under ``tdir`` when it is given; without it every
+    path stays under ``ldir`` (the pre-in-tree layout the legacy callers keep).
+    """
     task = _segment(task, "task")
-    return {"record": str(ldir / f"{task}.json"),
-            **{k: str(ldir / f"{task}{suffix}") for k, suffix in SIDE.items()}}
+    out = {"record": str(ldir / f"{task}.json"),
+           **{k: str(ldir / f"{task}{suffix}") for k, suffix in SIDE.items()}}
+    if tdir is not None:
+        for key in AGENT_WRITTEN:
+            out[key] = str(Path(tdir) / f"{task}{SIDE[key]}")
+    return out
 
 
 def _live_orphan(path: Path, config_dir) -> bool:
@@ -93,9 +115,15 @@ def _clear(files, config_dir) -> tuple[list[str], list[str]]:
     return removed, kept
 
 
-def clear_task(ldir: Path, task: str, config_dir=None) -> dict:
-    """Remove ``task``'s side files (never ``R``; a live orphan ``W`` stays)."""
-    files = [Path(p) for k, p in paths(ldir, task).items() if k != "record"]
+def clear_task(ldir: Path, task: str, config_dir=None, tdir=None) -> dict:
+    """Remove ``task``'s side files (never ``R``; a live orphan ``W`` stays).
+
+    With ``tdir`` the agent-written copy in the in-tree dir goes too, and the legacy
+    ``L`` copies of all four are removed either way.
+    """
+    files = [Path(p) for k, p in paths(ldir, task, tdir).items() if k != "record"]
+    if tdir is not None:
+        files += [Path(p) for k, p in paths(ldir, task).items() if k in AGENT_WRITTEN]
     removed, kept = _clear([f for f in files if f.exists()], config_dir)
     return {"removed": removed, "kept_orphans": kept}
 
@@ -117,18 +145,26 @@ def live_tasks(root, slug: str) -> set:
     return out
 
 
+def _stale(ld: Path, live: set) -> list[Path]:
+    """``ld``'s side files whose task id has no live attempt record."""
+    if not Path(ld).is_dir():
+        return []
+    return [p for p in sorted(Path(ld).iterdir())
+            if _task_of(p.name) is not None and _task_of(p.name) not in live]
+
+
 def sweep(root, slug: str, config_dir=None) -> dict:
-    """Clear every side file whose task has no live attempt → ``{removed, kept_orphans}``."""
+    """Clear every side file whose task has no live attempt → ``{removed, kept_orphans}``.
+
+    Covers both ladder dirs: ``L`` (all side files) and the in-tree ``T`` (where an
+    abandoned attempt's ``F``/``V``/``C``/``S`` are left behind).
+    """
     try:
-        ldir = ladder_dir(root, slug)
+        ldir, tdir = ladder_dir(root, slug), tree_dir(root, slug)
     except (ValueError, subprocess.CalledProcessError):
         return {"removed": [], "kept_orphans": []}
-    if not ldir.is_dir():
-        return {"removed": [], "kept_orphans": []}
     live = live_tasks(root, slug)
-    stale = [p for p in sorted(ldir.iterdir())
-             if _task_of(p.name) is not None and _task_of(p.name) not in live]
-    removed, kept = _clear(stale, config_dir)
+    removed, kept = _clear(_stale(ldir, live) + _stale(tdir, live), config_dir)
     return {"removed": removed, "kept_orphans": kept}
 
 
@@ -143,13 +179,15 @@ def main(argv=None) -> int:
     sp.add_argument("--root", default=".")
     args = parser.parse_args(argv)
     try:
-        ldir = ladder_dir(args.root, args.slug)
+        ldir, tdir = ladder_dir(args.root, args.slug), tree_dir(args.root, args.slug)
+        scratch_root.ensure_excluded(args.root)  # before any write: T is scratch
         os.makedirs(ldir, exist_ok=True)
+        os.makedirs(tdir, exist_ok=True)
         out: dict = {"dir": str(ldir)}
         if args.task is not None:
-            out.update(paths(ldir, args.task))
+            out.update(paths(ldir, args.task, tdir))
             if args.fresh:
-                out["cleared"] = clear_task(ldir, args.task)
+                out["cleared"] = clear_task(ldir, args.task, tdir=tdir)
         elif args.fresh:
             raise ValueError("--fresh needs --task")
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:

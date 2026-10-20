@@ -62,6 +62,7 @@ See [`throughput.md`](throughput.md) §Retry with advice (audits): Slot 4/6 `nee
 ## Operator pings
 
 - At any stop the finalizer escalates, and at a classifier block, run `python3 "$TP_ROOT"/skills/_shared/ready_ping.py stop --slug {slug} --summary "<cause>" --decisions three-pillars-docs/tp-designs/{slug}/decisions.md` (the finalizer CLI already does this itself on `escalate`), then `PushNotification` the printed message when the tool is available.
+- After a base-sync push of a converged PR, run `python3 "$TP_ROOT"/skills/_shared/ready_ping_rearm.py --pr-url <pr_url> --head <sync head>` (the ping is recorded in the ping ledger), and `PushNotification` the `ready_ping.message` when `ready_ping.status` is `sent`. A skipped ping is recorded as owed; the fleet churn watcher emits `pr-ready` once the PR is MERGEABLE.
 
 ## Lock ownership
 

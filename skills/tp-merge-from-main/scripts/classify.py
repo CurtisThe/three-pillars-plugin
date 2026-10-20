@@ -69,7 +69,7 @@ import shaped_merge  # noqa: E402
 MECHANICAL = frozenset(
     {"id-renumber-collision", "design-inventory-row-merge", "append-only-log",
      "log-entry-insertion", "decision-entry-insertion", "keyed-heading-insertion",
-     "last-updated-preamble", "keyed-row-insertion", "shaped-line-merge"}
+     "last-updated-preamble", "keyed-row-insertion", "shaped-line-merge", "low-count-line"}
 )
 SEMANTIC = frozenset({"preamble", "current-focus-reprioritization", "generic-prose"})
 # GATED: mechanical-by-structure classes that are labelled but NEVER auto-applied. `resolve.

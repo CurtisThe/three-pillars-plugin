@@ -174,7 +174,9 @@ HEADING_ENTRY = re.compile(
 # re-derived here so the verifier stays independent of the resolver. Group 1 (everything after the
 # `- ` marker, i.e. `**<key>** — <title>`) is the signature; the kebab-slug arm excludes file-path
 # description bullets, matching what the resolver actually keeps.
-LOG = re.compile(r"^-\s+(\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*\s+—.*)$")
+# A plain-date bullet (`- 2026-10-16 — …`, no bold lead) is a log atom too; its signature has no `**`.
+LOG = re.compile(
+    r"^-\s+((?:\*\*(?:`[a-z0-9][a-z0-9-]*`|\d{4}-\d{2}-\d{2})\*\*|\d{4}-\d{2}-\d{2})\s+—.*)$")
 # Decision-entry atom — the canonical `### [{skill-name}] <title>` shape prescribed by
 # `skills/_shared/auto-mode.md`, and the shape whose drift produced the observed silent pass
 # (a 50-entry and a 52-entry `decisions.md` that both parsed to ZERO atoms). Re-derived here
