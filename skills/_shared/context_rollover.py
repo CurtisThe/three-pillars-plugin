@@ -16,9 +16,10 @@ Four pure questions, no tmux, no git, no clock:
   transcript reports no usage. Sidechain records (a subagent's turns) are skipped, and
   the streamed snapshot + final records of one `message.id` count once, final winning;
 - `at_turn_boundary(records, pane, idle_for_s, idle_s)` — `(True, "")` when the last
-  main-chain turn stopped on `end_turn` with nothing after it, the pane shows no
-  background agents and the session has been idle for `idle_s`; otherwise
-  `(False, why-we-wait)` so the caller can print the reason it held off;
+  main-chain turn stopped on `end_turn` with nothing after it, `pane_activity.classify`
+  names no blocking kind (card, shell, busy or background) in the pane's last 12 lines and
+  the session has been idle for `idle_s`; otherwise `(False, why-we-wait)` so the caller
+  can print the reason it held off;
 - `due(size, threshold)` — size >= threshold (inclusive); an unknown size is never due.
 
 `context_rollover_drive.py` (Task 4.1) owns the tmux side; this module only answers.
@@ -28,7 +29,7 @@ from __future__ import annotations
 import json
 import os
 
-import design_run_watch as drw
+import pane_activity
 
 __all__ = ["DEFAULT_THRESHOLD", "read_records", "context_size",
            "at_turn_boundary", "due"]
@@ -152,8 +153,9 @@ def at_turn_boundary(records: "list[dict]", pane, idle_for_s: float,
         return False, f"idle {idle_for_s:.0f}s < required {idle_s:.0f}s"
     if pane is None:
         return False, "pane unreadable"
-    if drw.BACKGROUND_MARKER in pane:
-        return False, "background agents in the pane"
+    kind = pane_activity.classify(pane).kind
+    if kind in pane_activity.HOLD_REASONS:
+        return False, pane_activity.HOLD_REASONS[kind]
     turns = _turns(records)
     if not turns:
         return False, "no main-chain assistant turn in the transcript"

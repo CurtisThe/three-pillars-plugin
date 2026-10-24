@@ -72,7 +72,7 @@ Narrative rationale belongs in the linked design or seed, not in the table cell.
 
 ## Pending token
 
-There is one pending token, `Completion PR pending`, used in every non-History status spot that names the slug (inventory Status cell, Current State bullet, Recent-completions entry, queue line). Never write free "awaiting PR" prose. The three placements above (leads, parenthetical, directly precedes) are the only ones the flipper attributes, and only when they agree (a line led by one slug whose token parenthetical names or follows another is unattributable); any other placement is reported by `final_doc_state.py check` as drift needing a hand edit. `/tp-design-complete` flips the token to a done form.
+There is one pending token, `Completion PR pending`, used in every non-History status spot that names the slug (inventory Status cell, Current State bullet, queue line); a Recent-completions entry uses `Done — {pr}` instead, and `changes_fragment.py validate` rejects the token there. Never write free "awaiting PR" prose. The three placements above (leads, parenthetical, directly precedes) are the only ones the flipper attributes, and only when they agree (a line led by one slug whose token parenthetical names or follows another is unattributable); any other placement is reported by `final_doc_state.py check` as drift needing a hand edit. `/tp-design-complete` flips the token to a done form.
 
 ## Condensed shape and caps
 

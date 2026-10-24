@@ -89,7 +89,7 @@ Follow the instructions in `skills/tp-spike-results/SKILL.md` with `--auto` flag
 ### Step 5.5: Closeout — propagate learnings (enforced, no longer deferred)
 
 Follow `skills/tp-spike-learn/SKILL.md` with the `--auto` flag:
-- Propagate findings into `product_roadmap.md` / `architecture.md` / `known_issues.md`; update the Design Inventory status with the verdict.
+- Propagate findings into the spike's fragment `three-pillars-docs/changes/{spike-name}.md` (its `## Roadmap` / `## Architecture` / `## Known issues` sections, never a living doc); update the Design Inventory status with the verdict.
 - Run learn-verification (`verify_learn.py` over `{default}...tp/{spike-name}`) — advisory, flagged stale refs logged to decisions.md.
 - Scan downstream designs; if the verdict is NO-GO, mark dependent rows blocked.
 - **Never edits `vision.md`** — flags tensions to decisions.md only.
@@ -111,7 +111,7 @@ Append to decisions.md:
 Tell the user:
 > **Autonomous spike complete.** Review `decisions.md` for the full decision trail and `spike-results.md` for findings.
 >
-> **Closeout already ran (Step 5.5):** `/tp-spike-learn --auto` propagated findings into `product_roadmap.md`, `architecture.md`, and `known_issues.md`, updated the Design Inventory status with the verdict, ran learn-verify, and (if NO-GO) marked dependent designs blocked. **Review those diffs + `decisions.md`.** No separate manual `/tp-spike-learn` is needed — it is no longer deferred.
+> **Closeout already ran (Step 5.5):** `/tp-spike-learn --auto` propagated findings into the fragment `three-pillars-docs/changes/{spike-name}.md` (the compile folds it into the living docs after the merge), updated the Design Inventory status with the verdict, ran learn-verify, and (if NO-GO) marked dependent designs blocked. **Review those diffs + `decisions.md`.** No separate manual `/tp-spike-learn` is needed — it is no longer deferred.
 >
 > **Next step (after human review):** `/tp-design-complete {spike-name}` to archive the spike and open the completion PR.
 

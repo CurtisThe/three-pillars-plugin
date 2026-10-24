@@ -32,13 +32,17 @@ Three more rules follow from those two:
 A question stop is `{"source": "question", "signal": <kind>, "target": <slug>, "detail":
 {"question": <text>, "options"?: [...], "context"?: <text>}}`. `signal` is one kind:
 `decision`, `lesson`, `merge`, `force-push`, `remote-delete`, `classifier-denial`,
-`standing-order`, `scope-growth`, `base-sync-hunk`. The last seven are **operator-only**: Fable
-analyses and recommends, the ruling always escalates.
+`standing-order`, `scope-growth`, `base-sync-hunk`. Five are **operator-only**: `merge`,
+`force-push`, `remote-delete`, `classifier-denial`, `scope-growth`. Fable analyses and recommends,
+the ruling always escalates. `standing-order` and `base-sync-hunk` are ruled by Fable, escalating
+on `low` confidence.
 
 ## Run
 
 A run routes a question in three steps. The run's ledger and decisions file are the design's own:
-`three-pillars-docs/tp-designs/<slug>/finalizer-ledger.json` and `decisions.md` beside it.
+`three-pillars-docs/tp-designs/<slug>/finalizer-ledger.json` and `decisions.md` beside it. After
+the Tier 5.6 archive those `tp-designs/<slug>/` paths resolve to `completed-tp-designs/<slug>/`
+(`finalizer_cli.py` re-points `--ledger` and `--decisions`), so a run keeps its usual paths.
 
 ### 1. Ask Fable
 
@@ -120,8 +124,26 @@ python3 "$TP_ROOT"/skills/_shared/ruling_cli.py card --id <ruling-id> --html <pa
 python3 "$TP_ROOT"/skills/_shared/ruling_cli.py answer --id <ruling-id> --choice <label>
 ```
 
+**Design run (`TP_DESIGN_RUN=1`).** The run opens no `AskUserQuestion` card. `skills/_shared/run_no_cards_hook.py` denies every `AskUserQuestion` call in a seat-launched run (`TP_DESIGN_RUN=1`, no `TP_CHILD_SESSION`). A tagged card (its question carries `ruling: <id>`, e.g. a ruling Fable escalated) is never re-asked: the run prints `awaiting-operator: ruling <id>` and waits on that id with `ruling_cli.py wait --id <id>`, one ruling id per question. Only a question with no ruling file yet (an untagged one) uses one command, `python3 "$TP_ROOT"/skills/_shared/ruling_cli.py ask --scope <slug> --question <text> --option 'LABEL=DESCRIPTION' --recommended LABEL [--kind <kind>] [--context <text>]` (2-4 `--option` flags): it writes the ruling (outcome `escalate`, front `model: run-ask`, front `kind` the `--kind` from `finalizer_ruling.KINDS`, default `decision`; an `OPERATOR_ONLY` kind such as `classifier-denial` stays the operator's) and prints step 1's two lines itself, so the run goes straight to step 2. Steps 3 and 4 become a wait on the ruling file:
+
+1. print the line `awaiting-operator: ruling <ruling-id>` and, on the next line, the command a seat-less operator runs: `python3 "$TP_ROOT"/skills/_shared/ruling_cli.py answer --id <ruling-id> --choice <label>`;
+2. run `python3 "$TP_ROOT"/skills/_shared/ruling_cli.py wait --id <ruling-id>` (Bash timeout 300000; its default poll is 270 s);
+3. exit 0 is the choice: the label is line 1; for `answer-in-text` the operator's text is the second line, and the run continues with that text. Exit 2 is an unknown id (a broken ruling): halt. Exit 3 means the 270 s poll timed out: print the `awaiting-operator` line again and wait again.
+
+The seat (relaying the operator's choice) or the operator answers with `ruling_cli.py answer`. A session without `TP_DESIGN_RUN` keeps the card path above (`ruling_cli.py card` + one `AskUserQuestion`).
+
 Then continue the run with the operator's choice. A run never adds or removes a lesson; it
 records feedback only (`skills/_shared/lessons.py` is the seat's tool).
+
+**Second budget stop.** When `prepare` returns `refused` (`already-finalized`) for an audit slot
+(the top-level re-audit after a `resolved` audit-gate finalizer returned `needs-work` again),
+build the stop with
+`python3 "$TP_ROOT"/skills/_shared/extra_round.py stop --slug <slug> --slot <audit-slot>` and
+route it through step 1. `resolved` is logged `### [orchestrator/<audit-slot>] extra-round-granted`
+and the run does one more retry-with-advice cycle (a patch, or a re-run of the flagged phases for
+implementation) and one re-check, then the audit must PASS. A `refused` (`already-finalized`: the
+grant is spent), an `escalate`, or an audit-gate finalizer that itself returned `escalate` goes to
+the operator as today. Map-check findings never enter this path.
 
 ## Commit points
 
@@ -145,11 +167,16 @@ worktree-isolation guard. They land at three points, each a scoped `git add`:
 A ruling-only commit is rejected by the carry: the carry stays the closed allow-list anchored on
 an archived design's log, so a ruling always travels with a real log flush.
 
-**Base-sync hunks.** Each deferred living-doc hunk a base sync leaves behind is one question of
-kind `base-sync-hunk` — operator-only, a seat ruling. Fable analyses it and recommends, the
-ruling always escalates, and the recommendation rides the operator card. The merge boundary is
-unchanged: the automation never applies the proposal itself. A code conflict on the same
-boundary is kind `scope-growth`, also operator-only.
+**Base-sync hunks.** Each living-doc file in a base sync's `partially_resolved` or `deferred` list
+(outside `vision.md`/`architecture.md`) is put to Fable as one question of kind `base-sync-hunk`.
+The question names the file and the deferred hunk's heading or first changed line, so a later sync
+of the same doc is not refused `already-finalized`. Fable rules it first: a `resolved` ruling is
+applied only from the VERIFIED splice proposal per `tp-merge-from-main` step 4, never from ruling
+text. A pillar-doc hunk stays the human's, and so does a code conflict (kind `scope-growth`,
+operator-only); an `escalate` ruling carries Fable's recommendation on the operator card, and a
+`leave-for-human` choice escalates too. With no zero-drop VERIFIED proposal Fable is skipped, and
+then, or when a `resolved` `apply-proposal` re-check (`verify.py`, `file_size_guard`, the oracle)
+exits non-zero, the run calls `finalizer_cli.py escalate --reason no-proposal` so the park is visible.
 
 ## Seat
 
@@ -168,6 +195,8 @@ python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop stop.json \
   --reply R --decisions three-pillars-docs/escalations/seat-decisions.md --scope <slug> --entry seat
 ```
 
+A conflicted merge is never a `decision`: `--kind base-sync-hunk` for a deferred living-doc hunk,
+`--kind scope-growth` for a code conflict (`scope-growth` operator-only; `base-sync-hunk` Fable-first).
 `--scope seat` is for a question with no design of its own. `seat_brief.py build` adds the fleet
 context to the stop — the in-flight registry, the orchestration handoff, and the run's newest
 ruling, read from the run's worktree or from `tp/<slug>`, never from this checkout.
@@ -205,13 +234,18 @@ rules hold on both sides:
 An explainer failure never blocks a ruling, a commit or a PR: it degrades to one line and the
 card still goes out.
 
+**Light path.** `ruling_cli.py card` without `--html` is the light path for a one-line question:
+the same card (recommended option first, two to four options, the trailing `ruling: <id>` line
+the hook accepts) with no explainer link. The explainer page stays the default for real
+decisions; the card is never hand-built on either path.
+
 ## Hook
 
 `skills/_shared/escalate_first_hook.py` is a `PreToolUse` hook on `AskUserQuestion`, registered
-in `skills/_shared/hooks/claude-code-hooks.json`. It enforces this protocol in a design run and
-nowhere else: `TP_DESIGN_RUN=1`, the cwd on `tp/<slug>`, that design's `lock.json` owner starting
-with `orchestrator:`, and the lock's `phase` not `design`. The lock is read from
-`three-pillars-docs/tp-designs/<slug>/` or, after the Tier 5.6 archive, from
+in `skills/_shared/hooks/claude-code-hooks.json`. It enforces this protocol in a design run and in
+the seat (below), nowhere else. A run is: `TP_DESIGN_RUN=1`, the cwd on `tp/<slug>`, that design's
+`lock.json` owner starting with `orchestrator:`, and the lock's `phase` not `design`. The lock is
+read from `three-pillars-docs/tp-designs/<slug>/` or, after the Tier 5.6 archive, from
 `three-pillars-docs/completed-tp-designs/<slug>/`, so enforcement covers Tiers 6-7. A missing or
 unreadable lock or `phase` allows the question (fail-open), and so does any internal error.
 
@@ -222,6 +256,56 @@ registration is present with:
 
 ```bash
 python3 "$TP_ROOT"/skills/_shared/escalate_first_hook.py --check-manifest \
+  skills/_shared/hooks/claude-code-hooks.json
+```
+
+`skills/_shared/run_no_cards_hook.py`, in the same `AskUserQuestion` group, denies every card in a seat-launched run; its reason points a tagged card at `ruling_cli.py wait --id <id>` and an untagged one at `ruling_cli.py ask` then `wait` (`--check-manifest` checks its registration the same way).
+
+**The seat is gated too.** `TP_DESIGN_RUN=1` is never a seat, whatever its role: a direct launch
+on a launcher without the `run` role carries `CLAUDE_LAUNCHER_ROLE=seat` and keeps the run rules.
+Otherwise a session is a seat when `CLAUDE_LAUNCHER_ROLE=seat`, or when its cwd is the base checkout
+on the default branch and a `tp/*` design worktree holds a **live** run (its `lock.json`, in
+`tp-designs/` or `completed-tp-designs/`, has an `owner` starting `orchestrator:`; a human-owned or
+released design is not). A seat card is denied unless it carries a `seat-allow: <kind>` line
+or a `ruling: <id>` line naming an existing `escalate` ruling that is **unanswered** and whose
+question the card restates. "Answered" is `ruling_file.answer_of`: the label of the last
+`- YYYY-MM-DD: answer: <label>` feedback line, so a spent ruling clears no second card. The
+denial names `/tp-escalate`: run it from the base checkout, and ask with its card.
+
+These audited tags pass a card with no ruling (no design to rule on, or the operator's own
+gate). Put the tag on a line of its own:
+
+| Tag | Prompt |
+| --- | --- |
+| `seat-allow: session-restore` | restore-which and direction cards |
+| `seat-allow: first-run-preflight` | every first-run offer card |
+| `seat-allow: fleet-scope` | fleet scope pick, docs-restructuring mark, "Offer to drop" |
+| `seat-allow: promote-confirm` | promote batched confirm |
+| `seat-allow: session-clear` | discard confirm |
+| `seat-allow: post-merge-teardown` | teardown and backfill checklists |
+| `seat-allow: worktree-confirm` | zombie-PR confirm; core-bare-flip confirms, hard reset included |
+| `seat-allow: migrate-confirm` | migrate apply confirm |
+
+These prompts are **deliberately not tagged**: the interactive design skills (`/tp-design`,
+`/tp-spike`, `/tp-spike-auto` Phase 1, `/tp-task-cycle`), `read-project-docs.md`'s vision-conflict
+ask, and the "stop and ask" lines of `/tp-design-release`, `/tp-revert` and `/tp-design-complete`.
+In a seat-role session they are decisions: go through `/tp-escalate`, or run them from a
+non-seat session.
+
+**A question asked as prose.** `skills/_shared/stop_question_hook.py` is a `Stop` entry (no
+matcher) in the same manifest: a card gate cannot see prose. When a turn ends it reads
+`last_assistant_message` (the transcript's last assistant text only if the field is absent) and asks
+`skills/_shared/prose_question.py` whether the message ends in a question for the operator: a
+"Needs your decision" line, or a numbered or lettered options run beside a question line. If it
+does and the session is gated (a run past `design`, or the seat, by the rules above) the hook
+returns one `{"decision": "block", "reason": ...}`: a run is pointed at §Run, the seat at
+`/tp-escalate` from the base checkout. It returns nothing when `stop_hook_active` is true (one
+block per turn), for a message carrying an allowed `seat-allow: <kind>` line, in an ungated
+session, in a `claude -p` child (`TP_CHILD_SESSION=1`) and on any error (fail-open, exit 0). It
+nudges once; it is not a hard wall. Check the registration with:
+
+```bash
+python3 "$TP_ROOT"/skills/_shared/stop_question_hook.py --check-manifest \
   skills/_shared/hooks/claude-code-hooks.json
 ```
 

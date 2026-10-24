@@ -21,12 +21,21 @@ headed in `known_issues.md` ∪ `known_issues_low.md` ∪ `known_issues_resolved
 `ISSUE_ID_DOCS` siblings) or earlier in the batch. An entry whose key is already filed in
 any of them is skipped, so a re-run applies nothing twice.
 
+`apply_to_fragment(pending, fragment, known_issues)` (design: living-doc-fragments 1.12) files the same
+entries, under the same placeholders and claim-key dedupe, into the design's fragment
+`three-pillars-docs/changes/<slug>.md` under `## Known issues — add` instead, after the blocks already
+there; a design branch never edits a living doc, so the docs next to `known_issues` are only read (for the
+keys and placeholders already filed). A fragment that is absent or empty gains its frontmatter first
+(`slug` = the file stem, `kind: design`, today), and a fragment without the section gains it at the end.
+Nothing new to file leaves the fragment untouched.
+
 `LIVE_ISSUE_DOCS` / `ISSUE_ID_DOCS` / `COLD_ISSUE_DOCS` are the shared issue-doc tuples
 (design: skill-context-diet D5b): ID readers read `ISSUE_ID_DOCS`; the cold
 `known_issues_archive.md` holds demoted bodies and is never read for IDs.
 """
 from __future__ import annotations
 
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -42,6 +51,7 @@ PLACEHOLDER = "M?"
 SWEEP_MISS = ("not-binding", "false-red")
 SELF_OK = ("binds", "known-bypass")
 MEDIUM = "## Medium"
+FRAGMENT_ADD = "## Known issues — add"
 _DOCS = "three-pillars-docs/"
 # Part 1 plus every numbered Low part (design: basesync-count-line-and-low-headroom 2.1).
 # A repo with no Low doc still resolves none of them, so it behaves exactly as before.
@@ -120,6 +130,21 @@ def placeholder_id(key: str, taken: set) -> str:
     return candidate
 
 
+def _mint(pending: str, filed: set, taken: set) -> tuple[list[str], list[str]]:
+    """The (placeholder ids, blocks) `pending` adds over the claim keys `filed` and ids `taken`."""
+    ids, blocks = [], []
+    for block in _entries(pending):
+        keys = keys_in(block.splitlines()[0])
+        if not keys or keys[0] in filed:
+            continue
+        pid = placeholder_id(keys[0], taken)
+        ids.append(pid)
+        blocks.append(block.replace(f"### {PLACEHOLDER}:", f"### {pid}:", 1) + "\n")
+        filed.add(keys[0])
+        taken.add(pid)
+    return ids, blocks
+
+
 def apply(pending: str, known_issues, resolved=None) -> list[str]:
     """Insert the pending entries under `## Medium`; return the placeholder ids filed."""
     known_issues = Path(known_issues)
@@ -134,16 +159,7 @@ def apply(pending: str, known_issues, resolved=None) -> list[str]:
         raise ValueError(f"{known_issues}: no '{MEDIUM}' section to file into")
     filed = set(keys_in(text)) | set(keys_in(archive))
     taken = set(_M_NEW_RE.findall(text)) | set(_M_NEW_RE.findall(archive))
-    ids, blocks = [], []
-    for block in _entries(pending):
-        keys = keys_in(block.splitlines()[0])
-        if not keys or keys[0] in filed:
-            continue
-        pid = placeholder_id(keys[0], taken)
-        ids.append(pid)
-        blocks.append(block.replace(f"### {PLACEHOLDER}:", f"### {pid}:", 1) + "\n")
-        filed.add(keys[0])
-        taken.add(pid)
+    ids, blocks = _mint(pending, filed, taken)
     if not blocks:
         return []
     insert = at + 1
@@ -151,4 +167,43 @@ def apply(pending: str, known_issues, resolved=None) -> list[str]:
         insert += 1
     head = lines[:at + 1] + ["\n"]
     known_issues.write_text("".join(head + blocks + lines[insert:]), encoding="utf-8")
+    return ids
+
+
+def _section_end(lines: list[str], start: int) -> int:
+    """The index of the next `## ` heading after line `start` (outside a code fence), else the end."""
+    fence = False
+    for i in range(start + 1, len(lines)):
+        if lines[i].lstrip().startswith("```"):
+            fence = not fence
+        elif not fence and lines[i].startswith("## "):
+            return i
+    return len(lines)
+
+
+def apply_to_fragment(pending: str, fragment, known_issues) -> list[str]:
+    """File the pending entries under the fragment's `## Known issues — add`; return the ids filed."""
+    fragment, known_issues = Path(fragment), Path(known_issues)
+    docs = "\n".join([_read(known_issues)] + [_read(known_issues.parent / Path(rel).name)
+                                              for rel in ISSUE_ID_DOCS])
+    text = _read(fragment)
+    ids, blocks = _mint(pending, set(keys_in(docs)) | set(keys_in(text)),
+                        set(_M_NEW_RE.findall(docs)) | set(_M_NEW_RE.findall(text)))
+    if not blocks:
+        return []
+    body = "".join(blocks)
+    lines = text.splitlines(keepends=True)
+    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == FRAGMENT_ADD), None)
+    if not text.strip():
+        day = datetime.date.today().isoformat()
+        out = f"---\nslug: {fragment.stem}\nkind: design\ndate: {day}\n---\n\n{FRAGMENT_ADD}\n\n{body}"
+    elif at is None:
+        out = f"{text.rstrip(chr(10))}\n\n{FRAGMENT_ADD}\n\n{body}"
+    else:
+        end = _section_end(lines, at)
+        while end > at + 1 and not lines[end - 1].strip():
+            end -= 1
+        out = "".join(lines[:end]).rstrip("\n") + "\n\n" + body + "".join(lines[end:])
+    fragment.parent.mkdir(parents=True, exist_ok=True)
+    fragment.write_text(out.rstrip("\n") + "\n", encoding="utf-8")
     return ids

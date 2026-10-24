@@ -16,7 +16,8 @@ never the head SHA, so a fix that moves the head does not open a fresh stop. One
 | `pr-iterate` | a newly fired budget terminal (`round-cap`, `wall-clock`, `k-consecutive`, `growth-lines`, `test-code-ratio`, `budget-error`); `run_round` returns `finalizer_stop`, carried in the round-tail envelope | per signal: `pr-iterate:<signal>:<pr-url>` |
 | `audit-gate` | an audit slot out of retries (`design`, `plan`, `implementation`) | per slot: `audit-gate:<slot>:<slug>` |
 | `halt` | an orchestrator env-error | per occurrence: `halt:<signal>:<slug>:<hash8>` |
-| `question` | an operator question raised by a run — Fable rules first per `skills/_shared/escalation.md`; an escalation is one tagged card | per occurrence: `question:<kind>:<slug>:<hash8>` |
+| `question` | an operator question raised by a run — Fable rules first per `skills/_shared/escalation.md`; an escalation is one tagged card, or under `TP_DESIGN_RUN=1` no card: the run waits on that ruling's id (`ruling_cli.py wait --id <id>`); only a question with no ruling yet is written by the run with `ruling_cli.py ask [--kind <kind>]` and waited on the same way | per occurrence: `question:<kind>:<slug>:<hash8>` |
+| `question` / `decision` | the review stop: a two-stable converge with notes left (`review_stop.due`); `finalizer_stop` has `terminal` null and rides the round-tail envelope; ruled per `skills/tp-pr-iterate/round-topology.md` §Review stop | per set of notes, no head: `question:decision:<pr-url>:<hash8>` |
 
 The halt hash covers the detail after digit runs, hex ids and absolute paths are stripped, so a
 recurring env-error keys the same. A budget terminal that is merely *held* (fired on an earlier round,
@@ -33,7 +34,8 @@ python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py prepare --stop <json|file> --
   with the returned `fallback` (Opus, xhigh) and pass `--model-used opus --fallback-reason <why>` to `apply`.
 - exit 0, `status: noop` (`in-flight-same-target`): do nothing. A finalizer for this target is already running.
 - exit 3, `status: refused` (`already-finalized` | `nested` | `ledger-unreadable` | `agent-unresolved`):
-  run `escalate` with that reason. No dispatch.
+  run `escalate` with that reason, no dispatch (an audit-gate `already-finalized` goes to
+  `escalation.md` "Second budget stop" first).
 
 Save the finalizer's final reply, verbatim, to a file R. The contract is strict: the reply must be exactly
 one JSON object, bare or inside one fence. Prose around it, a second object, a malformed or partial

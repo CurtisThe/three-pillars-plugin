@@ -126,6 +126,10 @@
           "type": "boolean",
           "description": "Whether the living-doc hand-resolution carry (living_doc_carry.certify_link_carry) may certify a base-sync link without byte-exact reproduction. Default (absent) is true — default-ON, and only consulted when approval_survives_safe_base_sync is true. False ONLY on the literal boolean `false` (living_doc_carry.carry_livingdoc_handres_enabled): the operator's opt-out back to the strict byte-exact carry. Read from the COMMITTED HEAD via the gate's _load_repo_config, so it must be declared here or the schema prune drops it and the opt-out is silently ignored."
         },
+        "proof_neutral_carry": {
+          "type": "boolean",
+          "description": "Whether a head-bound review proof is carried across up to 4 proof-neutral commits (docs-only living-doc .md edits, comment-only .py edits and a base-sync merge whose hand-resolved paths are all living-doc .md, capped at 200 changed lines; skills/_shared/proof_neutral_carry.py, merge_carry.py). Default (absent) is true — default-ON. False ONLY on the literal boolean `false` (proof_neutral_carry.proof_neutral_carry_enabled): the operator's opt-out back to the round-log-only carry. Not nested under approval_survives_safe_base_sync. Read from the COMMITTED HEAD via the gate's _load_repo_config, so it must be declared here or the schema prune drops it and the opt-out is silently ignored."
+        },
         "require_ci_local_stamp": {
           "type": "boolean",
           "description": "Whether the deterministic merge gate requires a current local CI stamp (a passing gate_command run recorded against the head) as a predicate. Default (absent) is false; set true to make a fresh local CI stamp a gate conjunct on consumer repos that run CI locally."
@@ -192,12 +196,12 @@
             "test_code_ratio": {
               "type": "number",
               "exclusiveMinimum": 0,
-              "description": "Loop-added test lines vs. code lines at which the loop stops at budget-exhausted/test-code-ratio (with ratio_floor_lines). Default 3.0."
+              "description": "Test-to-code line ratio for budget-exhausted/test-code-ratio. It fires only when the loop-added test lines exceed ratio x loop-added code lines, reach ratio_floor_lines, and the whole-PR test lines also exceed ratio x whole-PR code lines; the terminal reports the whole-PR figures (measured = PR test lines added, limit = ratio x PR code lines added). Default 3.0."
             },
             "ratio_floor_lines": {
               "type": "integer",
               "minimum": 0,
-              "description": "Minimum loop-added test lines before test_code_ratio can fire. Default 100."
+              "description": "Minimum loop-added test lines (the loop delta, not the whole PR) before test_code_ratio can fire. Default 100."
             },
             "growth_floor_lines": {
               "type": "integer",
@@ -251,6 +255,22 @@
           "type": "number",
           "minimum": 1,
           "description": "Multiplier vs. base diff size at which the diff-balloon guard fires and rejects the candidate. Default 5."
+        },
+        "max_live": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fresh fleet roster's live-run cap; default 2."
+        }
+      }
+    },
+    "retro": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Retro step configuration.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run the design-learn retro step; default false."
         }
       }
     },
@@ -284,6 +304,11 @@
           "type": "boolean",
           "default": false,
           "description": "True if the operator declined the offer. Sticky — suppresses re-prompt."
+        },
+        "per_developer_author": {
+          "enum": ["off", "self"],
+          "default": "off",
+          "description": "self = a developer without the bot in their keyring runs automation writes as their own gh login, and the merge gate also trusts the PR author's own review-proof digest (self-attested, never for a fork PR or an automation author). off (default) = today's behavior."
         }
       }
     },
@@ -512,6 +537,11 @@
               }
             }
           }
+        },
+        "test_helpers": {
+          "type": "array",
+          "description": "Extra test-helper names the plan audit's task-sizing environment check accepts, beyond the framework defaults.",
+          "items": {"type": "string", "minLength": 1}
         }
       }
     },
@@ -725,7 +755,7 @@
             "sonnet-xhigh",
             "off"
           ],
-          "description": "Cheap-tier slot: a base-sync splice proposal (never applied), checked by the zero_drop oracle. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
+          "description": "Cheap-tier slot: a base-sync splice proposal (shown; applied only by a resolved apply-proposal ruling (tp-merge-from-main step 4)), checked by the zero_drop oracle. Takes effect only with the --cheap-tier run flag (on by default); unset uses the slot's shipped rung (\"off\" opts the slot out; handoff ships off). Checked by cheap_tier.load_slots, not model_policy."
         },
         "pr_fix_reproducer": {
           "enum": [

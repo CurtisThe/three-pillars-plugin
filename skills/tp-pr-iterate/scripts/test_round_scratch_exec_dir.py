@@ -132,3 +132,16 @@ def test_prepare_reaps_exec_dirs_of_a_round_that_never_tail_checked(tmp_path, ma
     _write_env(r1)  # the tail delivered, but the loop aborted before tail-check
     _prep(root, made)
     assert not any(d.exists() for d in leaked)
+
+
+def test_exec_dirs_leave_an_in_tree_run_tmpdir(tmp_path, made, monkeypatch):
+    """Review r1 (PR #391): a run's TMPDIR is inside its checkout, so a reviewer copy made under
+    it would let a git command in the copy act on the run's branch; the exec dir goes outside."""
+    import run_scratch
+    sysdir = tmp_path / "systmp"
+    sysdir.mkdir()
+    monkeypatch.setattr(run_scratch, "_SYSTEM_TMP", str(sysdir))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "wt" / ".tp-scratch" / "run"))
+    rd = _prep(tmp_path / "proof", made)
+    for e in _manifest(rd)["angles"]:
+        assert Path(e["exec_dir"]).parent == sysdir, e["exec_dir"]

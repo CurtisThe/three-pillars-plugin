@@ -26,7 +26,7 @@ Review and audit judgments stay on Opus (review finders, council members and con
   nothing ever runs `git reset --hard` or `git clean` in the dispatcher's tree.
 - **Literal commands**: `<TP>` is the framework root as an absolute path — full-design: the prompt's `TP_ROOT:`
   line; interactive: `$TP_ROOT` rendered once. Every `<…>` is replaced by its literal value before a command runs. No command carries a shell variable, `$(…)`, `${…}` or
-  backticks: a worktree-isolated `tp-worker` refuses a computed argument.
+  backticks: a `tp-worker` refuses a computed argument, and under full-design every command also runs behind its `cd <WORKTREE> &&` prefix (`agents/tp-worker.md`).
 - **Ladder files**: `python3 <TP>/skills/_shared/ladder_files.py paths --slug <slug> --task <id> --root .` creates
   the ladder dir `L` (`<git-common-dir>/tp-ladder/<slug>`) and prints literal paths: `record` `<R>` (the JSON the
   ladder CLI rewrites on every step) and the side files `check` `C`, `scan` `S`, `reply` `F`, `watch` `W`, `poll` `P`, `review` `V`.
@@ -108,7 +108,7 @@ Then one **attempt** per rung try:
      `not-passed` / `moved-after-check`: `land` needs a PASS `check` of this exact commit) →
      `env-error`. The ladder hears `PASS` only after `land` returned 0. Interactive: push per
      `skills/_shared/commit-after-work.md` (fail-open) after the land.
-   - FAIL / unavailable: `python3 <TP>/skills/_shared/task_verify.py discard --attempt <attempt_id>`.
+   - FAIL / unavailable: (FAIL: `local-dispatch-salvage.md` §Salvage first) `python3 <TP>/skills/_shared/task_verify.py discard --attempt <attempt_id>`.
    - env-error: **nothing**. The attempt is never auto-undone; go to §4.
 6. **Step the ladder**:
    `python3 <TP>/skills/_shared/tier_ladder.py next --record <R> --outcome <PASS|PASS-unverified|FAIL|unavailable|env-error> --root . --check-json C --scan S --reply-json F --plan <d>/plan.md --phase <N>`
@@ -153,7 +153,7 @@ PASS's checked sha re-checks `edited-after-pass`, never re-verified.
 
 ## 3. Spawn templates (`tp-task-worker` only)
 
-No `isolation="worktree"`: the attempt is the worktree. One template spawns every rung in the
+No worktree isolation: the attempt is the worktree. One template spawns every rung in the
 background: the printed `agent_ref` (the `tp-task-worker-{rung}` variant, whose frontmatter
 carries the rung's effort), the printed `model`, the `task_prompt` below.
 
@@ -162,19 +162,18 @@ carries the rung's effort), the printed `model`, the `task_prompt` below.
 only `arm` / `orphan-mark` / `stopped` write it, plus `poll`'s one-time `released` stamp), `P` (`<id>.poll.json`, the latest `poll`) and `F` (`<id>.reply.txt`, the reply
 §2 step 3 reads) are the paths `ladder_files.py paths` printed; transcripts live under `$CLAUDE_CONFIG_DIR`.
 
-```python
-Agent(subagent_type="{agent_ref}", model="{model}", run_in_background=True, description="task {id} {rung} attempt {n}", prompt=task_prompt)
-```
-
 1. **Orphan check**, two scans: `attempt_watchdog.py orphans --dir <L> --phase <N> --settle-s 90`,
    then `attempt_watchdog.py orphans --dir .tp-scratch/cheap-watch --phase cheap --settle-s 90` (a cheap-tier slot's orphan). On either `holds_gpu`: no spawn;
    `task_verify.py discard --attempt <attempt_id>`, then `tier_ladder.py next --outcome unavailable --reason orphan-holds-gpu` (to `sonnet-*`, no attempt
    counted); log `fallback: unavailable (orphan-holds-gpu)`.
 2. **Slot check**: `local_lease.py acquire --design <slug> --wait-s 3` (fallback policy) in Bash with timeout 300000; pass `--wait-s 3` except when this design owns the live measurement window, in which case omit it, so the owner keeps its `wait_budget.py` 270 s wait for a
    busy slot. It prints `lease: <state> (<why>) waited=<s>`. Exit 3, no spawn: `lease: busy` (another session holds the local slot) → `--reason local-busy`;
-   `lease: busy-measure` (another design's window) → `--reason local-busy-measure`. Then `discard`, `next --outcome unavailable` with that reason (to `sonnet-*`, no attempt counted); log `fallback: unavailable (<reason>)`. Under `TP_LOCAL_MODE` `wait` a busy lease instead runs `tier_ladder.py next --busy-policy wait` (no Sonnet) until the ceiling, where the ladder ends `final = "busy-timeout"` (`ladder_busy.py`) and halts to the finalizer. The lease records the policy for the router (`strata-spawn.md`). Then **Probe** once per run (the answer is cached) per `child-spawn.md` step 1: `python3 <TP>/skills/_shared/child_spawn.py probe` in Bash with timeout 300000. `in-process` (exit 4) → log its one `[child-spawn] in-process: <why> (server review lost for this session)` line once per run, then the `Agent(...)` spawn above runs unchanged. `child` (exit 0) → write `task_prompt` to the `<child_prompt>` path `open` printed (§2 step 1), then `python3 <TP>/skills/_shared/child_spawn.py start --site S1 --agent-ref {agent_ref} --model {model} --prompt-file <child_prompt> --cwd <attempt_dir>` in Bash with timeout 300000: its `inner_agent_id` is the agent id for steps 3-6, its `state_path` is kept for steps 4-5, and exit 3 takes the `background-spawn-failed` path below.
-   Else the spawn above; keep the agent id it returns. If it errors or returns no id: `local_lease.py release`, `discard`, `next --outcome unavailable --reason background-spawn-failed`;
-   log that flag. Every `tier_ladder.py next` for this attempt, busy or not, passes `--lease-wait-s <waited>` (the `waited=<s>` above).
+   `lease: busy-measure` (another design's window) → `--reason local-busy-measure`. Then `discard`, `next --outcome unavailable` with that reason (to `sonnet-*`, no attempt counted); log `fallback: unavailable (<reason>)`. Under `TP_LOCAL_MODE` `wait` a busy lease instead runs `tier_ladder.py next --busy-policy wait` (no Sonnet) until the ceiling, where the ladder ends `final = "busy-timeout"` (`ladder_busy.py`) and halts to the finalizer. The lease records the policy for the router (`strata-spawn.md`). Then **Probe** once per run (the answer is cached) per `child-spawn.md` step 1: `python3 <TP>/skills/_shared/child_spawn.py probe` in Bash with timeout 300000. `in-process` (exit 4) → log its one `[child-spawn] in-process: <why> (server review lost for this session)` line once per run, then the `Agent(...)` spawn below runs unchanged. `child` (exit 0) → write `task_prompt` to the `<child_prompt>` path `open` printed (§2 step 1), then `python3 <TP>/skills/_shared/child_spawn.py start --site S1 --agent-ref {agent_ref} --model {model} --prompt-file <child_prompt> --cwd <attempt_dir>` in Bash with timeout 300000: its `inner_agent_id` is the agent id for steps 3-6, its `state_path` is kept for steps 4-5, and exit 3 takes the `background-spawn-failed` path below.
+   Else the spawn below; keep the agent id it returns. If it errors or returns no id: `local_lease.py release`, `discard`, `next --outcome unavailable --reason background-spawn-failed`;
+   log that flag. Every `tier_ladder.py next` for this attempt, busy or not, passes `--lease-wait-s <waited>` (above). The spawn:
+   ```python
+Agent(subagent_type="{agent_ref}", model="{model}", run_in_background=True, description="task {id} {rung} attempt {n}", prompt=task_prompt)
+   ```
 3. Right after the spawn: `attempt_watchdog.py arm --state <W> --attempt <attempt_id> --agent-id
    <agent id> --rung <rung> --phase <N>` (the clock and the router-log offset start here).
 4. **Wait by polling**: `attempt_watchdog.py poll --state <W> --root . | tee <P>` in Bash with timeout 300000,
@@ -182,7 +181,7 @@ Agent(subagent_type="{agent_ref}", model="{model}", run_in_background=True, desc
    - On `done`: write its `reply_text` to `F`, run `local_lease.py release --agent-id <agent id>` (`poll`'s `done` already released in code — the step is the backstop); on a child spawn also run `python3 <TP>/skills/_shared/child_spawn.py wait --state <state_path> --reply-out <F>` once — it releases the child's slot and rewrites `F` with the child's reply (its `permission-refused: <rule>` banner first, §A3) (`child-spawn.md` step 5). Go on to §2 step 3.
    - If the Agent's completion notification comes first, its text is `F`: run `attempt_watchdog.py
      poll --state <W> --root . --finished | tee <P>` once. `done` → release the lease and go on as above; `runaway` → step 5.
-5. On `runaway`: `TaskStop(<agent id>)`; on a child spawn `python3 <TP>/skills/_shared/child_spawn.py stop --state <state_path>` replaces `TaskStop(<agent id>)` — it signals only the recorded process group (`child-spawn.md` §Never kill by name) and works from a nested `tp-worker`, so no `orphan-mark`. After a successful `TaskStop(<agent id>)`: `local_lease.py release --agent-id <agent id>`; `task_verify.py discard
+5. On `runaway`: `TaskStop(<agent id>)`; on a child spawn `python3 <TP>/skills/_shared/child_spawn.py stop --state <state_path>` replaces `TaskStop(<agent id>)` — it signals only the recorded process group (`child-spawn.md` §Never kill by name) and works from a nested `tp-worker`, so no `orphan-mark`. After a successful `TaskStop(<agent id>)`: `local_lease.py release --agent-id <agent id>`; §Salvage, `task_verify.py discard
    --attempt <attempt_id>`; `tier_ladder.py next --outcome FAIL --reason "<runaway reason>"` with §2 step 6's
    flags (`--watch-json P`) — no `check` (FAIL by rule). If `TaskStop` is missing or fails: the release stays
    id-less (no agent release — backstop + reaper); `attempt_watchdog.py orphan-mark --state <W>` (the trigger for the main thread's reaper,
@@ -207,9 +206,7 @@ BASE_SHA: {base_sha}
 TEST_COMMAND: {runner} {targets}    # the row's test.specs, verbatim
 TASK:
 {verbatim task block from plan.md}
-RETRY FEEDBACK (retries only):
-reason: {previous verdict reason}
-test_output_tail: {previous test_output_tail}
+{ladder_blocks}      # render + salvage: local-dispatch-salvage.md
 Follow agents/tp-task-worker.md: cd into ATTEMPT_DIR first, commit `Red:` (Targets files only) then `Implement:`
 (no Targets file; one commit if test-only or no Targets change), never push, never --no-verify, stop on a repeated hook failure, end with one JSON line.
 {project_context_block}

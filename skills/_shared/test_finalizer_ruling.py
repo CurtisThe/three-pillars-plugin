@@ -14,9 +14,9 @@ def test_constants():
                               "commits_to", "confidence", "lesson_proposal")
     assert fr.GENERAL_KINDS == ("decision", "lesson")
     assert fr.OPERATOR_ONLY == ("merge", "force-push", "remote-delete",
-                                "classifier-denial", "standing-order",
-                                "scope-growth", "base-sync-hunk")
-    assert fr.KINDS == fr.GENERAL_KINDS + fr.OPERATOR_ONLY
+                                "classifier-denial", "scope-growth")
+    assert fr.FABLE_FIRST == ("standing-order", "base-sync-hunk")
+    assert fr.KINDS == fr.GENERAL_KINDS + fr.FABLE_FIRST + fr.OPERATOR_ONLY
     assert fr.PILLAR_DOCS == ("vision.md", "architecture.md")
     assert set(fr.EMPTY_RULING) == set(fr.RULING_KEYS)
     assert fr.EMPTY_RULING["confidence"] == "low"

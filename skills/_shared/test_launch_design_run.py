@@ -13,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cheap_tier_default  # noqa: E402
 import design_run_command as drc  # noqa: E402
 import launch_design_run as ldr  # noqa: E402
+import run_scratch  # noqa: E402
+import scratch_leftovers  # noqa: E402
 
 PORCELAIN = (
     "worktree /r/main\nHEAD abc\nbranch refs/heads/master\n\n"
@@ -32,6 +34,11 @@ def _git(*args, cwd):
 def rig(tmp_path, monkeypatch):
     for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
         monkeypatch.delenv(var, raising=False)
+    # Hermetic scratch (run-scratch-in-fence 1.6): the launch's provision never scans the real
+    # /tmp, and these launcher tests compare exact commands, so the run's TMPDIR pairs are masked
+    # here; test_design_run_scratch_env.py puts the real `run_scratch.env_pairs` back.
+    monkeypatch.setattr(scratch_leftovers, "SCRATCH_AREAS", ())
+    monkeypatch.setattr(run_scratch, "env_pairs", lambda worktree, env=None: [])
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     repo = tmp_path / "repo"
     repo.mkdir()

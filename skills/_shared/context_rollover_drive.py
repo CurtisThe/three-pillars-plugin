@@ -18,6 +18,14 @@ re-checked at a **turn boundary**, so a running tool or subagent is never interr
 and the ledger (`context_rollover_state`) keeps the crossing to one rollover per
 session id.
 
+Two refinements (fleet-watcher-reliability 1.3). The lines come from a `Target`
+(`context_rollover_plan`): live (`/tp-session-save`), or archived after Tier 5.6 (the save
+asks for the completed-dir handoff and the resume line follows `/clear` at once, no
+restore); a run with no design dir at all is `unavailable`. And when background agents are
+the only blocker the driver sends one save-and-wait ask per session id and exits 0; the
+seat's next `parked` event runs it again to finish the rollover. The waits live in
+`context_rollover_wait`.
+
 Degrade, never a silent clear: no tmux (or no run session) prints one
 `context rollover unavailable: …` line; no readable transcript prints one
 `context size unknown: …` line. Both send nothing and exit 0. A refused claim prints
@@ -49,113 +57,33 @@ from typing import Callable, Mapping, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import context_rollover as cr  # noqa: E402
+import context_rollover_plan as plan  # noqa: E402
 import context_rollover_state as state  # noqa: E402
 import design_run_observe as dro  # noqa: E402
 import design_run_send as drs  # noqa: E402
 import design_run_tmux as drt  # noqa: E402
+import run_config_dir  # noqa: E402
+from context_rollover_plan import RESUME_LINE, restore_line, resume_line, save_line  # noqa: E402,F401
+from context_rollover_wait import (  # noqa: E402,F401
+    POLL_SECONDS, STALE_GRACE_S, _await_boundary, _await_commit, _await_restored, _Idle,
+    skipped_line)
 
 __all__ = ["RESUME_LINE", "CLEAR_LINE", "HandoffUnreadable", "rollover", "real_seams",
            "resolve_worktree", "resume_line", "main"]
 
-# A template: `resume_line(slug)` fills `{slug}`; never send RESUME_LINE itself.
-RESUME_LINE = ("Continue this design run from its handoff: read "
-               "three-pillars-docs/tp-designs/{slug}/handoff.md and resume exactly "
-               "where it stopped.")
 CLEAR_LINE = "/clear"
-POLL_SECONDS = 1.0
 DEFAULT_IDLE_S = 30.0
 DEFAULT_SAVE_TIMEOUT_S = 600.0
 DEFAULT_BOUNDARY_TIMEOUT_S = 120.0
-STALE_GRACE_S = 120.0  # a `claimed` entry older than save-timeout + this is a dead driver
 LEDGER_RELPATH = (".three-pillars", "run", "context-rollover.json")
 
 
-def save_line(slug: str) -> str:
-    return f"/tp-session-save {slug}"
-
-
-def restore_line(slug: str) -> str:
-    return f"/tp-session-restore {slug}"
-
-
-def resume_line(slug: str) -> str:
-    """The resume line, naming this run's own handoff (never a `<slot>` placeholder)."""
-    return RESUME_LINE.format(slug=slug)
-
-
-def sequence(slug: str) -> "list[str]":
-    """The four lines, in the one order that keeps the run's state on disk."""
-    return [save_line(slug), CLEAR_LINE, restore_line(slug), resume_line(slug)]
-
-
-class _Idle:
-    """How long the pane has been unchanged, measured from the driver's own watching.
-
-    The first sample only starts the clock, so an idle stretch is something the driver
-    observes for itself rather than something it takes on trust from its caller.
-    """
-
-    def __init__(self, pane: Callable[[], Optional[str]], clock: Callable[[], float]):
-        self.pane, self.clock = pane, clock
-        self.text: object = object()
-        self.since = clock()
-
-    def idle_for_s(self) -> float:
-        now = self.clock()
-        text = self.pane()
-        if text != self.text:
-            self.text, self.since = text, now
-        return now - self.since
-
-
-def _await_boundary(idle: _Idle, records: Callable[[], "list[dict]"],
-                    clock: Callable[[], float], sleep: Callable[[float], None],
-                    idle_s: float, limit_s: float) -> "tuple[bool, str]":
-    """Poll until the session is at a turn boundary, bounded by `limit_s`."""
-    deadline = clock() + max(limit_s, idle_s)
-    why = "no boundary observed"
-    while True:
-        ok, why = cr.at_turn_boundary(records(), idle.pane(), idle.idle_for_s(), idle_s)
-        if ok:
-            return True, ""
-        if clock() >= deadline:
-            return False, why
-        sleep(POLL_SECONDS)
-
-
-def _await_restored(old_sid: str, session: Callable[[], Optional[str]], idle: _Idle,
-                    records: Callable[[], "list[dict]"], clock: Callable[[], float],
-                    sleep: Callable[[float], None], idle_s: float, limit_s: float) -> bool:
-    """Poll until a NEW session (post-/clear) has finished its restore turn."""
-    deadline = clock() + max(limit_s, idle_s)
-    while True:
-        new = session()
-        if new and new != old_sid and cr.at_turn_boundary(
-                records(), idle.pane(), idle.idle_for_s(), idle_s)[0]:
-            return True
-        if clock() >= deadline:
-            return False
-        sleep(POLL_SECONDS)
-
-
-def skipped_line(ledger, sid: str, now: float, save_timeout_s: float) -> str:
-    """The one line for a refused claim, so a refusal is never silent.
-
-    A `claimed` entry older than `save_timeout_s + STALE_GRACE_S` on the driver's clock
-    (or stamped in the future: the clock restarted, so its driver is gone) is reported
-    `stale-claimed` — a driver that was killed mid-rollover; clearing it is a human call.
-    """
-    found = state.entry(ledger, sid)
-    if found is None:
-        return (f"rollover skipped: session {sid} not claimable (ledger unreadable or "
-                f"unwritable) (ledger {ledger})")
-    what = found.get("state", "unknown")
-    at = found.get("at")
-    if what == state.CLAIMED and isinstance(at, (int, float)):
-        age = now - at
-        if age < 0 or age > save_timeout_s + STALE_GRACE_S:
-            what = "stale-claimed"
-    return f"rollover skipped: session {sid} already {what} (ledger {ledger})"
+def sequence(slug: str, target: Optional[plan.Target] = None) -> "list[str]":
+    """The lines, in the one order that keeps the run's state on disk (live: four; an
+    archived target has no restore line, so three)."""
+    t = target or plan.live_target(slug)
+    return [t.save_line, CLEAR_LINE, *([t.restore_line] if t.restore_line else []),
+            t.resume_line]
 
 
 class HandoffUnreadable(Exception):
@@ -167,21 +95,24 @@ class HandoffUnreadable(Exception):
     """
 
 
-def _await_commit(handoff_sha: Callable[[], Optional[str]], before: Optional[str],
-                  clock: Callable[[], float], sleep: Callable[[float], None],
-                  timeout_s: float) -> bool:
-    """True once `handoff.md` differs from `before` on disk — the save landed.
+def _ask_once(slug: str, sid: str, size: int, target: plan.Target, send, ledger, clock,
+              out: Callable[[str], None]) -> int:
+    """Background agents are the only blocker: ask the run to save once they finish.
 
-    A failed read is never a landed save: `HandoffUnreadable` propagates to the caller.
+    One ask per session id (its own `ask:<sid>` ledger key, so the session's one rollover
+    stays unspent); the seat's next `parked` event runs the driver again to finish it.
     """
-    deadline = clock() + timeout_s
-    while True:
-        sha = handoff_sha()
-        if sha is not None and sha != before:
-            return True
-        if clock() >= deadline:
-            return False
-        sleep(POLL_SECONDS)
+    if not state.claim(ledger, f"ask:{sid}", clock()):
+        out("context rollover held: background agents in the pane")
+        return 0
+    outcome = send(slug, plan.ask_line(target, size))
+    state.finish(ledger, f"ask:{sid}", "done" if outcome == drs.DELIVERED else "aborted")
+    if outcome == drs.DELIVERED:
+        out(f"context rollover deferred: asked {slug} to save once its background "
+            f"agents finish")
+    else:
+        out(f"context rollover held: background ask not delivered ({outcome})")
+    return 0
 
 
 def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
@@ -191,7 +122,8 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
              records: Callable[[], "list[dict]"], pane: Callable[[], Optional[str]],
              clock: Callable[[], float], sleep: Callable[[float], None], ledger,
              out: Callable[[str], None], session: Callable[[], Optional[str]],
-             tmux_blocker: Optional[str] = None, dry_run: bool = False) -> int:
+             tmux_blocker: Optional[str] = None, dry_run: bool = False,
+             target: Optional[plan.Target] = None) -> int:
     """Roll `<slug>`'s run over once, if it is due. 0 = no-op/rolled/degraded, 1 = aborted.
 
     Every effect is a seam, so the decision path is testable without tmux, git,
@@ -199,7 +131,8 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
     `handoff.md` (None = no file yet; raises `HandoffUnreadable` when the read fails),
     `records` the newest transcript, `pane` the run window, `ledger` the
     once-per-crossing file, `session` its id, `tmux_blocker` the reason rollover is
-    unavailable (None when it is possible).
+    unavailable (None when it is possible), `target` the save/restore/resume lines (None =
+    the live target built from `slug`).
     """
     if tmux_blocker:
         out(f"context rollover unavailable: {tmux_blocker}")
@@ -214,13 +147,16 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
         return 0
     if not cr.due(size, threshold):
         return 0  # below the threshold: a no-op, nothing to say
+    target = target or plan.live_target(slug)
     idle = _Idle(pane, clock)
     ok, why = _await_boundary(idle, records, clock, sleep, idle_s, boundary_timeout_s)
     if not ok:
+        if not dry_run and plan.only_background(records(), pane(), idle_s):
+            return _ask_once(slug, sid, size, target, send, ledger, clock, out)
         out(f"context rollover held: {why}")
         return 0
     if dry_run:
-        for line in sequence(slug):
+        for line in sequence(slug, target):
             out(f"dry-run: would send {line!r}")
         return 0
     if not state.claim(ledger, sid, clock()):
@@ -232,7 +168,7 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
         out(f"rollover aborted: cannot read handoff history ({exc}); nothing sent")
         state.finish(ledger, sid, "aborted")
         return 1
-    outcome = send(slug, save_line(slug))
+    outcome = send(slug, target.save_line)
     if outcome != drs.DELIVERED:
         out(f"rollover aborted: handoff save not delivered ({outcome}); no /clear sent")
         state.finish(ledger, sid, "aborted")
@@ -253,19 +189,21 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
         out(f"rollover aborted: no turn boundary after the save ({why}); no /clear sent")
         state.finish(ledger, sid, "aborted")
         return 1
-    for line in (CLEAR_LINE, restore_line(slug)):
+    for line in (CLEAR_LINE, target.restore_line):
+        if line is None:  # an archived run has no restore step: resume straight away
+            continue
         outcome = send(slug, line)
         if outcome != drs.DELIVERED:
             out(f"rollover aborted: {line!r} not delivered ({outcome}); no further sends")
             state.finish(ledger, sid, "aborted")
             return 1
-    if not _await_restored(sid, session, idle, records, clock, sleep, idle_s,
-                           boundary_timeout_s):
+    if target.restore_line is not None and not _await_restored(
+            sid, session, idle, records, clock, sleep, idle_s, boundary_timeout_s):
         out("rollover incomplete: the restore was sent but the resume line was not "
             "(new session never reached a turn boundary)")
         state.finish(ledger, sid, "aborted")
         return 1
-    outcome = send(slug, resume_line(slug))
+    outcome = send(slug, target.resume_line)
     if outcome != drs.DELIVERED:
         out(f"rollover aborted: resume line not delivered ({outcome})")
         state.finish(ledger, sid, "aborted")
@@ -275,11 +213,18 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
     return 0
 
 
-def _newest_transcript(worktree: str, env: Mapping[str, str]) -> "tuple[Optional[str], Optional[Path]]":
-    """(session id, path) of the newest transcript for `worktree`, else (None, None)."""
+def _newest_transcript(worktree: str, env: Mapping[str, str], slug: Optional[str] = None,
+                       runner: Optional[drt.Runner] = None
+                       ) -> "tuple[Optional[str], Optional[Path]]":
+    """(session id, path) of the newest transcript for `worktree`, else (None, None).
+
+    With `slug` and `runner` the directory is the run's real config dir (its `claude`
+    process environ, `run_config_dir`), else — and without them — today's resolution.
+    """
     try:
-        files = sorted(dro.project_dir(worktree, env).glob("*.jsonl"),
-                       key=lambda p: p.stat().st_mtime)
+        pdir = (run_config_dir.project_dir(slug, worktree, runner, env) if slug and runner
+                else dro.project_dir(worktree, env))
+        files = sorted(pdir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
     except OSError:
         return None, None
     if not files:
@@ -290,13 +235,15 @@ def _newest_transcript(worktree: str, env: Mapping[str, str]) -> "tuple[Optional
 def _handoff_sha(worktree: str, slug: str) -> Optional[str]:
     """A fingerprint of the design's `handoff.md` on disk; None when it does not exist yet.
 
+    The path is the target's: the live `tp-designs/<slug>/handoff.md`, or the completed
+    dir's for an archived run (the live path when neither dir exists yet).
     `/tp-session-save` writes `handoff.md` gitignored and never commits it
     (`skills/tp-session-save/SKILL.md`), so a commit wait would never see the save. The
     fingerprint is the file's sha256 plus its mtime, so a rewrite with the same text still
     reads as a landed save. Any other failed read (a directory in its place, a permission
     error) raises `HandoffUnreadable`: an error must never look like "no handoff yet".
     """
-    path = Path(worktree, "three-pillars-docs", "tp-designs", slug, "handoff.md")
+    path = Path(worktree, (plan.target(worktree, slug) or plan.live_target(slug)).handoff_path)
     try:
         mtime_ns = path.stat().st_mtime_ns
         data = path.read_bytes()
@@ -311,26 +258,30 @@ def real_seams(slug: str, worktree: str, env: Mapping[str, str],
                out: Callable[[str], None] = print) -> dict:
     """The keyword seams `main()` wires into `rollover` — the only place real effects bind."""
     runner = drt._tmux_runner(env)
+    tgt = plan.target(worktree, slug)
 
     if runner is None:
         blocker = "tmux binary not found"
     elif runner(["has-session", "-t", f"={slug}"])[0] != 0:
         blocker = f"no run session {slug}"
+    elif tgt is None and Path(worktree, plan.DOCS).is_dir():
+        blocker = f"no design dir for {slug}"  # a seed-only run, a slug mismatch
     else:
         blocker = None
 
     return {
         "send": lambda sl, line: drs.deliver(sl, line, runner),
         "handoff_sha": lambda: _handoff_sha(worktree, slug),
-        "records": lambda: (cr.read_records(_newest_transcript(worktree, env)[1])
-                            if _newest_transcript(worktree, env)[1] else []),
+        "records": lambda: (cr.read_records(_newest_transcript(worktree, env, slug, runner)[1])
+                            if _newest_transcript(worktree, env, slug, runner)[1] else []),
         "pane": lambda: dro.pane_text(runner, slug) if runner else None,
         "clock": time.monotonic,
         "sleep": time.sleep,
         "ledger": Path(worktree).joinpath(*LEDGER_RELPATH),
         "out": out,
-        "session": lambda: _newest_transcript(worktree, env)[0],
+        "session": lambda: _newest_transcript(worktree, env, slug, runner)[0],
         "tmux_blocker": blocker,
+        "target": tgt,
     }
 
 

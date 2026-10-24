@@ -40,7 +40,7 @@ RULES_TOTAL = 159
 
 # The designs whose `role: task` `local-*` rows fall in range, read from the real telemetry.
 PINNED = ("fragile-test-prevention", "cheap-tier-review-prep", "basesync-autoresolve-coverage",
-          "ci-local-speed", "cheap-tier-default-flag-everywhere", "fable-first-stops",
+          "ci-local-speed-2026-10-02", "cheap-tier-default-flag-everywhere", "fable-first-stops",
           "task-worker-sonnet")
 
 

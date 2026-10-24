@@ -10,6 +10,7 @@ import json
 import os
 
 import agent_ref
+import ladder_outage
 import permission_refusal
 import router_stats
 from ladder_rungs import effort as _effort, family as _family  # never tier_ladder (no cycle)
@@ -48,6 +49,8 @@ def to_decision_entry(record: dict) -> str:
     if record.get("tokens") is not None:
         lines.append(f"**Tokens**: {record['tokens']}")
     vs = record.get("verdicts") or []
+    if ladder_outage.entry_line(vs):  # one line: the latest zero-request clock-out and its probe
+        lines.append(ladder_outage.entry_line(vs))
     for i in range(len(vs)):
         lines += _dispatch_lines(record, vs, i)
     return "\n".join(lines) + "\n"
@@ -104,10 +107,12 @@ def to_telemetry(record: dict) -> dict:
                       "reason": str(v.get("reason") or "")[:_REASON_CHARS],
                       **{k: v.get(k) for k in _EXTRA},
                       **({"lease_wait_s": v["lease_wait_s"]}
-                         if v.get("lease_wait_s") is not None else {})}  # no key when unset
+                         if v.get("lease_wait_s") is not None else {}),  # no key when unset
+                      **({"probe": v["probe"]} if v.get("probe") else {})}
                      for v in record.get("verdicts") or []],
         "red_at_base": record.get("red_at_base"), "tokens": record.get("tokens"),
         "route": record.get("route"), "floored_from": record.get("floored_from"),
+        **({"outage": line} if (line := ladder_outage.entry_line(record.get("verdicts"))) else {}),
     }
 
 
@@ -183,12 +188,15 @@ def bracket(ev: dict, since, now: str) -> dict:
 
 
 def build_evidence(task_id, check=None, scan=None, reply=None, plan=None, phase=None,
-                   watch=None, root=".") -> dict:
+                   watch=None, root=".", probe=None) -> dict:
     """The ``next_step`` evidence dict from the CLI's optional files; unreadable -> ignored."""
     ev: dict = {}
     c = _json(check) if check else {}
     s = _json(scan) if scan else {}
     w = _json(watch) if watch else {}
+    p = _json(probe) if probe else {}  # `local_route_check.py check` output: the outage verdict's probe
+    if isinstance(p.get("state"), str) and isinstance(p.get("reason"), str):
+        ev["probe"] = f"{p['state']}/{p['reason']}"
     for k in ("failing_tests", "failing_targets"):
         if c.get(k):
             ev[k] = c[k]

@@ -64,7 +64,8 @@ eighth, `fragility_clear`, that is on by default:
   per-repo via `review.require_ci_local_stamp: false`, even with a declared command.
 - **review_proof_on_head** — a head-bound, non-degraded proof-of-review digest comment
   exists on the current head SHA, **authored by a trusted automation identity**: the
-  framework's own gh login (`github.pr_author_account` when one is configured) + config `review.automation_identities` extras, and NOTHING
+  framework's own gh login (`github.pr_author_account` when one is configured) + config `review.automation_identities` extras, plus, under
+  `github.per_developer_author: "self"`, the PR's own author (the roster then says "self-attested"); NOTHING
   else — the Copilot/native-bot automation floor is deliberately not digest-trusted
   (those identities never legitimately post digests, and a prompt-injected Copilot
   comment must not mint proof), and a drive-by commenter pasting a matching digest does
@@ -87,8 +88,9 @@ eighth, `fragility_clear`, that is on by default:
   on the lines the PR adds; no confirmed fragile item (from the implementation audit or the
   PR review loop) is open; and the changed tests have a run record for the PR head
   (`changed_tests_runs.py`) that passes. A missing or stale record fails, and the detail
-  names the `record` command. An `unverified` record (no pytest runner) passes with a note
-  unless `fragility.strict: true`, which fails it. To clear an open item, waive it by id
+  names the `record` command. An `unverified` record (no pytest runner, or a changed test file whose tests all
+  skip, an opt-in tier such as env-gated live tests) passes with a note unless
+  `fragility.strict: true`, which fails it; a skip that is a missing dependency stays a failure. To clear an open item, waive it by id
   with a reason, as the operator's own call:
   `python3 "$TP_ROOT"/skills/_shared/fragility_items.py waive --branch tp/{design-name} --id <item-id> --by <your-name> --reason "<why>"`
   (`--scope path-class` covers every item with the same path and class; an empty `--by` or

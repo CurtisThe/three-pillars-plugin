@@ -5,6 +5,7 @@ judging work is pinned to Opus at extra-high effort in the agent's own
 frontmatter, so it never inherits a session's model or effort. The contract it
 follows lives in `skills/_shared/certification-protocol.md` and nowhere else.
 """
+# pin-source: skills/tp-implementation-audit/SKILL.md
 from __future__ import annotations
 
 import json

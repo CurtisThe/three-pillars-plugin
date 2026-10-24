@@ -64,7 +64,9 @@ class _FakeChain:
 
 def _config(handres):
     """Carry enabled; `handres` None omits the inner key entirely (the default-ON case)."""
-    review = {"approval_survives_safe_base_sync": True}
+    # The proof-neutral carry is off: these tests pin the base-sync chain kwargs hermetically
+    # (no git, fake shas); the neutral carry has its own suite, test_proof_neutral_carry_predicate.
+    review = {"approval_survives_safe_base_sync": True, "proof_neutral_carry": False}
     if handres is not None:
         review["living_doc_handres_preserves_approval"] = handres
     return {"review": review}

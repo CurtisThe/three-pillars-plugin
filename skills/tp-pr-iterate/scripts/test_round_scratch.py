@@ -116,6 +116,14 @@ def test_missing_envelope_raises_tail_failed(tmp_path):
         _prep(tmp_path)
 
 
+def test_closed_without_envelope_gives_next_round(tmp_path):
+    r1 = _prep(tmp_path)
+    (r1 / "tail").mkdir(exist_ok=True)
+    (r1 / "tail" / "closed.json").write_text("{}", encoding="utf-8")
+    assert not (r1 / "tail" / "envelope.json").exists()
+    assert _prep(tmp_path).name == "r2"
+
+
 def test_invalid_envelope_raises_tail_failed(tmp_path):
     r1 = _prep(tmp_path)
     (r1 / "tail" / "envelope.json").write_text("{nope", encoding="utf-8")

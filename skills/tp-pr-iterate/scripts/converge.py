@@ -333,7 +333,7 @@ def _seed_state(state_path: Path, head: str, *, now_iso=None) -> None:
     # "frozen_at" is round_freeze.FROZEN_FIELD — literal here to keep the seed's
     # import graph free of the forge path round_freeze pulls in.
     keep = ("iteration", "started_at", "original_diff_lines", round_budget.K_KEY,
-            "review_weight", "frozen_at", "reproduced_blockers")
+            "review_weight", "frozen_at", "reproduced_blockers", "review_stop")
     state.update({k: v for k, v in prior.items() if k in keep or k.startswith("budget_")})
     if round_budget.is_budget_terminal(prior):
         state.update(phase=prior["phase"], termination_reason=prior["termination_reason"])

@@ -23,6 +23,26 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/delete_fence_hook.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/wt_layout_hook.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/create_fence_hook.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/create_fence_hook.py\"",
+            "timeout": 10
           }
         ]
       },
@@ -32,6 +52,32 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/escalate_first_hook.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/run_no_cards_hook.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/wt_layout_hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-.}/skills/_shared/stop_question_hook.py\"",
             "timeout": 10
           }
         ]

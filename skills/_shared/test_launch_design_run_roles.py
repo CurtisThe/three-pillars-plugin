@@ -22,7 +22,10 @@ import design_run_command as drc  # noqa: E402
 import design_run_window_env as dwe  # noqa: E402
 import launch_design_run as ldr  # noqa: E402
 import launcher_export_fixture as fx  # noqa: E402
+import run_scratch  # noqa: E402
 from test_launch_design_run import rig  # noqa: F401,E402
+
+REAL_PAIRS = run_scratch.env_pairs  # the rig masks the pairs; the scratch test below restores them
 
 WHICH = """#!/bin/sh
 if [ -n "$CLAUDE_CONFIG_DIR" ]; then p=$(basename "$CLAUDE_CONFIG_DIR"); else p=aris; fi
@@ -189,3 +192,20 @@ def test_without_a_launcher_the_command_is_todays(rig, tmp_path, capsys, plain):
     assert rc == 0 and line == want
     assert "CLAUDE_LAUNCHER_ROLE" not in line
     assert len([ln for ln in err.splitlines() if ln.startswith("W:")]) == 1
+
+
+@pytest.mark.parametrize("case", SEATS)
+def test_the_run_command_carries_the_scratch_pairs_and_unsets_none_of_them(
+        rig, tmp_path, capsys, monkeypatch, case):  # noqa: F811
+    monkeypatch.setattr(run_scratch, "env_pairs", REAL_PAIRS)
+    seat = dict(seat_envs(rig["cfg"])[case])
+    seat["CLAUDE_LAUNCHER_OWNED"] = seat.get("CLAUDE_LAUNCHER_OWNED", "") + " TMPDIR TMP TEMP"
+    env = launch_env(rig, tmp_path, seat, fake_launcher(tmp_path))
+    rc, line, _ = launch(rig, env, "--direct", "--dry-run", capsys=capsys)
+    words = shlex.split(line)
+    run = run_scratch.run_dir(rig["wt"])
+    assert rc == 0 and assigned(words, "TMPDIR") == [f"TMPDIR={run}"]
+    assert assigned(words, "XDG_CACHE_HOME") == [f"XDG_CACHE_HOME={run}/cache"]
+    assert words.index(f"TMPDIR={run}") > words.index("CLAUDE_LAUNCHER_ROLE=run")
+    for name in ("TMPDIR", "TMP", "TEMP", *run_scratch.CACHE_VARS):
+        assert not is_unset(words, name)

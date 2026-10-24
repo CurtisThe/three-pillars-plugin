@@ -25,6 +25,14 @@ carried → the next round is a delta round, never a full re-review.
 `proof_predicate.pred_review_proof_on_head(...) == GateVerdict.PASS`, with the
 predicate's own detail passed through. Stdlib-only; `check` never raises (any internal
 error fails closed to `carried=False` with a `carry check error: …` reason).
+
+Proof-neutral carry (design: proof-carry-trivial-commits): with base-sync carry OFF, `check`
+still reaches the predicate when the committed config is readable, `review.proof_neutral_carry`
+is not a literal false, and the local first-parent walk finds at least one proof-neutral commit
+above the head (`proof_neutral_carry.strip_proof_neutral_commits(...).neutral_links > 0`; a
+base-sync merge whose hand-resolved paths are all living docs is one, `merge_carry.py`). A
+PASS there is `carried=True` with reason `NEUTRAL_ON`; anything else is today's off answer. An
+unreadable config, the opt-out, a code commit or a root-commit head never fetches comments.
 """
 from __future__ import annotations
 
@@ -42,6 +50,7 @@ OFF_UNREADABLE_FMT = "carry off: config unreadable at HEAD ({error})"
 OFF_KEY = ("carry off: review.approval_survives_safe_base_sync is not true "
            "in the committed config")
 ON = "carry on"
+NEUTRAL_ON = "carry on: proof-neutral commits"
 
 
 def _head_load(repo_root):
@@ -74,10 +83,27 @@ def carry_status(repo_root) -> "tuple[bool, str]":
     return _status_of(_head_load(repo_root))
 
 
+def _neutral_delta(load, repo_root, head, run_git, base_ref=None) -> bool:
+    """True when carry is off but the head sits on >= 1 proof-neutral commit, so the
+    predicate is worth asking. Local git only: it never fetches comments. `base_ref` (a name
+    or a lazy callable) lets a base-sync merge count as a neutral commit."""
+    if load.status == "unreadable":
+        return False
+    import proof_neutral_carry  # lazy — only the carry-off path needs the walk
+
+    if not proof_neutral_carry.proof_neutral_carry_enabled(load.config):
+        return False
+    walk = proof_neutral_carry.strip_proof_neutral_commits(
+        repo_root, head, run_git=run_git, base_ref=base_ref)
+    return walk.neutral_links > 0
+
+
 def check(repo_root, pr_url, head, *, runners=None) -> dict:
     """{"carried", "reason", "detail"} for one PR head.
 
-    Carry off → the `carry_status` reason, `detail ""` (the predicate is never reached).
+    Carry off → the `carry_status` reason, `detail ""` (the predicate is never reached),
+    unless a proof-neutral delta sits above the head (`_neutral_delta`): then the predicate
+    is asked too, and a PASS is `carried` with reason `NEUTRAL_ON`; a non-PASS is the off dict.
     Carry on → `pred_review_proof_on_head` with the HEAD config and `repo_root`, plus
     the seams named in `runners` (`comments_fn`, `self_login_fn`, `run_git`,
     `derive_base_ref_fn`; an absent key is the predicate's own default). `carried` is
@@ -88,12 +114,16 @@ def check(repo_root, pr_url, head, *, runners=None) -> dict:
     try:
         load = _head_load(repo_root)
         on, reason = _status_of(load)
+        seams = runners or {}
+        off = {"carried": False, "reason": reason, "detail": ""}
         if not on:
-            return {"carried": False, "reason": reason, "detail": ""}
+            import merge_carry  # lazy — only the carry-off path needs it
+            base_ref = merge_carry.lazy_base_ref(pr_url, seams.get("derive_base_ref_fn"))
+            if not _neutral_delta(load, repo_root, head, seams.get("run_git"), base_ref):
+                return off
         import proof_predicate  # lazy — only the carry-on path needs the predicate
         from deterministic_gate import GateVerdict  # late, circular-safe
 
-        seams = runners or {}
         verdict = proof_predicate.pred_review_proof_on_head(
             pr_url, head,
             comments_fn=seams.get("comments_fn"),
@@ -103,9 +133,12 @@ def check(repo_root, pr_url, head, *, runners=None) -> dict:
             derive_base_ref_fn=seams.get("derive_base_ref_fn"),
             repo_root=repo_root,
         )
-        return {"carried": verdict.verdict == GateVerdict.PASS,
-                "reason": ON,
-                "detail": verdict.detail}
+        carried = verdict.verdict == GateVerdict.PASS
+        if on:
+            return {"carried": carried, "reason": ON, "detail": verdict.detail}
+        if carried:
+            return {"carried": True, "reason": NEUTRAL_ON, "detail": verdict.detail}
+        return off
     except Exception as exc:  # noqa: BLE001 — total by contract, fail closed
         return {"carried": False, "reason": f"carry check error: {exc}", "detail": ""}
 

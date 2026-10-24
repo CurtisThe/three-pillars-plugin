@@ -75,7 +75,7 @@ Execute one or more phases from the implementation plan.
 
 6. **After all tasks in the phase complete**, run the end-of-phase check across affected files via the fast iteration lane (`scripts/ci-local.sh --fast` in the three-pillars dev repo; the project-discovered command in a consumer repo). Redirect output to a temp file for review:
    ```
-   set -o pipefail; python3 "$TP_ROOT"/skills/_shared/iteration_lane.py --lane iteration --granularity phase --exec 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
+   set -o pipefail; python3 "$TP_ROOT"/skills/_shared/iteration_lane.py --lane iteration --granularity phase --exec 2>&1 | tee "$(mktemp "${TMPDIR:-/tmp}/test_output.XXXXXX.log")"
    ```
    `--exec` runs the resolved command through the shell (compound commands work); `pipefail` keeps its exit status through `tee`, so a failing run is non-zero. If the seam resolves nothing, the log carries the `iteration_lane: no test command resolved` diagnostic (exit 78; identify the case by that line, not the status alone): discover the command from CLAUDE.md / Makefile / package.json / pyproject.toml as before — never `tee` an empty command as green.
 7. **Integration review** — tests passing is necessary but not sufficient. Before marking the phase done, do a quick sanity check of the actual system behavior:
@@ -105,7 +105,7 @@ Execute one or more phases from the implementation plan.
 - Always ask before starting a phase. Never auto-advance to the next phase.
 - If a task's test already passes (behavior pre-exists), mark it as `**Status**: Skipped (pre-exists)` and move on.
 - If a task fails after 3 attempts in the red-green cycle, mark it as `**Status**: Blocked` with the error, and continue to the next task. Report blocked tasks at the end.
-- Parallel agents should use `isolation: "worktree"` to avoid conflicts. **Always commit uncommitted changes before spawning worktree agents** — worktrees branch from HEAD, so uncommitted work is invisible to them and they will regress it. After they complete, review and merge their changes, then **always clean up**: `git worktree remove {path}` and `git branch -D {branch}` for each. Leftover worktrees pollute IDE git status.
+- Parallel agents each get their own checkout. **Always commit uncommitted changes first** — a checkout branches from HEAD, so uncommitted work is invisible to the agents and they will regress it. Open one per parallel agent with `python3 "$TP_ROOT"/skills/_shared/wt_root.py open --role worker --slug {design-name} --base-ref HEAD`, and pass the printed path to the agent as a `WORKTREE: <P>` line; each agent runs every command as `cd <P> && …`, uses absolute paths under `<P>`, and reports `git -C <P> rev-parse HEAD` (its detached HEAD SHA). After they complete, review and merge those SHAs back, then **always clean up** with `python3 "$TP_ROOT"/skills/_shared/wt_root.py reap --role worker --slug {design-name}`. Leftover worktrees pollute IDE git status.
 - For sequential tasks within a phase, do NOT use subagents — execute directly.
 
 ## Auto Mode

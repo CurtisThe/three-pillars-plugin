@@ -70,35 +70,87 @@ def render(design_dir: str, repo: str = ".") -> str:
         raise ValueError(f"'## Scope' in '{d}' names no backticked path")
     klass = weight_class.parse_frontmatter(text).get("weight-class", "just-do-it")
     slug = weight_class.parse_frontmatter(text).get("slug") or d.name
-    file_items = ", ".join(
-        f"`{p}` ({'modify' if (Path(repo) / p).is_file() else 'new'})"
-        for p in scoped)
-    tests = [p for p in scoped if _TEST_BASENAME.match(p.split("/")[-1])]
-    targets = ", ".join(f"`{p}`" for p in tests) if tests else "none"
-    # Entry point `none` is valid only when Targets is `none` (task_oracle.validate_pair)
-    non_test = [p for p in scoped if p not in tests]
-    entry = f"`{(non_test or scoped)[0]}`" if tests else "none"
+    groups = _pack(scoped, _max_files(repo))
+    est = str(weight_class.parse_frontmatter(text).get("estimated-lines", "")).strip()
     behaviors = _heading_body(text, "Behaviors") or "See design.md `## Behaviors`."
     done = _heading_body(text, "Done when") or "The targets pass."
+    beh = behaviors.replace("\n", " ").strip()
+    dn = done.replace("\n", " ").strip()
+    tasks = "".join(
+        _task(i, paths, repo, beh, dn, est if i == 1 else "")
+        for i, paths in enumerate(groups, 1))
     return (
         "---\n"
         f"weight-class: {klass}\n"
         "plan-schema: 2\n"
         "---\n\n"
         f"# {slug} — Implementation Plan\n\n"
-        "Mechanical one-task plan rendered by `jdi_plan.py write` from design.md.\n\n"
-        "## Phase 1: Implementation\n\n"
-        "### Task 1.1: Implement the design's Scope\n"
+        "Mechanical plan rendered by `jdi_plan.py write` from design.md.\n\n"
+        "## Phase 1: Implementation\n\n" + tasks
+    )
+
+
+def _max_files(repo: str) -> int:
+    import task_eligibility
+    try:
+        return task_eligibility.configured_max_files(Path(repo))
+    except ValueError:
+        return 10 ** 6
+
+
+def _pack(scoped: list[str], cap: int) -> list[list[str]]:
+    """Scope paths -> task path lists: one task when it fits, else code+test
+    groups packed first-fit into tasks of at most `cap` paths."""
+    if len(scoped) <= cap:
+        return [list(scoped)]
+    tests = [p for p in scoped if _TEST_BASENAME.match(p.split("/")[-1])]
+    used: set[str] = set()
+    groups: list[list[str]] = []
+    for p in scoped:
+        if p in tests:
+            continue
+        head, _, base = p.rpartition("/")
+        mate = f"{head}/test_{base}" if head else f"test_{base}"
+        grp = [p] + ([mate] if mate in tests else [])
+        used.update(grp)
+        groups.append(grp)
+    groups += [[p] for p in tests if p not in used]
+    tasks: list[list[str]] = []
+    for g in groups:
+        for t in tasks:
+            # a test-less group never shares a task with a tested one
+            same = any(_TEST_BASENAME.match(x.split("/")[-1]) for x in t) == any(
+                _TEST_BASENAME.match(x.split("/")[-1]) for x in g)
+            if same and len(t) + len(g) <= cap:
+                t.extend(g)
+                break
+        else:
+            tasks.append(list(g))
+    return tasks
+
+
+def _task(n: int, paths: list[str], repo: str, beh: str, dn: str, est: str) -> str:
+    file_items = ", ".join(
+        f"`{p}` ({'modify' if (Path(repo) / p).is_file() else 'new'})" for p in paths)
+    tests = [p for p in paths if _TEST_BASENAME.match(p.split("/")[-1])]
+    targets = ", ".join(f"`{p}`" for p in tests) if tests else "none"
+    # Entry point `none` is valid only when Targets is `none` (task_oracle.validate_pair)
+    non_test = [p for p in paths if p not in tests]
+    entry = f"`{(non_test or paths)[0]}`" if tests else "none"
+    growth = f"**Growth**: +{est}\n" if est.isdigit() else ""
+    return (
+        f"### Task 1.{n}: Implement the design's Scope\n"
         f"**File**: {file_items}\n"
-        "**Test**: " + behaviors.replace("\n", " ").strip() + "\n"
+        f"**Test**: {beh}\n"
         f"**Targets**: {targets}\n"
+        + growth +
         "**Oracle**: example\n"
         f"**Entry point**: {entry}\n"
-        "**Red**: " + behaviors.replace("\n", " ").strip() + "\n"
-        "**Green**: " + done.replace("\n", " ").strip() + "\n"
+        f"**Red**: {beh}\n"
+        f"**Green**: {dn}\n"
         "**Refactor**: None expected.\n"
-        f"**Done when**: {done.replace(chr(10), ' ').strip()}\n"
-    )
+        f"**Done when**: {dn}\n\n"
+    ).rstrip("\n") + "\n" + ("\n" if n else "")
 
 
 def _resumed(plan_md: Path) -> bool:

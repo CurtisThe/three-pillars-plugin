@@ -18,8 +18,9 @@ RULING_KEYS = ("options", "pillar_basis", "tie_breaker", "commits_to", "confiden
                "lesson_proposal")
 GENERAL_KINDS = ("decision", "lesson")
 OPERATOR_ONLY = ("merge", "force-push", "remote-delete", "classifier-denial",
-                 "standing-order", "scope-growth", "base-sync-hunk")  # last: seat ruling
-KINDS = GENERAL_KINDS + OPERATOR_ONLY
+                 "scope-growth")  # scope-growth: a code conflict, no verifier
+FABLE_FIRST = ("standing-order", "base-sync-hunk")  # demoted by escalation-threshold
+KINDS = GENERAL_KINDS + FABLE_FIRST + OPERATOR_ONLY
 PILLAR_DOCS = ("vision.md", "architecture.md")  # under three-pillars-docs/
 EMPTY_RULING = {"options": [], "pillar_basis": [], "tie_breaker": None,
                 "commits_to": [], "confidence": "low", "lesson_proposal": None}
@@ -151,6 +152,14 @@ def _names_pillar(item: str) -> bool:
     return False
 
 
+def _pillar_name(doc: str) -> str:
+    """Lookup key for a basis ``doc``: bare name stays, the exact
+    ``three-pillars-docs/`` prefix is dropped, any other path is unchanged
+    (so it misses ``PILLAR_DOCS``)."""
+    prefix = _PILLARS_DIR + "/"
+    return doc[len(prefix):] if doc.startswith(prefix) else doc
+
+
 def check(data: dict, pillars: dict, kind: str | None) -> list[str]:
     """Pillar rules for a `resolved` `question` stop; every problem found.
 
@@ -173,8 +182,9 @@ def check(data: dict, pillars: dict, kind: str | None) -> list[str]:
             problems.append(f"pillar-basis-missing: {pick['id']}")
     for e in entries:
         doc, section = e.get("doc", ""), e.get("section", "")
-        body = section_text(pillars[doc], section) \
-            if doc in PILLAR_DOCS and doc in pillars else None
+        name = _pillar_name(doc)
+        body = section_text(pillars[name], section) \
+            if name in PILLAR_DOCS and name in pillars else None
         quote = normalize_ws(e.get("quote", ""))
         if body is None or not quote or quote not in normalize_ws(body):
             problems.append(
@@ -184,6 +194,10 @@ def check(data: dict, pillars: dict, kind: str | None) -> list[str]:
     for item in data.get("commits_to", []):
         if isinstance(item, str) and _names_pillar(item):
             problems.append("pillar-change: propose /tp-docs-update")
+    if kind == "base-sync-hunk" and pick is not None and pick.get("id") == "leave-for-human":
+        problems.append("leave-for-human: base-sync-hunk")  # the park gets the card and ping
+    if kind in FABLE_FIRST and data.get("confidence") not in ("high", "medium"):
+        problems.append(f"low-confidence: {kind}")
     return problems
 
 
@@ -219,11 +233,13 @@ def brief_lines(entry: str, repo_root, decisions) -> list[str]:
         lines.append("No pillar doc found: reply `escalate` (`no-pillar-basis`).")
     keys = ", ".join(f"`{k}`" for k in RULING_KEYS)
     kinds = ", ".join(f"`{k}`" for k in OPERATOR_ONLY)
+    fable = ", ".join(f"`{k}`" for k in FABLE_FIRST)
     lines += [
         f"Ruling keys (all present in the reply): {keys}.",
         "Chosen option = the one with `recommended: true`.",
         "A `serves` basis entry quotes verbatim from under the named `##`/`###` `section` of the named `doc`.",
         f"Operator-only kinds always escalate: {kinds}.",
+        f"Fable-first kinds: you rule these; `low` confidence escalates: {fable}.",
         "A pillar-doc change escalates as a `/tp-docs-update` proposal.",
     ]
     return lines

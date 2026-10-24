@@ -46,6 +46,9 @@ JDI_EXCLUDED_FILES = frozenset({
 })
 
 PAPER_PREFIX = "three-pillars-docs/"
+INLINE_MAX_FILES = 2
+INLINE_MAX_LINES = 80
+_GROWTH = re.compile(r"^\*\*Growth\*\*:\s*([+-]?\d+)", re.MULTILINE)
 _SCOPE_BACKTICK = re.compile(r"`([^`\n]+)`")
 
 
@@ -167,8 +170,30 @@ def _check(design_dir: str, base: str, head: str, repo: str) -> tuple[int, str]:
     return 0, "ELIGIBLE"
 
 
+def inline_fit(plan_path: str) -> bool:
+    """True when the plan fits the inline bound (files and lines); never raises."""
+    try:
+        import task_scope
+
+        tasks = task_scope.plan_tasks(Path(plan_path).read_text(encoding="utf-8"))
+        if not tasks:
+            return False
+        files: set[str] = set()
+        lines = 0
+        for t in tasks:
+            paths, unparsed = task_scope.parse_files(t.get("fields", {}).get("File", ""))
+            if unparsed:
+                return False
+            files.update(p for p in paths if not p.startswith(PAPER_PREFIX))
+            m = _GROWTH.search(t.get("raw", ""))
+            lines += abs(int(m.group(1))) if m else 50
+        return len(files) <= INLINE_MAX_FILES and lines <= INLINE_MAX_LINES
+    except Exception:  # noqa: BLE001 — an unreadable plan never fits
+        return False
+
+
 def route(design_dir: str, base: str, head: str,
-          repo: str = ".") -> tuple[str, str | None]:
+          repo: str = ".", plan: str | None = None) -> tuple[str, str | None]:
     """Tier 1 routing: the class the run routes as, plus the escalation line.
 
     The declared class is the floor — a run never routes lighter than declared,
@@ -186,6 +211,8 @@ def route(design_dir: str, base: str, head: str,
         return declared, None
     rc, line = check(str(d), base, head, repo=repo)
     if rc == 0:
+        if plan and inline_fit(plan):
+            return "inline", None
         return "just-do-it", None
     reason = line.removeprefix("ESCALATE ").strip()
     try:
@@ -220,6 +247,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Head commit of the implementation diff")
     r.add_argument("--repo", metavar="DIR", default=".",
                    help="Repository to run git in (default: the current directory)")
+    r.add_argument("--plan", metavar="FILE", default=None,
+                   help="plan.md; a just-do-it design whose plan fits routes `inline`")
     return p
 
 
@@ -229,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "route":
         try:
             klass, log = route(args.design_dir, args.base, args.head,
-                               repo=args.repo)
+                               repo=args.repo, plan=args.plan)
         except Exception as exc:  # noqa: BLE001 — bad input, never a jdi route
             print(f"ESCALATE bad-input: {exc}")
             return 2

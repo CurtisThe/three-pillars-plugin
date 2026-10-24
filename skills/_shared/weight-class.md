@@ -1,16 +1,18 @@
 # Weight Class — the design depth axis
 
 Every design carries a **weight class** declaring how much ceremony its
-pipeline runs: `just-do-it`, `light`, `spike`, or `full`. The class is a
-**floor, not a ceiling** — every ambiguity resolves toward more checking.
-The executable companion is `skills/_shared/weight_class.py` (`recommend`,
-`read`, `check`).
+pipeline runs: `just-do-it`, `light`, `spike`, or `full`. Once a design.md
+declares a class it is a **floor, not a ceiling**: consumers may escalate
+above it, never run lighter. Choosing the class is lean: the default is the
+lightest class that fits, and a tie resolves lighter. The executable
+companion is `skills/_shared/weight_class.py` (`recommend`, `lighten`,
+`cost`, `read`, `check`).
 
 ## The four classes
 
 - `just-do-it` — trivial, reversible, well-understood change. A ~10-line
   mini design.md on a normal `tp/{slug}` branch; implement; `/code-review`.
-  No council, no plan.md. The stop path (implement, gate, one light review,
+  No council, no plan.md. A just-do-it design whose plan fits 2 files and 80 lines (the inline bound in `jdi_eligibility.py`) is implemented inline by the orchestrator instead of the worker ladder. The stop path (implement, gate, one light review,
   stop for the operator) runs `/tp-design-complete` (the PR is optional)
   before the merge OK hand-off, so the archive lands with the merge.
   Before the PR, step 6g runs the per-phase check once (`skills/_shared/phase-check.md`
@@ -25,9 +27,11 @@ The executable companion is `skills/_shared/weight_class.py` (`recommend`,
 - `spike` — the approach itself is unknown. Routes to the existing spike
   pipeline, which *is* its ceremony profile; the frontmatter just records
   the choice on the shared axis.
-- `full` — the default and the fail-safe. The complete TDD pipeline,
+- `full` — risk or blast radius is high. The complete TDD pipeline,
   unchanged: design → detail → design-audit → plan → plan-audit →
-  phase-implement → phase-review → implementation-audit.
+  phase-implement → phase-review → implementation-audit. It is the class a
+  legacy design with no declared class still reads as (see Frontmatter
+  schema), not the class a new design gets by default.
 
 ## Ceremony by check level
 
@@ -48,12 +52,39 @@ high reversibility — easy to undo — is good**):
 - **reversibility** — how cheaply can it be backed out?
 - **novelty** — is the approach known, or are we guessing?
 
-Mapping (`weight_class.py recommend --risk … --blast-radius …
---reversibility … --novelty …`): all four minimal → `just-do-it`; novelty
-high → `spike`; at most one axis medium, none high → `light`; otherwise →
-`full`. **Ties and unknown axis values resolve heavier.** The justification
-names the deciding axis. The rubric output is a recommendation — the human
-confirms or overrides at declaration time.
+The rubric is lean. Apply it in order (`python3 "$TP_ROOT"/skills/_shared/weight_class.py
+recommend --risk … --blast-radius … --reversibility … --novelty …`):
+
+1. novelty high → `spike` (the approach is unknown: validate it first);
+2. risk or blast radius high → `full`;
+3. every axis minimal → `just-do-it`;
+4. everything else (a medium axis, or low reversibility) → `light`.
+
+**Ties resolve lighter.** An unknown axis value counts as medium and the
+output carries a warning. Only risk and blast radius can make a design
+`full`. The justification names the deciding axis. The rubric output is a
+recommendation: the human confirms or overrides it at declaration time.
+
+### Lighten and cost
+
+`python3 "$TP_ROOT"/skills/_shared/weight_class.py lighten {design_dir}
+--risk … --blast-radius … --reversibility … --novelty …` re-scores the four
+axes (the flags are optional when the design.md or seed.md frontmatter
+carries the four axis keys) and prints one line: `keep {class}` or
+`suggest {class} because {axis}`. A **seed.md class is a default, not a
+floor**: `lighten` runs even when the seed carries a class and may suggest a
+lighter one. A **design.md class is a floor**: `lighten` never raises it.
+`pin-class: true` in the frontmatter makes `lighten` keep the declared class.
+
+`python3 "$TP_ROOT"/skills/_shared/weight_class.py cost` prints the rough
+token cost (Mtok) of each class, measured from completed designs where there
+are enough and a static estimate otherwise. Show it beside each class when
+asking the operator to choose, and offer the printed class as the default
+answer.
+
+Whatever class is settled (the suggestion, a kept class or an operator
+override) is stamped onto seed.md as well as design.md with `write_class`
+before design.md is written, so `weight_class.py check` finds no divergence.
 
 ## Frontmatter schema
 
@@ -71,11 +102,15 @@ weight-class: light
   `weight_class.py read {design_dir}`.
 - seed.md carries the scope-time declaration; generators stamp every
   artifact they write (detailed-design.md, plan.md) from design.md's value.
-- Absent, malformed, or unknown values read as `("full", "default")` —
-  fail-safe toward more checking.
+- Absent, malformed, or unknown values read as `("full", "default")`: a
+  legacy design with no declared class still reads as `full`, so it keeps
+  its full ceremony.
 - `weight_class.py check {design_dir}` reports divergent or missing stamps
   on siblings (exit 1). The check gates on design.md's class coming from
   frontmatter, so legacy frontmatter-free dirs pass vacuously.
+- `estimated-lines: <n>` is optional (a positive integer; `just-do-it` only). `seed_write.py`
+  stamps it on a seed, `/tp-promote` and `/tp-design` copy or estimate it into design.md, and
+  `jdi_plan.py` reads it for the plan's Growth line.
 
 ## Escalation rule
 
@@ -106,8 +141,10 @@ and `just-do-it` designs):
 > - [ ] Out-of-scope items from the note remain untouched by the diff.
 > - [ ] Any drift that survives review is recorded (PR body or
 >   known_issues.md), not silently merged.
-> - [ ] Every sentence saying a guard (test, check, lint, gate) *enforces* a
->   property carries `[cert:<id>]` for a claim certified per
+> - [ ] Safety-gate designs only (`cert_once.py should-run --light` exits 0;
+>   a skipped certification makes this item not applicable): every sentence
+>   saying a guard (test, check, lint, gate) *enforces* a property carries
+>   `[cert:<id>]` for a claim certified per
 >   `skills/_shared/certification-protocol.md` (`binds`, or a recorded
 >   `known-bypass`); an uncertified one is `unverified` and blocks PASS.
 

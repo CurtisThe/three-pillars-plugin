@@ -7,7 +7,7 @@ verdict dicts + Round-2 rebuttal dicts (including each challenged_finding_indice
 F4) into the prompt text the synthesizer weighs.
 
 The synthesizer is dispatched as a read-only `tp-readonly-auditor` subagent (Slot 8:
-`tp-impl-auditor`; NO isolation="worktree", F8) and emits the audit-return.v1 envelope.
+`tp-impl-auditor`; NO worktree isolation, F8) and emits the audit-return.v1 envelope.
 """
 
 from __future__ import annotations

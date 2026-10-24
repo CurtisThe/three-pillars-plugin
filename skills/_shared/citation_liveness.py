@@ -395,7 +395,8 @@ def run_citation_checks(repo_root) -> CitationReport:
         pass
 
     try:
-        for dc in dead_design_cites(root):
+        import pending_changes  # a pending fragment's cites are the docs compile's to repoint
+        for dc in pending_changes.without_compile_owned(root, dead_design_cites(root)):
             violations.append(Violation(
                 path=dc.path, line=dc.line, cls="dangling-path",
                 cited_n=0, detail=f"slug={dc.slug} ({dc.kind})",

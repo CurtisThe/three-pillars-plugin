@@ -235,6 +235,13 @@ def test_zero_drop_refuses_an_unresolved_splice(tree, resolved):
     assert cor.zero_drop({"resolved": good}, ctx) == (True, "")
 
 
+def test_zero_drop_refuses_an_invented_line(tree):
+    ctx = _splice_ctx(tree)
+    ok, reason = cor.zero_drop({"resolved": OURS + "\n" + THEIRS + "invented line\n"}, ctx)
+    assert (ok, reason) == (False, "overproduced: 1 line(s)")
+    assert cor.zero_drop({"resolved": THEIRS + "\n" + OURS}, ctx) == (True, "")
+
+
 def test_zero_drop_keeps_a_marker_like_line_both_sides_carry(tree):
     ours = "Title\n=======\n\n### L1: alpha\nbody a\n"
     theirs = "Title\n=======\n\n### L2: beta\nbody b\n"

@@ -239,7 +239,7 @@ def test_framework_check_inv50_advisory():
     fc = REPO_ROOT / "framework-check.sh"
     assert parse_invariant_map(fc)[50].status == "active"
     text = fc.read_text(encoding="utf-8")
-    block = text[text.index("# 50. "):].split('if [[ "$ERRORS" -gt 0 ]]')[0]
+    block = text[text.index("# 50. "):].split('if [[ "$ERRORS" -gt 0 ]]')[0].split("# 51. ")[0]
     assert 'escalate_first_hook.py" --check-manifest' in block
     assert "warn" in block
     assert "fail " not in block

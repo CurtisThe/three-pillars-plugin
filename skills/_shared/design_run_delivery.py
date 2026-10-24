@@ -10,7 +10,8 @@ things, fail-open:
 - the run's routing, read from the real child (`design_run_routing`), waiting for the run's own
   launcher when the seat had one (`CLAUDE_LAUNCHER_OWNED` in the launching env);
 - the first message, typed by `design_run_send.deliver` and confirmed from the transcript; the
-  manual send command is printed when it is not delivered.
+  manual send command is printed when it is not delivered, but not when it is `queued` (a busy
+  run holds the line and takes it at the end of its turn: a resend would type it twice).
 
 Readouts used to sample before the `claude` child existed (Evidence 2026-10-09), so a seat
 resent the brief or relaunched. Every tmux, process-table, environ, clock and sleep call is
@@ -79,7 +80,9 @@ def report(slug: str, runner: drt.Runner, wait: float, *,
     outcome = (design_run_send.deliver(slug, line, runner, ready_timeout=wait, clock=clock,
                                        sleep=sleep)
                if wait > 0 and brief else "skipped")
-    if outcome != design_run_send.DELIVERED and brief:
+    if outcome == design_run_send.QUEUED:  # the busy run holds the line: a resend would double it
+        print("first message queued (the run is busy; it takes the line when its turn ends)")
+    elif outcome != design_run_send.DELIVERED and brief:
         print(f"first message {outcome}; send it with: "
               f"{design_run_send.manual_command(slug, line)}")
     return outcome

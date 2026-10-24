@@ -140,6 +140,23 @@ def parse(path) -> dict:
             "feedback": feedback}
 
 
+_ANSWER = re.compile(r"^- \d{4}-\d{2}-\d{2}: answer: (.*)$")
+
+
+def answer_of(parsed):
+    """The label of the last ``answer:`` feedback line (what ``ruling_cli answer``
+    writes), cut at the first `` — `` and `` (Recommended)`` stripped; else None.
+
+    design: seat-escalate-first 1.3 — the one reading of "answered" shared by
+    the hook, ``review_stop.settle`` and the seat commit guard.
+    """
+    for line in reversed(parsed.get("feedback") or []):
+        m = _ANSWER.match(line)
+        if m:
+            return m.group(1).split(" — ", 1)[0].removesuffix(" (Recommended)")
+    return None
+
+
 def find(root, rid):
     """``RULINGS_REL/<rid>.md`` under ``root`` when it exists, else None.
 

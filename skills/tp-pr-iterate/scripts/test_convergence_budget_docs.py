@@ -100,7 +100,7 @@ def test_round_topology_round_tail_and_path_authority():
     text = _topology()
     assert not _has_all(text, "round tail", "path authority", "round_scratch.py prepare",
                         "reproduce.py --round-dir", "converge.py --round-dir", "run_round.py",
-                        "tail-check", "without `isolation=\"worktree\"`")
+                        "tail-check", "without worktree isolation")
 
 
 def test_round_topology_inline_fix_contract():

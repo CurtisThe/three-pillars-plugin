@@ -9,10 +9,13 @@ A selection menu (`❯ 1. Yes`, `Do you want to`) is never the input box: with o
 `deliver` sends no keys (it would answer the menu). A typed line that still reads not-delivered
 or unverified is confirmed from the transcript (`in_transcript`: the line above an empty box)
 before that outcome is reported; text still in the box stays not-delivered.
-Outcomes: delivered | unverified | not-delivered | menu | no-session | tmux-error.
+A box already holding text gets no key at all (`design_run_verdict.before_send`): `queued` when a
+busy run holds exactly this line, else `occupied`. After Enter a busy run still holding the line
+is `queued` (no second Enter); an empty box, a spinner or a grown transcript is `delivered`.
+Outcomes: delivered | queued | occupied | unverified | not-delivered | menu | no-session | tmux-error.
 Every tmux, clock and sleep call is injectable (design-run-launch.md).
 
-CLI: design_run_send.py <slug> <line>    # exit 0 on delivered, 1 otherwise
+CLI: design_run_send.py <slug> <line>    # exit 0 on delivered or queued, 1 otherwise
 """
 from __future__ import annotations
 
@@ -25,8 +28,10 @@ from typing import Callable, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import design_run_tmux as drt  # noqa: E402
+import design_run_verdict as drv  # noqa: E402
 
 DELIVERED, UNVERIFIED, NOT_DELIVERED = "delivered", "unverified", "not-delivered"
+QUEUED, OCCUPIED = drv.QUEUED, drv.OCCUPIED
 MENU = "menu"
 NO_SESSION, TMUX_ERROR = "no-session", "tmux-error"
 PROMPT_CHARS = (">", "❯")
@@ -139,8 +144,11 @@ def _is_empty(box: "Optional[tuple[str, bool]]") -> bool:
 
 def deliver(slug: str, line: str, runner: Optional[drt.Runner] = None, *,
             ready_timeout: float = 30.0, clock: Callable[[], float] = time.monotonic,
-            sleep: Callable[[float], None] = time.sleep) -> str:
-    """Type `line` into `<slug>`'s run window (lowest-index window) and press Enter."""
+            sleep: Callable[[float], None] = time.sleep,
+            transcript_size: Optional[Callable[[], Optional[int]]] = None) -> str:
+    """Type `line` into `<slug>`'s run window (lowest-index window) and press Enter.
+
+    `transcript_size` (default None = not checked) reads the run's transcript size in bytes."""
     runner = runner or _tmux_runner()
     if runner is None or runner(["has-session", "-t", f"={slug}"])[0] != 0:
         return NO_SESSION
@@ -158,6 +166,10 @@ def deliver(slug: str, line: str, runner: Optional[drt.Runner] = None, *,
         if left <= 0:
             return UNVERIFIED
         sleep(min(POLL_SECONDS, left))
+    pre = drv.before_send(frame, line)
+    if pre is not None:
+        return pre  # text in the box: no key, not even the clearing C-e C-u
+    was_busy, size0 = drv.is_busy(frame), drv.read_size(transcript_size)
     for keys in (["C-e"], ["C-u"], ["-l", line], ["Enter"]):
         if runner(["send-keys", "-t", wid, *keys])[0] != 0:
             return TMUX_ERROR
@@ -167,6 +179,10 @@ def deliver(slug: str, line: str, runner: Optional[drt.Runner] = None, *,
         frame = _frame(runner, wid)
         if frame is not None and has_menu(frame):
             return MENU  # never press Enter into a menu
+        seen = None if frame is None else drv.after_send(
+            frame, was_busy=was_busy, grew=drv.grew(size0, drv.read_size(transcript_size)))
+        if seen is not None:
+            return seen  # queued or delivered: never a second Enter
         box = box_text(frame) if frame is not None else None
         if box is None:
             outcome = UNVERIFIED
@@ -199,9 +215,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if len(argv) != 2:
         print("usage: design_run_send.py <slug> <line>", file=sys.stderr)
         return 2
-    outcome = deliver(argv[0], argv[1], _tmux_runner())
+    runner = _tmux_runner()
+    outcome = deliver(argv[0], argv[1], runner,
+                      transcript_size=drv.transcript_sizer(argv[0], runner))
     print(f"{outcome}: {argv[0]}")
-    return 0 if outcome == DELIVERED else 1
+    return 0 if outcome in (DELIVERED, QUEUED) else 1
 
 
 if __name__ == "__main__":

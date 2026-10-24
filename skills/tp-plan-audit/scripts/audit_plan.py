@@ -15,6 +15,7 @@ Verifies:
      (non-canonical, not runnable), never a failure (audit_targets.py)
   7. Oracle / Entry point / criteria pins (audit_oracle.py): ERRORs on a
      `plan-schema: 2` plan, NOTEs (on stderr) without the marker; spike exempt
+  8. Task sizing (task_sizing.py): advisory WARNs only, never a failure
 
 Usage: python3 audit_plan.py <design-dir> [--spike|--light]
   --spike: Hypothesis/Try/Evaluate fields; skips detailed-design.md checks.
@@ -38,6 +39,7 @@ from weight_class import check_consistency as weight_class_consistency  # noqa: 
 from audit_artifact import write_pass_artifact  # noqa: E402
 from audit_oracle import LEGACY_NOTE, check_fields, plan_schema  # noqa: E402
 import plan_files  # noqa: E402 — declared **File** field grammar + existence
+from task_sizing import check_task_sizing  # noqa: E402
 from design_phases import parse_implementation_order  # noqa: E402 — declared phase list
 from task_scope_files import norm_path, parse_files  # noqa: E402
 from task_targets import parse_targets  # noqa: E402
@@ -410,7 +412,8 @@ def main():
         notes += module_notes
     if mode != "spike":
         file_issues, file_notes = plan_files.check_file_existence(tasks, root=repo_root(d))
-        all_issues += file_issues + check_budget_annotations(plan)
+        all_issues += (file_issues + check_budget_annotations(plan)
+                       + check_task_sizing(tasks, repo_root(d)))
         field_issues, field_notes = check_fields(tasks, mode, repo_root(d), plan_schema(plan))
         all_issues += field_issues
         notes += file_notes + field_notes

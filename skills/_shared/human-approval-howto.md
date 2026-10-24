@@ -118,6 +118,14 @@ distinct approver identity (option 1, two-account flip).
 7. Re-run `/tp-merge` — the gate sees the review author as your human login (distinct
    from the automation self-login) and PASSES.
 
+### Team repos: contributors without the bot
+
+- Set `github.per_developer_author: "self"` in `.three-pillars/config.json`. A contributor whose gh keyring lacks the bot account then runs the loop as their own login, and the gate also trusts the PR author's own digest. This is for trusted-collaborator repos, not repos that take open fork PRs: a fork PR's author is never trusted, and a self-attested digest is the author's word, not a verified review.
+- Do **not** add contributors to `review.automation_identities`. That makes a login non-human for `human_approved`, so they could never approve anyone else's PR.
+- Who approves: a human who is not the PR author, not the gh login that runs `/tp-merge`, and not in `review.automation_identities`. In a team repo the maintainer runs `/tp-merge` from the seat (gh as the bot), and the maintainer's human account or another teammate approves.
+- The self-approval trap: if the seat's bot token expires, `create_pr` falls back and authors the PR as the seat's own gh login. It prints a `!! per_developer_author: self` warning, and that login then cannot approve the PR. Restore the bot token and recreate the PR.
+- Config source: the gate reads `.three-pillars/config.json` from the checkout it runs in, so run `/tp-merge` from the base checkout. A PR-branch worktree reads that PR's own config, which could switch `self` on (the same exposure as `review.require_review_proof: false`).
+
 ## Advisory label: tp:ready-for-human-merge
 
 The advisory label `tp:ready-for-human-merge` (set by the review loop to flag a PR as

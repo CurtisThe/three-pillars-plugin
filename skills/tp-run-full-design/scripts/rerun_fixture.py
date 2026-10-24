@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 import rerun_phase_tests  # noqa: F401 — puts skills/_shared on sys.path
+import wt_root
 import task_scope  # the shipped scrub: git_env is dev-only and never ships
 
 IDENTITY = {
@@ -75,7 +76,7 @@ def plan(phases: dict) -> str:
 
 def leftovers(repo: Path) -> tuple[list[str], list[str], int]:
     """``(scratch dirs, tp-rerun/* branches, worktree count)`` after a re-run."""
-    dirs = sorted(p.name for p in (repo / ".claude" / "worktrees").glob("tp-rerun-*"))
+    dirs = sorted(p.name for p in Path(wt_root.scratch_parent(repo, DD.rsplit("/", 1)[-1])).glob("tp-rerun-*"))
     branches = git(repo, "branch", "--list", "--format=%(refname:short)", "tp-rerun/*").split()
     porcelain = git(repo, "worktree", "list", "--porcelain").splitlines()
     count = sum(1 for line in porcelain if line.startswith("worktree "))

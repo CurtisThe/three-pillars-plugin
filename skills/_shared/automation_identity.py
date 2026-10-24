@@ -17,6 +17,9 @@ runner never runs. With an account whose token is unavailable, `BotAuthUnavailab
 before anything runs, never a silent fallback to the ambient login (that would re-create the
 self-approval trap this identity exists to remove).
 
+Opt-in exception (per-developer-automation-account): `github.per_developer_author: "self"` runs
+the write on the ambient gh login when the bot token cannot be fetched (one stderr line, no token).
+
 `run_gh_write` defaults `config=DISCOVER`: it loads the repo config from the git toplevel, so
 the identity is picked by the helper and never by a prompt. An explicit `config=None` or `{}`
 stays the ambient path. `github_pr_author.py` re-exports the names that used to live there.
@@ -26,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -121,7 +125,8 @@ def bot_token(account: str, runner=None) -> str:
             "it to the multi-account keyring (`gh auth token --user` "
             "requires a modern gh, ~2.40+), or "
             "(2) clear `github.pr_author_account` in "
-            "`.three-pillars/config.json` to disable bot-authored PRs."
+            "`.three-pillars/config.json` to disable bot-authored PRs, or "
+            "(3) set `github.per_developer_author: \"self\"` to run as your own gh login."
         )
     return token
 
@@ -193,7 +198,15 @@ def resolve_automation_account(config: dict) -> "str | None":
     return resolve_pr_author(config, "autonomous")
 
 
-def trusted_digest_authors(config, self_login_fn) -> frozenset:
+def _gate_mode(config) -> str:
+    """The read-side mode: an invalid value is `off`, never a raise (the gate prunes it too)."""
+    try:
+        return per_developer_mode(config)
+    except BotAuthUnavailable:
+        return "off"
+
+
+def trusted_digest_authors(config, self_login_fn, pr_author_fn=None) -> frozenset:
     """Lowercased logins whose posted review-proof digests count as proof at the merge gate.
 
     With `github.pr_author_account` set the trusted set is that account plus
@@ -201,6 +214,8 @@ def trusted_digest_authors(config, self_login_fn) -> frozenset:
     comments give the same verdict under any token. With no account it is the gh self login
     plus the extras (`self_login_fn` is called only then). A malformed `github` block raises
     `BotAuthUnavailable`; the gate's callers fail closed on it.
+
+    Under `per_developer_author: self` the PR author (`pr_author_fn`) joins the set, self-attested.
 
     DELIBERATELY NARROWER than human_approval.automation_identities (review finding on
     PR #109): the digest allowlist is the DUAL of the approval denylist, so extra members make
@@ -220,11 +235,27 @@ def trusted_digest_authors(config, self_login_fn) -> frozenset:
             self_login = None
         if isinstance(self_login, str) and self_login:
             members.add(self_login.lower())
+    if pr_author_fn is not None and _gate_mode(config) == "self":
+        try:  # any lookup error leaves the set as it was (fail closed)
+            author = pr_author_fn()
+        except Exception:
+            author = None
+        if isinstance(author, str) and author:
+            members.add(author.lower())
     review = config.get("review") if isinstance(config, dict) else None
     extra = review.get("automation_identities") if isinstance(review, dict) else None
     if isinstance(extra, list):
         members.update(x.lower() for x in extra if isinstance(x, str) and x)
     return frozenset(members)
+
+
+def trusted_digest_authors_for_pr(config, pr_url, self_login_fn, head_fn=None) -> frozenset:
+    """`trusted_digest_authors` with the PR author bound to `pr_url`, fetched only under `self`."""
+    if _gate_mode(config) != "self":
+        return trusted_digest_authors(config, self_login_fn)
+    import per_developer_author
+    return trusted_digest_authors(
+        config, self_login_fn, per_developer_author.pr_author_fn_for(pr_url, head_fn))
 
 
 def token_env(token: str, base_env: "dict | None" = None) -> dict:
@@ -237,13 +268,65 @@ def account_env(account: str, base_env: "dict | None" = None, token_runner=None)
     return token_env(bot_token(account, runner=token_runner), base_env)
 
 
+def per_developer_mode(config) -> str:
+    """`github.per_developer_author`: `"off"` when absent or null; any other non-enum value raises."""
+    github = config.get("github") if isinstance(config, dict) else None
+    value = github.get("per_developer_author") if isinstance(github, dict) else None
+    if value is None:
+        return "off"
+    if value not in ("off", "self"):
+        raise BotAuthUnavailable(
+            f"`github.per_developer_author` is {value!r}; expected 'off' or 'self'.")
+    return value
+
+
+def _login_runner(argv, **kwargs):
+    return subprocess.run(argv, **kwargs)  # looked up at call time: tests patch it
+
+
+_AMBIENT: list = []
+
+
+def _reset_ambient_login() -> None:  # test seam
+    _AMBIENT.clear()
+
+def ambient_login(runner=None) -> str:
+    """The ambient `gh` login, resolved once per process; a failed lookup raises `BotAuthUnavailable`."""
+    if _AMBIENT:
+        return _AMBIENT[0]
+    result = (runner or _login_runner)(["gh", "api", "user", "--jq", ".login"],
+                                       capture_output=True, text=True)
+    login = (result.stdout or "").strip() if result.returncode == 0 else ""
+    if not login:
+        raise BotAuthUnavailable("per_developer_author: self needs the gh login; `gh api user` failed.")
+    _AMBIENT.append(login)
+    return login
+
+
+def _account_env_or_ambient(account: str, config: dict, base_env: "dict | None" = None,
+                            token_runner=None, login_runner=None) -> "dict | None":
+    """`account_env`, or None (the ambient path) when the token is unavailable under `self`."""
+    try:
+        return account_env(account, base_env, token_runner=token_runner)
+    except BotAuthUnavailable:
+        if per_developer_mode(config) != "self":
+            raise
+    fresh = not _AMBIENT  # one notice per process, like the login lookup
+    login = ambient_login(login_runner)
+    if fresh:
+        print(f"per_developer_author: self — {account} not in this gh keyring; "
+              f"automation writes run as {login}", file=sys.stderr)
+    return None
+
+
 def automation_env(config: dict, base_env: "dict | None" = None,
                    token_runner=None) -> "dict | None":
-    """`account_env` for the configured automation account; None when none is configured."""
+    """`account_env` for the configured automation account; None when none (or `self` fallback)."""
     account = resolve_automation_account(config)
+    per_developer_mode(config)  # eager: a bad value raises even with a token or no account
     if account is None:
         return None
-    return account_env(account, base_env, token_runner=token_runner)
+    return _account_env_or_ambient(account, config, base_env, token_runner)
 
 
 def _default_runner(argv, **kwargs):

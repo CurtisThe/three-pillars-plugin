@@ -54,6 +54,9 @@ def test_property_attack_fixture_is_indeterminate_never_fail_or_pass(
     comments = [_c(_digest_for(anchor))]
 
     def _run(config):
+        # The sweep isolates the base-sync carry: an amended living-doc edit (attack4c) is
+        # proof-neutral by design, so the neutral carry is off here (test_proof_neutral_carry_predicate).
+        config = {**config, "review": {**config["review"], "proof_neutral_carry": False}}
         return proof_predicate.pred_review_proof_on_head(
             PR, head_oid,
             comments_fn=lambda _u, c=comments: c,
@@ -100,12 +103,14 @@ def test_fixture13_seat_detached_at_chain_ancestor_threaded_no_carry(tmp_path, m
     h1 = make_certified_sync_merge(s)   # head under verification: further along the chain
     checkout_detached(s, h0)            # the seat mis-detached at the ancestor merge h0
     monkeypatch.setattr(base_sync_oracle, "_oracle_code_dir", lambda: s.repo_dir)
+    # basesync-docs-only-carry would carry these base-only merges without the oracle: isolate it.
+    isolated = {**CARRY_CONFIG, "review": {**CARRY_CONFIG["review"], "proof_neutral_carry": False}}
 
     r = proof_predicate.pred_review_proof_on_head(
         PR, h1,
         comments_fn=lambda _u: [_c(_digest_for(h0))],
         self_login_fn=lambda: AUTHOR,
-        config=CARRY_CONFIG,
+        config=isolated,
         repo_root=str(s.repo_dir),
         derive_base_ref_fn=lambda _u: s.base_ref,
     )
@@ -140,7 +145,7 @@ def test_gate_roster_threads_carry_seams_fixture13_indeterminate(tmp_path, monke
     config = {
         "review": {
             "expects_copilot": False, "require_human_approval": False,
-            "approval_survives_safe_base_sync": True,
+            "approval_survives_safe_base_sync": True, "proof_neutral_carry": False,
         },
         "ci": {"expects_github_checks": False},
     }

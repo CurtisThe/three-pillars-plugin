@@ -149,7 +149,7 @@ class Loop:
         self.env = extra_env
 
     def prepare(self, cwd, base, head) -> Path:
-        p = run("round_scratch.py", ["prepare", "--root", str(self.root), "--pr-url", PR,
+        p = run("round_scratch.py", ["prepare", "--proof-root", str(self.root), "--pr-url", PR,
                                       "--base", base, "--head", head, "--state", str(self.state),
                                       "--log", str(self.log), "--rulings", "rulings.md"],
                 cwd=cwd, extra_env=self.env)

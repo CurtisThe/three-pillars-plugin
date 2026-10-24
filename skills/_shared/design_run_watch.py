@@ -36,10 +36,10 @@ from typing import Callable, Mapping, Optional, Sequence, TextIO
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import design_run_observe as observe  # noqa: E402
 import design_run_tmux as drt  # noqa: E402
+import pane_activity  # noqa: E402
 import router_stats  # noqa: E402
 
 PROMPT_MARKERS = ("Do you want to", "❯ 1.")
-BACKGROUND_MARKER = "background"
 TAIL_LINES = 12
 IDLE_SECONDS = 120.0
 BUSY_PREFIX = "slot held by"
@@ -135,7 +135,8 @@ def step(state: WatchState, obs: Observation) -> "tuple[WatchState, list[str]]":
         if first or obs.pane != st.pane:
             st.pane_since, st.idle_sent = obs.now, False
         elif (not st.idle_sent and obs.now - st.pane_since >= st.idle_s
-              and BACKGROUND_MARKER not in "\n".join(obs.pane.splitlines()[-TAIL_LINES:])):
+              and not any(pane_activity.is_background_line(ln)
+                          for ln in obs.pane.splitlines()[-TAIL_LINES:])):
             st.idle_sent = True
             details.append(("idle", f"pane unchanged for {int(obs.now - st.pane_since)}s"))
         st.pane = obs.pane

@@ -1,6 +1,6 @@
 """round_log_carry.py -- classify and strip round-log commits (review-log-survives-teardown).
 
-A round-log commit is a single-parent commit that only adds to or modifies the three log files of
+A round-log commit is a single-parent commit that only adds to or modifies the round-log files of
 ONE already-archived design dir. `strip_round_log_commits` walks the first-parent chain from a head
 past at most `max_links` such commits and returns the anchor it stopped at; a caller compares the
 anchor against reviewed heads, so a chain longer than the cap fails closed.
@@ -15,7 +15,8 @@ import subprocess
 from pathlib import Path
 from dataclasses import dataclass
 
-ROUND_LOG_NAMES = ("decisions.md", "dispatch-telemetry.ndjson", "escape-ledger.ndjson")
+ROUND_LOG_NAMES = ("decisions.md", "dispatch-telemetry.ndjson", "escape-ledger.ndjson",
+                   "finalizer-ledger.json")
 _ARCHIVE_PREFIX = "three-pillars-docs/completed-tp-designs/"
 _SLUG_RE = re.compile(r"[a-z0-9-]+")
 RULINGS_PREFIX = "three-pillars-docs/escalations/rulings/"

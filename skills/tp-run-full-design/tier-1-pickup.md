@@ -13,6 +13,9 @@
 - Read existing `three-pillars-docs/tp-designs/{slug}/design.md` (must exist).
 - Acquire the lock per `skills/_shared/collaboration.md`; if held, honor `--force-takeover` or refuse.
 - Synthesize a minimal contract: `phase_hook`, `writeup_hook`, `escalate_hook` all `null`.
+- Print `python3 "$TP_ROOT"/skills/_shared/weight_class.py lighten three-pillars-docs/tp-designs/{slug}` as
+  `lighten (informational, no routing change): <line>` and log it; fail-open (a missing axis or error prints
+  nothing). The routing and the de-escalation refusal below are unchanged.
 
 **Local preflight**: Always run `python3 "$TP_ROOT"/skills/_shared/agent_override_warn.py --root .` (exits 0; log warnings). Under `--local` only: `python3 "$TP_ROOT"/skills/_shared/local_implement_config.py --check full_design` exit 1 → refuse before Tier 2 (log `[tp-run-full-design/tier-1]`); `python3 "$TP_ROOT"/skills/_shared/local_backend.py` exit 1 → refuse with its line; print the routing check unlogged (`local-routing.md` §Orchestrator); cheap-tier `cheap-tier.md` §Tier 1.
 
@@ -27,6 +30,10 @@ Validate the returned contract first: schema/rules in `boundary-contracts.md` §
 - `just-do-it` — run `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir three-pillars-docs/tp-designs/{slug} --base origin/<base> --head HEAD`; `route: just-do-it` → `SKILL.md` ### Just-do-it slot mapping, log `[tp-run-full-design] weight-class route: just-do-it`; `route: light` → append the escalation line it prints to decisions.md and route `light` (the script already stamped `design.md` + `seed.md`). On `route: light` commit the stamped `design.md` + `seed.md` with the escalation's decisions.md entry (scoped `git add` on `tp/{slug}`) before Tier 2. A script exit 2 (`ESCALATE bad-input`) is logged the same way and routes `light` as well.
 - `spike` — refuse: `/tp-spike-auto` Phase 1 is interactive, cannot run unattended; never re-class silently. BLOCKED `**Cause**: weight-class-spike-refusal`, exit non-zero.
 - De-escalation refused: escalate above the declared class (logged), never below; a lighter run than declared → BLOCKED `**Cause**: weight-class-de-escalation-refused`.
+
+### Scratch provision
+
+Every run (Mode A, B and C, whatever its env; Mode C before it advances to Tier 2) runs `python3 "$TP_ROOT"/skills/_shared/scratch_leftovers.py provision --slug {slug}` before Tier 1 outcomes. It is idempotent and prints `<run dir> created` or `<run dir> exists`. Log `[tp-run-full-design/tier-1] scratch-provisioned <run dir>` with the printed path (suffix ` late` when it printed `created`), then compare `printenv TMPDIR` with that path and log `[tp-run-full-design/tier-1] scratch-redirect-missing` when they differ (a manual fallback keeps its old `TMPDIR`: its own temp files are reported, not redirected). A create failure is one note, not a stop.
 
 ### Tier 1 outcomes
 
@@ -45,6 +52,7 @@ Validate the returned contract first: schema/rules in `boundary-contracts.md` §
 
 ### Confirmation prompt (blocking)
 
+- When `python3 "$TP_ROOT"/skills/_shared/autonomous_gate.py` exits 0 (the launcher's `TP_DESIGN_RUN=1` marker is set and this is not a `claude -p` child: no `TP_CHILD_SESSION`), ask nothing: append `[tp-run-full-design/tier-1] autonomous-continue (seat launch)` and advance to Tier 2. Exit 1 (no marker, or a child) gets the prompt below.
 - Ask `Go autonomous from here?` `[y/n]`; no countdown auto-proceed — a human must answer; block on stdin until `y`/`yes` or `n`/`no`, else re-prompt.
 
 ### Outcomes

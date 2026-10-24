@@ -55,6 +55,7 @@ try:
     from cleanup_worker_worktree import cleanup_worker_worktree  # noqa: E402
     import rerun_phase_tests  # noqa: E402 — called via the module attribute (test stub seam)
     import tier_3_5_rerun  # noqa: E402
+    import owned_agent_branches  # noqa: E402
     from rerun_budget import LS_REMOTE_TIMEOUT_S  # noqa: E402 — fits BASH_TIMEOUT_MS
     _SHARED = str(SCRIPTS_DIR.parent.parent / "_shared")
     if _SHARED not in sys.path:
@@ -162,6 +163,13 @@ def main() -> int:
             ),
             2,
         )
+
+    # Record the worker's agent branch before anything below can fail, so the exit sweep owns
+    # it even when this run escalates. Fail-open; cwd is the orchestrator's `tp/{slug}` checkout.
+    try:
+        owned_agent_branches.record(Path("."), slug, worktree_value)
+    except Exception:  # noqa: BLE001
+        pass
 
     # Cases (b) and (c) surface from the parser.
     try:

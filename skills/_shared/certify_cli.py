@@ -25,6 +25,10 @@ every hit alike. `run --artifact A` prints `{result, hits, verdict, code}`: the
 markdown phrase scan of A plus `combine_verdict(PASS, statuses + one
 unverified per counted hit)` (interactive audits).
 
+Every path argument (`--claims`, `--records`, `--out`, `--result` ...) is a FILE, never a
+directory: `--records` is a JSON list of records, `fold --out` a file written atomically.
+Each subcommand's `--help` says so (`state_shapes`).
+
 `validate` is the certifier's dry-run gate: without `--records` it checks claim
 shape + disposition only (no repo access); with `--records` it also validates
 each claim's record against the guard text at `--ref`. Exit 1 on any invalid.
@@ -245,6 +249,46 @@ def cmd_run(args) -> int:
     return EXIT_MUTATED if result["tree_mutated"] else EXIT_OK
 
 
+# Path arguments, for `--help` only (no argument is added, removed or retyped): flag -> the help
+# used when its subcommand gives none. Every one is a FILE; the two DIR flags name a directory.
+FILE_HELP = {
+    "--claims": "claims FILE: one JSON claims document",
+    "--records": "records FILE: a JSON list of records",
+    "--out": "FILE to write",
+    "--result": "a certify result FILE",
+    "--envelope": "audit envelope JSON FILE",
+    "--artifact": "markdown artifact FILE",
+    "--member-summaries": "FILE holding a JSON list of member summaries",
+    "--verdict-guards": "FILE of repo paths, one per line",
+    "--certifier-return": "certifier return envelope JSON FILE",
+    "--claims-out": "FILE to write the claims document to",
+    "--records-out": "FILE to write the JSON list of records to",
+    "--override": "a re-run result FILE (repeatable)",
+}
+FILE_FLAGS = (*FILE_HELP, "--kept", "--kept-out", "--diff", "--folded", "--route", "--lint",
+              "--cert-path")
+DIR_HELP = {"--design": "design directory, relative to --repo", "--design-dir": "design directory"}
+
+
+def state_shapes(sub) -> None:
+    """Make each subcommand's `--help` say which arguments are files (never directories).
+
+    Runs last in `build_parser`, so it also covers the subcommands that sibling modules register."""
+    for parser in sub.choices.values():
+        files = []
+        for act in parser._actions:
+            flag = act.option_strings[0] if act.option_strings else ""
+            if flag in FILE_FLAGS:
+                act.metavar, act.help = "FILE", act.help or FILE_HELP.get(flag)
+                files.append(flag)
+            elif flag in DIR_HELP:
+                act.metavar, act.help = "DIR", act.help or DIR_HELP[flag]
+        if files:
+            parser.epilog = "Path arguments are files, not a directory." + (
+                " A records FILE is a JSON list of records." if any("records" in f for f in files)
+                else "")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="certify.py", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -283,6 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     import certify_cli_lean  # deferred: each lean module imports this one
 
     certify_cli_lean.register(sub)
+    state_shapes(sub)
     return parser
 
 

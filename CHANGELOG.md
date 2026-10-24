@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-24
+
+Faster, quieter `/tp-pr-iterate` review loops, lighter default weight classes with a new `/tp-seed`, living-doc fragments that end the shared-doc merge conflicts, a classifier allow list, a run retro at design close, and design-run scratch kept inside the run's own worktree.
+
+### Added
+
+- **Classifier allow list** — `allowlist_mine.py` mines session transcripts for the framework's own commands and their classifier denials, screens a fixed deny set, and prints a reviewed `permissions` block (`--print-settings`) for the operator to paste. `/tp-setup` prints it, and `--check` reports entries the active settings lack. In the three-pillars dev repo, framework-check invariant 52 runs that check as an advisory. (#360)
+- **`/tp-seed` skill** — captures an idea as a seed with its weight class settled up front: it offers to merge into a close match first, scores the four axes, asks for the lightest class that fits with a rough token cost beside each, and writes the seed through `seed_write.py`. (#370)
+- **Lean weight-class default** — the weight-class rubric now leans to the lightest class that fits, and a `lighten` check suggests a lighter class (full to light, light to just-do-it) wherever the rubric allows. (#370, #378)
+- **Living-doc fragments** — a design writes its living-doc changes as a small pending fragment and a compile step folds them into the docs after merge, so open PRs stop conflicting on the shared docs and need fewer base-syncs. (#364)
+- **Run retro at design close** — `/tp-design-learn` now reviews how the run went (blocks, operator touches, classifier denials, flaky reruns, wasted tokens) and files framework friction as upgrade requests instead of leaving it in `decisions.md`. (#351)
+- **Plan task sizing check** — `/tp-plan-audit` warns when a plan task has the wrong shape for a local worker (no headroom under a file cap, too many concerns, a Files/Targets boundary that misses a binding test), and `inner_pytest.py` runs pytest-in-pytest safely. (#380)
+- **Per-developer review account** — a contributor without the shared bot login can run the review loop as their own `gh` login, and their digests count toward the gate. (#335)
+- **Seat drive gaps closed in the pro fleet's continuous mode** (pro) — the seat has a documented relay form and an allowed way to answer a run's card, and the churn watcher stops re-firing on redraws. (#357)
+- **Fleet watcher reliability** (pro) — the churn watcher now prints rollover-due, parked and needs-human events, gains a `--self-test`, and prints a per-run status table on every re-arm; hand-launched runs can join the roster. (#381)
+- **Design runs never open question cards** — a new PreToolUse hook (`run_no_cards_hook.py`) denies every `AskUserQuestion` card inside a design run, and `ruling_cli.py ask` writes the ruling file the run then waits on, so an unattended run can no longer stall on a keypress. (#392)
+- **Run scratch stays in the worktree** — a design run's temp files and tool caches now live under `<worktree>/.tp-scratch/run`; `create_fence_hook.py` refuses a literal create outside the run's roots, and `scratch_leftovers.py check` fails a run that leaves a stray outside its worktree at Tier 1, Tier 5, every Tier 7 converge, Cleanup and post-merge. (#391)
+
+### Changed
+
+- **`/tp-pr-iterate`: each review angle gets a private tree copy** — an angle that wants to mutation-test now starts from its own copy of the reviewed tree, so parallel angles can no longer corrupt each other's readings or produce a false "mutation survived". (#382)
+- **`/tp-pr-iterate`: the review proof carries across a docs-only base-sync** — merging base into a converged PR no longer forces a new review round when the merge only brought other PRs' reviewed changes plus living-doc resolutions. (#361)
+- **`/tp-pr-iterate`: the review proof carries across trivial commits** — a commit that cannot change shipped code (for example a path fix under `three-pillars-docs/`) keeps the head-bound proof instead of forcing a full re-review. (#354, #358)
+- **Fewer questions reach the operator** — only one-way doors (merge, force-push, remote delete, classifier block, code conflict) go to the operator; Fable rules base-sync hunks first from the verified splice proposal, and a second spent audit round becomes one "grant one more round?" question. (#376)
+- **Seat questions go through the escalator** — the orchestration seat can no longer put a decision card to the operator or hand-resolve a base-sync hunk around the Fable escalator. (#352)
+- **Closeout fold, sweep and ledger carry** — the closeout fold merges two appends to a design's `decisions.md` itself, the orphan-branch sweep deletes only branches the run owns, and a finalizer ledger carried in a flush no longer drops the review proof. (#377)
+- **Lighter light and just-do-it runs** — light and just-do-it runs skip the full-design ceremony (certifier, duplicate re-reads, full review fan-out), and small just-do-it runs implement inline instead of through the task ladder. (#365, #369)
+- **Skills run plain `git <verb>`** — skills use `git <verb>` from the worktree instead of `git -C <path>`, so one allow rule per verb covers every worktree. (#366)
+- **Worktrees stay off `.claude/` paths** — every framework worktree now lives under the design worktree's `.tp-scratch/` or `-wt/`, because the auto-mode classifier gives no verdict on writes under `.claude/`. (#338, #359)
+- **Routing entries say Local engine** — the `[routing]` entry in `decisions.md` now reads `**Local engine**` (was `**Ollama**`), taken from the router's new `engine` health field with the `ollama` field as the fallback for older routers. The `local_route_check` result and the `check` CLI's JSON carry the state as `engine`, with `ollama` kept as an equal, deprecated alias for one release. (#355)
+- **Faster local gate** — wiring tests no longer run every invariant, and the gate strips the design-run launcher env so it no longer makes child-spawn tests time out. (#348)
+
+### Fixed
+
+- **Local task ladder diagnoses before it escalates** — a failed local attempt's work is salvaged, the next attempt gets a PRIOR ATTEMPT block and a size-cap block, a router outage is classed `backend-outage` instead of a model failure, and an upstream route check runs before dispatch. (#390)
+- **`/tp-pr-iterate`: 14 run frictions** — `round_scratch.py flush` with a `--root` that has no `rounds` dir now appends the log and then refuses; `prepare` counts a round closed by `tail/closed.json`; the two-stable flush skips the push when the PR is already merged; the test-code-ratio guard fires only when both the whole PR and the loop delta are over the ratio; and the rule-ledger pin check no longer over-matches. (#379)
+- **`/tp-pr-iterate`: a Fable `stop` with a lesson proposal now settles** — a review-stop ruling that carries a lesson or a pillar-quote technicality settles as `stop` and files the lesson separately, instead of bouncing back to the operator. (#386)
+- **Autonomous-run gates** — a `claude -p` child no longer inherits the launcher marker and skips the only human "Go autonomous" gate, and the worktree-isolation guard no longer carves out a detached bare seat. (#386)
+- **Run-tooling traps** — a bare `pytest` pins to the reserved cores via `CLAUDE_LAUNCHER_HARNESS_CPUS`, `round_scratch.py prepare` takes `--proof-root` (`--root` kept as a deprecated alias), and `local_route_check` and `certify.py` print clear errors and correct usage. (#353)
+- **All-skipped test file is unverified, not a failure** — an opt-in test tier whose tests all skip no longer blocks the fragility gate on every PR that touches it. (#337)
+- **Tier 3 writes land in the worker's own tree** — the `tp-worker` and cert-fix worker roots moved off `.claude/`, which fixes classifier no-verdict halts on nested writes. (#338)
+
 ## [2.6.0] — 2026-10-20
 
 Fleet churn and reboot recovery, a stronger `/tp-merge-from-main`, a fairer local-GPU queue, and a runtime delete fence for tp sessions.

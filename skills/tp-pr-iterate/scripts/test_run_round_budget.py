@@ -77,10 +77,21 @@ def test_run_round_budget_runs_before_two_stable():
 
 
 def test_run_round_non_blocking_notes_converge():
+    """The tick ran clean (no budget signal); the notes-only converge is then the
+    review stop's decision, not a terminal (seat-escalate-first B3)."""
     out = _round(_state(), [MINOR])
+    assert out["action"] == "noop"
+    assert out["budget"]["signal"] is None
+    assert out["terminal"] is None
+    assert out["finalizer_stop"]["signal"] == "decision"
+
+
+def test_run_round_notes_free_converge():
+    out = _round(_state(), [])
     assert out["action"] == "noop"
     assert out["terminal"] == "two-stable [code-review-only]"
     assert out["budget"]["signal"] is None
+    assert "finalizer_stop" not in out
 
 
 def test_run_round_budget_last_fields():

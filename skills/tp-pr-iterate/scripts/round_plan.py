@@ -17,7 +17,7 @@ for a delta round.
 `plan` is the entry point: it derives the round number from the round dirs (cold
 resume, like `round_scratch.prepare`). Round 1 (`mode: full`) returns the full-PR
 angle set — the loaded finders (one `combined` finder when the PR diff is under
-`SMALL_DIFF_LINES`), the Opus check, and the `security` angle appended always, so
+`SMALL_DIFF_LINES`), the Opus check, and the `security` angle appended always (full weight; light / just-do-it only when `light_round.needs_security`), so
 no `config.review.angles` can drop the lens or name an angle twice. Round n ≥ 2
 (`mode: delta`) returns exactly ONE angle, `delta_check_angle`, based on
 `prior_reviewed_head`: no finders, no Opus check, no rulings. Its lens is the
@@ -48,6 +48,7 @@ if str(_SHARED) not in sys.path:
 import angles  # noqa: E402
 import finder_round  # noqa: E402
 import iterate_state  # noqa: E402
+import light_round  # noqa: E402
 import review_loop_forge  # noqa: E402
 import round_budget  # noqa: E402
 import trust_boundary  # noqa: E402
@@ -305,7 +306,7 @@ def _delta_plan(rounds_dir, *, n, repo, pr_base, head, run_git=None) -> dict:
 
 
 def _round_one_angles(config, *, repo, pr_base, head, diff_lines, rulings_path, scope,
-                      available) -> list:
+                      available, review_weight=None) -> list:
     """Round 1's angle list: the finders (collapsed when small), the check, security.
 
     The `security` angle replaces any loaded angle of that name — a config that
@@ -316,18 +317,31 @@ def _round_one_angles(config, *, repo, pr_base, head, diff_lines, rulings_path, 
     entries = finder_round.round_angles(
         config, root=repo, scope=scope, rulings_path=rulings_path,
         **({} if available is None else {"available": available}))
-    if isinstance(diff_lines, int) and diff_lines < SMALL_DIFF_LINES:
+    light = review_weight in light_round.LIGHT_WEIGHTS
+    if light or (isinstance(diff_lines, int) and diff_lines < SMALL_DIFF_LINES):
         finders = [a for a in entries
                    if a["name"] != finder_round.CHECK_NAME and not a.get("skipped")]
         kept = [a for a in entries
                 if a["name"] == finder_round.CHECK_NAME or a.get("skipped")]
         entries = combined(finders) + kept if finders else kept
     entries = [a for a in entries if a["name"] != angles.SECURITY_ANGLE]
+    if light:
+        if not light_round.needs_security(repo, pr_base, head):
+            return entries
+        surfaces = _surfaces(repo, pr_base, head)
+        return entries + [angles.security_angle(trust_boundary.brief_path(repo), surfaces)]
     try:
         surfaces = trust_boundary.surfaces_for_range(repo, pr_base, head, three_dot=True)
     except Exception:  # any detector failure: the lens stays on, with no surfaces
         surfaces = []
     return entries + [angles.security_angle(trust_boundary.brief_path(repo), surfaces)]
+
+
+def _surfaces(repo, pr_base, head) -> list:
+    try:
+        return trust_boundary.surfaces_for_range(repo, pr_base, head, three_dot=True)
+    except Exception:  # detector failure: the lens stays on, with no surfaces
+        return []
 
 
 def _diff_lines(repo, pr_base, head):
@@ -388,9 +402,11 @@ def plan(config, *, root, pr_url, pr_base, head, repo=".", rulings_path=None,
         diff_lines = _diff_lines(repo, pr_base, head)
         entries = _round_one_angles(config, repo=repo, pr_base=pr_base, head=head,
                                     diff_lines=diff_lines, rulings_path=rulings_path,
-                                    scope=scope, available=available)
+                                    scope=scope, available=available,
+                                    review_weight=review_weight)
         out = {"round": 1, "base": str(pr_base), "pr_base": str(pr_base),
-               "mode": "full", "angles": entries, "security": True,
+               "mode": "full", "angles": entries,
+               "security": any(a["name"] == angles.SECURITY_ANGLE for a in entries),
                "diff_lines": diff_lines}
     _stamp_review_weight(state_path, review_weight)
     return out

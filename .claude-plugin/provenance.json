@@ -1,7 +1,7 @@
 {
-  "source_dev_sha": "de84bc5e9dda945d3db9cde464e988bf66d8d925",
+  "source_dev_sha": "8191795dafb1feacb195e554908bd4d30a8bc690",
   "source_ref": "origin/master",
   "tier": "core",
-  "version": "2.6.0",
-  "built_at": "2026-10-20T21:11:08Z"
+  "version": "2.7.0",
+  "built_at": "2026-10-24T19:20:35Z"
 }

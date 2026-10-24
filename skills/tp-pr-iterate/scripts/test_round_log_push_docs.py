@@ -50,3 +50,11 @@ def test_proof_of_review_names_the_round_log_exception():
     para = _section(PROOF, "**last head-binding action**", "This is the correct ordering")
     assert "no commit" in para
     assert not _missing(para, "round-log commit", "round_log_carry")
+
+
+def test_round_topology_flush_runs_pr_push_check_first():
+    flush = _section(TOPOLOGY, "## Log flush", "## Budget terminals and recovery")
+    assert not _missing(flush, "pr_push_check.py --repo . --pr-url <url>",
+                        "exit 1 leaves the commit local", "names its SHA for the seat",
+                        "round_log_carry.py")
+    assert flush.index("pr_push_check.py") < flush.index("round_log_carry.py check")

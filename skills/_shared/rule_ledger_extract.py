@@ -264,11 +264,12 @@ def extract_pins(old: str, test_paths) -> list[str]:
 
 
 def pin_tests_for(src, root):
-    """Return the `skills/**/test_*.py` files under `root` that name `src`.
+    """Return the `skills/**/test_*.py` files that name `src`; a `# pin-source: <path>` line declares one.
 
     A test names the source when its text contains the source's repo-relative
-    path, or its skill-dir name plus either its basename or (skill sources
-    only, i.e. under `skills/`) `skill_text` — a test reading the skill.
+    path, `dir/basename` joined (literal or a path-join), its basename in a test
+    inside the source's own dir, or (skill sources only, under `skills/`) its
+    dir name plus `skill_text` — a test reading the skill.
     """
     root = Path(root)
     src_path = Path(src)
@@ -279,6 +280,9 @@ def pin_tests_for(src, root):
     rel_text = rel.as_posix()
     basename = rel.name
     dir_name = rel.parent.name if rel.parent.name else basename
+    join_re = re.compile(
+        r"""["']""" + re.escape(dir_name) + r"""["']\s*[/,]\s*["']""" + re.escape(basename) + r"""["']"""
+    )
 
     matches = []
     for test in sorted(root.glob("skills/**/test_*.py")):
@@ -287,7 +291,14 @@ def pin_tests_for(src, root):
         except (OSError, UnicodeDecodeError):
             continue
         helper_arm = "skill_text" in body and rel_text.startswith("skills/")
-        if rel_text in body or (dir_name in body and (basename in body or helper_arm)):
+        own_dir = (root / rel.parent).resolve() in test.resolve().parents
+        if (
+            rel_text in body
+            or f"{dir_name}/{basename}" in body
+            or join_re.search(body)
+            or (own_dir and basename in body)
+            or (dir_name in body and helper_arm)
+        ):
             matches.append(test)
     return matches
 

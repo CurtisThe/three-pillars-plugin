@@ -34,9 +34,30 @@ STEP4 = ("4. **Surface what the human must finish.** From the report's `partiall
          "+ `deferred` lists, tell the user exactly which files still carry conflict markers "
          "and which hunks remain (e.g. \"`product_roadmap.md`: preamble + current-focus need "
          "you\"). **Never stage or commit a file that still contains conflict markers** — the "
-         "driver enforces this; do not work around it. Each deferred living-doc file is one "
-         "`base-sync-hunk` question per `skills/_shared/escalation.md` — operator-only; "
-         "Fable's recommendation rides the card; the boundary is unchanged. "
+         "driver enforces this; do not work around it. Each deferred or partially-resolved "
+         "living-doc file outside the pillar docs (`PILLAR_DOCS` in "
+         "`skills/_shared/finalizer_ruling.py`) is one `base-sync-hunk` question "
+         "per `skills/_shared/escalation.md`, naming the file and the deferred hunk's heading or "
+         "first changed line, raised after the cheap-tier proposal below with the proposal's "
+         "scratch path in its `context` (or `none verified`) and the options `apply-proposal` "
+         "(only when a zero-drop VERIFIED proposal exists) and `leave-for-human`; Fable rules it "
+         "first. On `resolved` with `apply-proposal` re-run `python3 \"$TP_ROOT\"/skills/_shared/"
+         "cheap_oracle_run.py check --slot base_sync_splice --artifact <A.json> --ctx <C.json>` "
+         "on the proposal (must give `accept`; its `zero_drop` check also refuses any line not in "
+         "ours + theirs + base), copy the proposal over the file (never "
+         "hand-edit marker lines, never write text from the ruling), run `verify.py <ours> "
+         "<theirs> <resolved> --base <base>` (must exit 0) and `file_size_guard.py` on it, stage "
+         "it, and list it as `fable-applied (ruling <id>)` in the step-7 merge note. With "
+         "`leave-for-human` (returned as `escalate`) or on `escalate` (including `low` "
+         "confidence), the hunk waits for the human and the card carries Fable's recommendation. "
+         "With no zero-drop VERIFIED proposal, skip Fable; with none, or when an `apply-proposal` "
+         "re-check is not `accept` or exits non-zero, run `python3 \"$TP_ROOT\"/skills/_shared/"
+         "finalizer_cli.py escalate --stop <stop> --reason no-proposal --decisions "
+         "<d>/decisions.md --scope <slug>` so the park gets a ruling file and an "
+         "`awaiting-operator` card, and the hunk waits for the human. A pillar-doc hunk skips Fable: raise its question and run `python3 "
+         "\"$TP_ROOT\"/skills/_shared/finalizer_cli.py escalate --stop <stop> --reason pillar-doc "
+         "--decisions <d>/decisions.md --scope <slug>` so it still gets a ruling file and an "
+         "`awaiting-operator` card, and it waits for the human. "
          "Offer (f): if a deferred conflicted path is a lockfile, run `python3 "
          "\"$TP_ROOT\"/skills/tp-merge-from-main/scripts/generator_catalog.py detect --repo . --only "
          "<deferred paths> --json` and follow offer (f) in `skills/_shared/consumer-offers.md` "
@@ -147,12 +168,12 @@ def test_splice_site():
     assert "subagent_type=<spec.agent_ref>, model=<spec.model>" in body
     assert "`resolved`" in body and "`zero_drop`" in body
     assert '"$TP_ROOT"/skills/_shared/cheap_oracle_run.py check --slot base_sync_splice' in body
-    # VERIFIED is shown and never applied; anything else is dropped and logged
+    # VERIFIED is shown as not applied at draft time; only a `resolved` ruling applies it (step 4); anything else is dropped and logged
     assert "Only on `accept`" in body
     assert "`cheap-tier proposal (zero-drop VERIFIED, not applied)`" in body
     assert "Anything else drops the proposal" in body
     assert "Record each attempt per the dispatch doc" in body
-    assert "never applied" in body and "stage" in body and "commit" in body
+    assert "applied only by a `resolved` `apply-proposal` ruling" in body and "stage" in body and "commit" in body
     assert "`partially_resolved` or `deferred`" in body  # only living-doc files
     assert "before the wait below" in body and "`--dry-run` too" in body
 

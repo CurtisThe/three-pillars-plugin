@@ -17,6 +17,25 @@ import project_root
 import ruling_file as rf
 
 _DECISIONS_SCOPE = re.compile(r"(?:^|/)(?:tp-designs|completed-tp-designs)/([^/]+)/decisions\.md$")
+_LIVE_DESIGN = re.compile(r"^(?P<head>(?:.*?/)?)tp-designs/(?P<slug>[^/]+)(?P<tail>(?:/.*)?)$")
+
+
+def archived_path(p):
+    """``p`` re-pointed at ``completed-tp-designs/<slug>/`` once Tier 5.6 archived the run.
+
+    design: seat-escalate-first (Task 2.3). A run keeps passing its usual
+    ``tp-designs/<slug>/...`` paths after the archive; the rewrite fires only when that
+    in-flight directory is gone and the archived one exists, so nothing recreates
+    ``tp-designs/<slug>/``. Any other path (and ``None``) comes back unchanged.
+    """
+    match = _LIVE_DESIGN.match(p) if isinstance(p, str) else None
+    if not match:
+        return p
+    head, slug, tail = match.group("head"), match.group("slug"), match.group("tail")
+    archived = f"{head}completed-tp-designs/{slug}"
+    if Path(f"{head}tp-designs/{slug}").exists() or not Path(archived).is_dir():
+        return p
+    return archived + tail
 
 
 def _ruling_scope(args, stop):

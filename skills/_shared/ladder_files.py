@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +56,7 @@ TREE = scratch_root.SCRATCH_DIR + "/" + LADDER  # the in-tree copy of the ladder
 AGENT_WRITTEN = ("reply", "review", "check", "scan")  # F + V + C + S: what a tp-worker writes
 SIDE = {"check": ".check.json", "scan": ".scan.json", "reply": ".reply.txt",
         "watch": ".watch.json", "poll": ".poll.json", "review": ".review.txt"}
+SALVAGE = ".salvage"  # <task>.salvage/ — attempt_salvage records; kept by --fresh, swept when stale
 STOPS = "stops.ndjson"  # durable per-stop record (router_daily); never a side file
 
 
@@ -153,6 +155,16 @@ def _stale(ld: Path, live: set) -> list[Path]:
             if _task_of(p.name) is not None and _task_of(p.name) not in live]
 
 
+def _sweep_salvage(ldir: Path, live: set) -> list[str]:
+    """Remove ``<task>.salvage/`` dirs whose task has no live attempt record."""
+    out = []
+    for p in sorted(Path(ldir).glob("*" + SALVAGE)) if Path(ldir).is_dir() else []:
+        if p.is_dir() and p.name[: -len(SALVAGE)] not in live:
+            shutil.rmtree(p, ignore_errors=True)
+            out.append(str(p))
+    return out
+
+
 def sweep(root, slug: str, config_dir=None) -> dict:
     """Clear every side file whose task has no live attempt → ``{removed, kept_orphans}``.
 
@@ -165,6 +177,7 @@ def sweep(root, slug: str, config_dir=None) -> dict:
         return {"removed": [], "kept_orphans": []}
     live = live_tasks(root, slug)
     removed, kept = _clear(_stale(ldir, live) + _stale(tdir, live), config_dir)
+    removed += _sweep_salvage(ldir, live)
     return {"removed": removed, "kept_orphans": kept}
 
 

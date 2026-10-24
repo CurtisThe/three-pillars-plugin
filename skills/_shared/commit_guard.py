@@ -310,6 +310,7 @@ def run(repo, hook: str, msg_file: str | None = None) -> int:
         from worktree_write_guard import main as write_guard_main  # noqa: PLC0415
         from worktree_isolation_guard import main as isolation_guard_main  # noqa: PLC0415
         from hot_patch_check import main as hot_patch_check_main  # noqa: PLC0415
+        from seat_commit_guard import main as seat_commit_guard_main  # noqa: PLC0415
 
         steps = (
             ("worktree_write_guard",
@@ -320,10 +321,19 @@ def run(repo, hook: str, msg_file: str | None = None) -> int:
             ("hot_patch_check",
              lambda: hot_patch_check_main(
                  ["--repo-root", repo, "--ledger-only", "--branch-trailered"])),
+            ("seat_commit_guard", lambda: seat_commit_guard_main(["--repo", repo])),
         )
         for name, func in steps:
             if _guarded(name, func) != 0:
                 blocked = True
+
+    def _fragment_check() -> int:
+        from fragment_commit_check import main as fragment_check_main  # noqa: PLC0415
+        return fragment_check_main(
+            ["--repo-root", repo, "--staged", *_staged_paths(repo)])
+
+    if _guarded("fragment_commit_check", _fragment_check) != 0:
+        blocked = True
 
     if _file_size_enabled(repo):
         from file_size_guard import main as file_size_guard_main  # noqa: PLC0415

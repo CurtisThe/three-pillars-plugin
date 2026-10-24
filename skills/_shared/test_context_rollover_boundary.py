@@ -76,7 +76,7 @@ def test_not_boundary_when_user_record_last():
 def test_not_boundary_with_background_agents():
     """A pane naming background agents means work is still running in the window."""
     pane = PANE_IDLE + "\n2 background agents running"
-    assert drw.BACKGROUND_MARKER in pane
+    assert drw.pane_activity.is_background_line("2 background agents running")
     records = [_assistant()]
     ok, reason = rollover.at_turn_boundary(records, pane, 45.0, 30.0)
     assert ok is False

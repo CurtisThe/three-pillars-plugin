@@ -931,6 +931,12 @@ def run_round(
 
         if copilot_conjunct_ok and independent_ran and codereview_quiet:
             # CONVERGE
+            import review_stop as _rs  # seat-escalate-first: ask before the label
+            _stop = _rs.due(state, codereview_findings, pr_url=pr_url, head=head_sha)
+            if _stop is not None:
+                res = _result(state, action, None)
+                res["finalizer_stop"] = _stop
+                return res
             note = "two-stable" if expects_copilot else "two-stable [code-review-only]"
             state = _transition(state, now, "awaiting-human-review", note)
             # review-integrity-enforcement: a converged round resets the mechanical

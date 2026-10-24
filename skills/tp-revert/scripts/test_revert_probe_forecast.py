@@ -6,6 +6,7 @@ import io
 import json
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from _probe_fixtures import MergeRepo, land_merge, make_gh_fn
 from _probe_fixtures import merge_repo  # noqa: F401  — registers pytest fixture
 from revert_probe import Forecast, forecast, main
+import wt_root  # noqa: E402  (revert_probe puts skills/_shared on sys.path)
 
 
 # ---------------------------------------------------------------------------
@@ -45,20 +47,21 @@ def test_forecast_conflicted(merge_repo: MergeRepo) -> None:
 def test_forecast_worktree_removed(merge_repo: MergeRepo) -> None:
     """Scratch worktree is cleaned up on normal exit."""
     sha = land_merge(merge_repo, "tp/cleanup", {"cl.txt": "cl\n"})
-    wt = merge_repo.clone / ".claude" / "worktrees" / f"revert-probe-{sha[:8]}"
+    wt = Path(wt_root.scratch_parent(merge_repo.clone, "revert-probe")) / f"revert-probe-{sha[:8]}"
     forecast(str(merge_repo.clone), sha, "master")
     wt_list = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
         cwd=str(merge_repo.clone), capture_output=True, text=True
     ).stdout
     assert str(wt) not in wt_list and not wt.exists()
+    assert not (merge_repo.clone / ".claude" / "worktrees").exists()
 
 
 def test_forecast_worktree_removed_on_raise(merge_repo: MergeRepo,
                                              monkeypatch) -> None:
     """Scratch worktree is cleaned up even when an intermediate step raises."""
     sha = land_merge(merge_repo, "tp/raise", {"r.txt": "r\n"})
-    wt = merge_repo.clone / ".claude" / "worktrees" / f"revert-probe-{sha[:8]}"
+    wt = Path(wt_root.scratch_parent(merge_repo.clone, "revert-probe")) / f"revert-probe-{sha[:8]}"
     real_run = subprocess.run
     calls = [0]
 
@@ -77,6 +80,7 @@ def test_forecast_worktree_removed_on_raise(merge_repo: MergeRepo,
         cwd=str(merge_repo.clone), capture_output=True, text=True
     ).stdout
     assert str(wt) not in wt_list and not wt.exists()
+    assert not (merge_repo.clone / ".claude" / "worktrees").exists()
 
 
 # ---------------------------------------------------------------------------

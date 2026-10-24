@@ -175,13 +175,14 @@ def run(round_dir, *, config, state_arg=None, class_log_path=None, seams=None) -
         proof_root=Path(manifest["paths"]["proof_root"]), run_round_fn=run_round_fn,
         out=buf, err=err, **{k: seams.get(k) for k in _FINISH_SEAMS})
     tally = finding_class.tally(findings)
-    reasons = set()
+    reasons, stopped = set(), False
     for line in buf.getvalue().splitlines():
         doc = json.loads(line)
         reasons.add(doc.get("reason"))
+        stopped = stopped or bool(doc.get("finalizer_stop"))
         out.write(json.dumps({**doc, "class_tally": tally}) + "\n")
     if reasons & proof_post.IDENTITY_STOPS:  # its own terminal (round-topology step 2)
         return rc
-    if rc and evidence_complete.check(round_dir, run_git=seams.get("run_git"))[0]:
+    if rc and not stopped and evidence_complete.check(round_dir, run_git=seams.get("run_git"))[0]:
         return _accept(out, manifest, f"finish exit {rc}")
     return rc

@@ -150,6 +150,11 @@ def test_decide_reason_table():
          "non-loopback")
     # probe not run
     case(_LOOPBACK, None, "error", detail="probe not run")
+    # `upstream-down` comes from check() upgrading an `ok` router answer, not from decide
+    up_down = L.check(_LOOPBACK, now=CHECKED_AT, probe_fn=lambda url: _probe(
+        "http", 200, _ok_body(upstream={"state": "down"})))
+    assert up_down["reason"] == "upstream-down" and up_down["state"] == L.REASONS["upstream-down"]
+    covered.add(up_down["reason"])
     assert covered == set(L.REASONS)
 
 

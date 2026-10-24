@@ -30,7 +30,7 @@ Review the implementation against the design and plan artifacts.
    - Flag deviations — not all deviations are bad, but they should be noted.
 4. **Run the full test suite** for all affected files. Discover the test command from the project config (CLAUDE.md, Makefile, package.json, pyproject.toml, etc.):
    ```
-   {project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
+   {project-test-command} 2>&1 | tee "$(mktemp "${TMPDIR:-/tmp}/test_output.XXXXXX.log")"
    ```
 4b. **Run the invariance check and the range audit**, when a phase number was given. `<phase base>` is the commit the phase started from — the parent of the phase's first task commit (`git log --oneline` for the branch, find the first `Implement:` or `Red:` commit whose subject names phase N's first task, then take its parent):
     ```bash
@@ -80,7 +80,7 @@ Review the implementation against the design and plan artifacts.
    CERT="$(python3 "$RS" certify.py)" || exit 1
    ```
    The review is always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <review.md>` prints the `verdict` to report; with claims:
-   - Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+   - Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data. Open its checkout first and pass `WORKTREE:` per certification-protocol.md §Certifier contract (`wt_root.py open --role cert` … `reap`).
    - Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/phase-review.json`. Exit ≠ 0: the run below uses `--unverified records-handoff` in place of `--records`.
    - Run the caller's certification; fill `## Guards certified` from its statuses and report the printed `verdict`:
    ```bash

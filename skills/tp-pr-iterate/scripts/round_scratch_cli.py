@@ -17,13 +17,21 @@ Exit codes are unchanged: bad angles / unknown scope / a cheap round without
 `--rulings` → `angles-invalid`; a non-PR url or a refused plan → `prepare-refused`;
 a tail with no valid envelope → `tail-failed`; a second rerun-review → `rerun-limit`.
 
+`prepare --proof-root` names the proof root, which sits outside the working tree: a root
+inside it (`--root .` once wrote an untracked `rounds/` into the worktree) → `prepare-refused`
+before anything is written. `--root` is the deprecated alias and prints one stderr line. The
+default root (under the git dir) and the root `proof_root.py` resolves (the repo config's
+`review.proof_dir` names an in-tree one) are not refused.
+
 Stdlib only.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -32,6 +40,27 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import round_scratch as rs  # noqa: E402 — attributes only: monkeypatching `rs` reaches this
+
+
+def _in_tree(root):
+    """→ the work-tree toplevel `root` sits inside (refuse it), or None when it is allowed.
+
+    Allowed: outside the cwd's work tree, under its git dir (the default proof root), or
+    the very root `proof_root.py` resolves. Fail-open: no git or no work tree → None.
+    """
+    import proof_root  # noqa: PLC0415 — lazy: only `prepare` checks its root
+    found = proof_root._git_locate(None, None)
+    if found is None:
+        return None
+    gitdir, top = (Path(os.path.realpath(x)) for x in found)
+    target = Path(os.path.realpath(root))
+    if target != top and top not in target.parents:
+        return None
+    if target == gitdir or gitdir in target.parents:
+        return None
+    if target == Path(os.path.realpath(proof_root.resolve_proof_root(err=io.StringIO()))):
+        return None
+    return top
 
 
 def _cmd_prepare(a) -> int:
@@ -44,6 +73,10 @@ def _cmd_prepare(a) -> int:
         rs._pr_number(a.pr_url)
     except ValueError as exc:
         return refuse("prepare-refused", exc)
+    top = _in_tree(a.root)
+    if top is not None:  # before the plan, the state stamp or any dir: nothing is written
+        return refuse("prepare-refused", f"proof root {a.root} is inside the git working tree "
+                      f"{top}; pass a proof root outside it (proof_root.py prints the default)")
     try:
         import round_plan  # noqa: PLC0415 — lazy: round_plan imports round_scratch lazily
         p = round_plan.plan(cfg, root=a.root, pr_url=a.pr_url, pr_base=a.base,
@@ -96,6 +129,9 @@ def _cmd_flush(a) -> int:
     if not stop and bool(a.root) != bool(a.pr_url):
         return rs._refuse({"refused": "flush needs --root and --pr-url together, or neither"})
     out = {"appended": rs.flush_log(a.log, a.decisions)}
+    if not stop and a.root and not (Path(a.root) / "rounds").is_dir():
+        return rs._refuse({"refused": f"no rounds dir {Path(a.root) / 'rounds'} under --root "
+                           "(log appended); pass the root proof_root.py prints"})
     if stop or a.root:
         try:
             root = a.root
@@ -114,7 +150,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Per-round scratch dirs for /tp-pr-iterate.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("prepare")
-    for flag in ("--root", "--pr-url", "--base", "--head", "--state", "--log"):
+    pr = p.add_mutually_exclusive_group(required=True)
+    pr.add_argument("--proof-root",
+                    help="proof root (outside the working tree), not the repo root")
+    pr.add_argument("--root", help="deprecated alias of --proof-root")
+    for flag in ("--pr-url", "--base", "--head", "--state", "--log"):
         p.add_argument(flag, required=True)
     p.add_argument("--effort", default="high")
     p.add_argument("--config", default=".three-pillars/config.json")
@@ -147,6 +187,10 @@ def main(argv=None) -> int:
         import round_put  # noqa: PLC0415 — lazy: round_put imports round_scratch
         return round_put.cmd_put(a)
     if a.cmd == "prepare":
+        if a.root is not None:
+            print("round_scratch.py: prepare --root is deprecated; use --proof-root",
+                  file=sys.stderr)
+        a.root = a.proof_root if a.proof_root is not None else a.root
         return _cmd_prepare(a)
     if a.cmd in ("flush", "stop"):
         return _cmd_flush(a)

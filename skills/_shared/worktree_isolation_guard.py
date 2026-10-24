@@ -248,13 +248,13 @@ def assert_own_worktree(
         the registered default-branch (master/main) worktree toplevel while >=1
         tp/<slug> worktree is live. A commit from the shared master/orchestrator
         checkout is exactly the M14 headline corruption; it must fail-closed.
-    (3) BLOCK (HEAD drift inside a tp worktree — review blocking #3): cwd is
-        inside a tp-provisioned worktree (`<repo>-wt/<slug>`) but the current
-        branch is NOT that worktree's `tp/<slug>` branch — a worker checked out a
-        foreign/candidate branch inside an orchestrator tp/* worktree. The
-        EXPECTED branch is derived from the worktree path (slug), NOT from the
-        live HEAD, so the BLOCK still fires when the porcelain reports the
-        drifted branch and the worktree therefore drops out of `live`.
+    (3) BLOCK (HEAD drift, review blocking #3): cwd is in a `<repo>-wt/<slug>`
+        worktree whose HEAD is drift-capable (a default branch, `tp/*`,
+        `tp-attempt/*`, `candidate/*` or unknown) but not that worktree's
+        `tp/<slug>`; accepted gap (run-friction-1022): any other branch there
+        (`feature/x`, `tp-redbase/*`, `tp-rerun/*`) commits freely, unprovisioned
+        for case (2); the expected branch comes from the path (slug), not the
+        live HEAD, so the BLOCK fires after the worktree drops out of `live`.
     (4) PASS (worker in own tp worktree): cwd is inside a live tp/<slug> worktree
         toplevel AND current_branch matches that worktree's tp/<slug> branch —
         the orchestrator writing design artifacts on its own branch.
@@ -279,8 +279,15 @@ def assert_own_worktree(
     # We therefore short-circuit on empty-live ONLY when there is also no
     # provisioned -wt/<slug> worktree to attribute the cwd against; otherwise we
     # fall through to the owner-attribution + drift/shared-root BLOCK.
+    # Only a drift-capable branch counts: a non-default branch outside tp/,
+    # tp-attempt/, candidate/ (e.g. chore/*) is exempt.
+    def _drift_capable(b: str, top: str) -> bool:
+        return (not b or b in default_branch_names(top)
+                or b.startswith(("tp/", "tp-attempt/", "candidate/")))
+
     provisioned = [
-        (p, b) for p, b, _bare in worktrees if _slug_provisioned_tp_branch(p)
+        (p, b) for p, b, _bare in worktrees
+        if _slug_provisioned_tp_branch(p) and _drift_capable(b, p)
     ]
 
     # Case (1): empty-live short-circuit — nothing to isolate against. Applies
@@ -312,11 +319,12 @@ def assert_own_worktree(
             owner_is_bare = is_bare
 
     # cwd is not inside ANY registered worktree (e.g. some unrelated path) —
-    # nothing to attribute the commit to; PASS (case 2/5 falls through here).
+    # nothing to attribute the commit to; PASS.
     if owner_toplevel is None:
         return True, ""
 
-    effective_branch = current_branch or owner_branch
+    # Literal "HEAD" = detached: normalize to "" with NO porcelain fallback.
+    effective_branch = "" if current_branch == "HEAD" else (current_branch or owner_branch)
 
     # Case (2): BLOCK a commit whose owning worktree is the registered
     # default-branch (shared-orchestrator) checkout while tp/* worktrees exist
@@ -326,13 +334,9 @@ def assert_own_worktree(
     # worktree drifted to candidate/* leaves `live` empty, but the orchestrator
     # root must still BLOCK.
     #
-    # Crucially the default-branch classification is NOT gated on the reported
-    # branch alone: on this operator's documented bare-base-checkout topology
-    # (core.bare=true WITH a live working tree) the porcelain emits a `bare` line
-    # and NO `branch refs/heads/master` line for the main checkout, so
-    # owner_branch parses to "". _is_default_branch_root() classifies that root
-    # as the seat via the `bare` flag (and the path-shape fallback for the main
-    # worktree), closing the M14 bare-root hole that previously failed OPEN.
+    # The default-branch classification is NOT gated on the reported branch
+    # alone: a bare base checkout emits `bare` and no branch line, so
+    # _is_default_branch_root() uses the `bare` flag and path shape (M14).
     if _is_default_branch_root(owner_toplevel, owner_branch, owner_is_bare):
         # The orchestration carve-out applies ONLY when the seat's HEAD is
         # genuinely on a default branch (master/main) or is branchless AND the
@@ -342,19 +346,14 @@ def assert_own_worktree(
         # paper-trail commit would land on that design branch, not the
         # orchestration slot. A drifted named branch must take the BLOCK path
         # (same as pre-PR behaviour).
-        # effective_branch="" covers the bare/unreported-branch topology ONLY when
-        # the owning worktree is actually bare (owner_is_bare). A DETACHED non-bare
-        # seat also produces effective_branch="" but must NOT get the carve-out —
-        # it is not a known-safe branchless topology; it must BLOCK to prevent a
-        # commit from landing in an unknown location.
+        # A branchless bare owner (no branch reported) is carved out; a raw
+        # detached HEAD (`HEAD`), bare or not, must BLOCK.
         seat_on_default = (
             effective_branch in default_branch_names(owner_toplevel)
-            or (not effective_branch and owner_is_bare)
+            or (not effective_branch and owner_is_bare and current_branch != "HEAD")
         )
-        # Boundary honesty: exclusivity is proven for the staged set at check
-        # time. git commit -a, a pathspec, or --amend can still add content at
-        # commit time; that risk is mitigated by the framework's scoped-git-add
-        # protocol (commit-after-work.md), documented here not hidden.
+        # Exclusivity is proven for the staged set at check time only; scoped
+        # git add (commit-after-work.md) mitigates commit -a/--amend.
         if seat_on_default and orchestration_only_staged(staged_paths):
             return True, ""   # orchestration paper-trail carve-out (path-exclusive)
         root_label = owner_branch or ("bare" if owner_is_bare else "main checkout")
@@ -379,7 +378,8 @@ def assert_own_worktree(
     # the live HEAD — so the BLOCK still fires when the porcelain reports the
     # drifted branch and the worktree dropped out of `live`.
     expected = _slug_provisioned_tp_branch(owner_toplevel)
-    if expected and effective_branch != expected:
+    if (expected and effective_branch != expected
+            and _drift_capable(effective_branch, owner_toplevel)):
         branch_info = (
             f" (HEAD is on '{effective_branch}')" if effective_branch else " (HEAD unknown)"
         )

@@ -115,8 +115,11 @@ def test_a_different_held_signal_does_not_suppress_the_new_stop():
 
 
 def test_non_budget_terminal_carries_no_finalizer_stop():
+    # Notes-free: a converge with leftover notes is the review stop's decision
+    # (seat-escalate-first B2/B3, pinned in test_review_stop_loop.py); only a
+    # clean two-stable reaches the label with no stop.
     labels = []
-    out = _round(_state(), [MINOR], labels)
+    out = _round(_state(), [], labels)
     assert out["terminal"] == "two-stable [code-review-only]"
     assert "finalizer_stop" not in out
     assert ("+", READY) in labels

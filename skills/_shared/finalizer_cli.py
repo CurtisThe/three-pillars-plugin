@@ -64,6 +64,9 @@ _REASONS = {
     "nested": "A finalizer is already in flight for another target; none runs inside another.",
     "ledger-unreadable": "The finalizer ledger is unreadable, so the run fails closed.",
     "agent-unresolved": "The tp-finalizer agent reference could not be resolved.",
+    "unmappable-choice": "The ruling's choice maps to no option of the stop, so it goes to the operator.",
+    "pillar-doc": "A deferred hunk in a pillar doc (vision.md or architecture.md) is the operator's, so no Fable dispatch.",
+    "no-proposal": "No zero-drop VERIFIED splice proposal, or the re-verify failed, so the hunk waits for the human.",
 }
 # The reply contract is strict and fails closed (PR #188 round-4 ruling "Strict fix"): the
 # reply is exactly one JSON object, bare or inside ONE fence whose closer repeats the opener.
@@ -399,6 +402,9 @@ def main(argv=None, comment_fn=None, label_fn=None, resolve_fn=None, pr_state_fn
         args = _parser().parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
+    for name in ("decisions", "ledger"):  # an archived run writes under completed-tp-designs/
+        if getattr(args, name, None):
+            setattr(args, name, fcr.archived_path(getattr(args, name)))
     try:
         return _COMMANDS[args.cmd](args, seams)
     except CliError as exc:

@@ -255,6 +255,35 @@
         "null"
       ]
     },
+    "review_stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "choice",
+        "head",
+        "ruling_id",
+        "iteration"
+      ],
+      "properties": {
+        "choice": {
+          "type": "string",
+          "enum": [
+            "stop",
+            "fix"
+          ]
+        },
+        "head": {
+          "type": "string"
+        },
+        "ruling_id": {
+          "type": "string"
+        },
+        "iteration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "budget_extensions": {
       "type": [
         "object",

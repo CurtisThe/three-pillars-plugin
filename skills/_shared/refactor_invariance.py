@@ -49,6 +49,7 @@ import default_branch
 import fragility_ast
 import junit_verdict
 import md_transforms
+import run_scratch
 import task_scope
 import task_targets
 
@@ -99,7 +100,7 @@ def _git(cwd, *args: str, check: bool = True) -> subprocess.CompletedProcess:
 @contextlib.contextmanager
 def _scratch(root):
     """A detached worktree of HEAD under a fresh temp dir; always removed."""
-    parent = tempfile.mkdtemp(prefix="tp-invariance-")
+    parent = tempfile.mkdtemp(prefix="tp-invariance-", dir=run_scratch.outside_tmpdir())
     path = os.path.join(parent, "wt")
     try:
         _git(root, "worktree", "add", "--detach", "--quiet", path, "HEAD")

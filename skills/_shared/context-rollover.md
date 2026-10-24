@@ -72,6 +72,19 @@ claim prints `rollover skipped: session <sid> already <state> (ledger <path>)` a
 `stale-claimed` (claimed longer than `--save-timeout` + 120 s) means a killed driver, and
 removing that entry from the ledger is a human call.
 
+## Config dir, shell, background agents, completed runs
+
+- The transcript is read from the run's own config dir (its `claude` process environ), not
+  the seat's.
+- A "shell still running" (a background Bash the run started) is no boundary: only the last
+  turn's `end_turn` and the pane decide.
+- When background agents are the only blocker the driver sends one background-agent ask
+  (save once they finish, then wait) per session id and exits 0; the completion is the
+  next `parked` event, on which the seat runs the driver again.
+- After Tier 5.6 archived the design the save asks for the completed-dir handoff and the
+  resume line follows `/clear` with no restore.
+- A run with no design dir at all is `unavailable`: one degrade line, nothing sent.
+
 ## Limits
 
 - The driver picks the newest transcript in the run's project dir. While a child session (e.g. a

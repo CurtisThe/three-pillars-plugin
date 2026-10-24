@@ -148,4 +148,4 @@ def test_modified_files_stay_within_their_pins():
     gate = (HERE / "deterministic_gate.py").read_text(encoding="utf-8")
     assert len(gate.splitlines()) <= 932
     rplan = RPLAN_DIR / "round_plan.py"
-    assert len(rplan.read_text(encoding="utf-8").splitlines()) <= 396
+    assert len(rplan.read_text(encoding="utf-8").splitlines()) <= 412

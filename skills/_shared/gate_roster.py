@@ -413,6 +413,7 @@ def build_predicates_and_roster(
                     run_git=r.get("run_git", None),  # approval-survives-safe-base-sync carry seam
                     derive_base_ref_fn=r.get("derive_base_ref_fn", None),  # shared key with p5
                     repo_root=r.get("carry_repo_root", None),  # shared key with p5
+                    head_fn=r.get("head_fn", None),  # shared key with p5
                 ),
                 operator_accept.accept_for(pr_url, head_oid, r, config, running_live))()
             predicates.append(_p_proof)

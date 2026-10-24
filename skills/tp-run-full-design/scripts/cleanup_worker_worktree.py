@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from owned_agent_branches import branch_for_worktree
 from portable_path import find_anchor, portable_path
 
 _LOG_PREFIX = "[tp-run-full-design/tier-3.5] worktree-cleanup-locked"
@@ -55,7 +56,12 @@ def _is_locked(worktree_path: Path) -> bool:
         return False
 
 
-def _checked_out_branches() -> set[str]:
+def _git_cmd(root: Path | str | None, *args: str) -> list[str]:
+    """``git <args>``, run against ``root`` when given, else the process cwd."""
+    return ["git", *(["-C", str(root)] if root is not None else []), *args]
+
+
+def _checked_out_branches(root: Path | str | None = None) -> set[str]:
     """Short branch names currently checked out by any live worktree.
 
     Parses ``git worktree list --porcelain`` the same shape as ``_is_locked``
@@ -71,7 +77,7 @@ def _checked_out_branches() -> set[str]:
     """
     try:
         result = subprocess.run(
-            ["git", "worktree", "list", "--porcelain"],
+            _git_cmd(root, "worktree", "list", "--porcelain"),
             check=True,
             capture_output=True,
             text=True,
@@ -88,26 +94,64 @@ def _checked_out_branches() -> set[str]:
     return checked_out
 
 
-def sweep_orphan_agent_branches(decisions_log: Path | None = None) -> list[str]:
-    """Delete every local ``worktree-agent-*`` branch not checked out by a
-    live worktree (design.md Option A / plan Mechanism-refinement note).
+def _live_worktree_agent_ids(root: Path | str | None = None) -> set[str]:
+    """Ids ``X`` for every live worktree whose path basename is ``agent-X``.
+
+    A worker worktree at ``.../agent-X`` may sit on a candidate branch, leaving
+    its ``worktree-agent-X`` branch checked out nowhere; the id still marks the
+    branch as in use. Empty set on any git error (the ownership record alone
+    then bounds deletion).
+    """
+    try:
+        result = subprocess.run(
+            _git_cmd(root, "worktree", "list", "--porcelain"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return set()
+    ids: set[str] = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            base = Path(line[len("worktree "):].strip()).name
+            if base.startswith("agent-"):
+                ids.add(base[len("agent-"):])
+    return ids
+
+
+def sweep_orphan_agent_branches(
+    decisions_log: Path | None = None,
+    *,
+    owned: set[str] | None = None,
+    root: Path | str | None = None,
+) -> list[str]:
+    """Delete the ``owned`` local ``worktree-agent-*`` branches that no live
+    worktree uses (design.md Option A / plan Mechanism-refinement note).
+
+    Only names in ``owned`` (the run's own record, see ``owned_agent_branches``)
+    are candidates: ``None`` or empty deletes nothing and issues no git call. A
+    candidate is kept when a live worktree has it checked out, or when a live
+    worktree path is ``agent-<id>`` for the branch's id. ``root`` is the repo
+    the git calls run against (``None`` keeps the process cwd).
 
     Name-guarded: ``worktree-agent-`` is a hard precondition, re-checked per
-    candidate even though the ``--list`` glob already filters — a mocked or
-    unusual git build must never let a non-matching name through. Fail-open
-    at every step: a git failure anywhere yields fewer (never zero-crash)
-    deletions, and this function never raises.
+    candidate. Fail-open at every step: a git failure anywhere yields fewer
+    (never zero-crash) deletions, and this function never raises.
 
     Returns the list of branch names actually deleted (for logging/tests).
     """
-    checked_out = _checked_out_branches()
+    if not owned:
+        return []
+    checked_out = _checked_out_branches(root)
+    live_ids = _live_worktree_agent_ids(root)
 
     try:
         result = subprocess.run(
-            [
-                "git", "branch", "--list", f"{_ORPHAN_BRANCH_PREFIX}*",
+            _git_cmd(
+                root, "branch", "--list", f"{_ORPHAN_BRANCH_PREFIX}*",
                 "--format=%(refname:short)",
-            ],
+            ),
             check=True,
             capture_output=True,
             text=True,
@@ -118,13 +162,15 @@ def sweep_orphan_agent_branches(decisions_log: Path | None = None) -> list[str]:
 
     deleted: list[str] = []
     for name in candidates:
-        if not name.startswith(_ORPHAN_BRANCH_PREFIX):
+        if not name.startswith(_ORPHAN_BRANCH_PREFIX) or name not in owned:
             continue
         if name in checked_out:
             continue
+        if name[len(_ORPHAN_BRANCH_PREFIX):] in live_ids:
+            continue
         try:
             result = subprocess.run(
-                ["git", "branch", "-D", name],
+                _git_cmd(root, "branch", "-D", name),
                 check=False,
                 capture_output=True,
             )
@@ -188,7 +234,11 @@ def cleanup_worker_worktree(
     # escalation, regardless of what the helper's own internal catch list
     # covers.
     try:
-        sweep_orphan_agent_branches(decisions_log=decisions_log)
+        branch = branch_for_worktree(str(worktree_path))
+        sweep_orphan_agent_branches(
+            decisions_log=decisions_log,
+            owned={branch} if branch else None,
+        )
     except Exception as exc:  # noqa: BLE001 - deliberate fail-open backstop
         print(
             f"[tp-run-full-design/tier-3.5] orphan-branch sweep failed: {exc}",

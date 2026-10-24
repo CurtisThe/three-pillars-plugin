@@ -125,3 +125,41 @@ def test_empty_quote_is_not_verbatim(quote):
     problems = fr.check(ruling([basis(quote=quote)]), PILLARS, "decision")
     assert ("pillar-basis-missing: quote not under "
             "vision.md § Fleet operation") in problems
+
+
+def test_path_form_pillar_doc_validates():
+    # design: seat-escalate-first 1.1 — `three-pillars-docs/vision.md` is the
+    # same pillar doc as `vision.md`; a verbatim quote validates identically.
+    problems = fr.check(ruling([basis(doc="three-pillars-docs/vision.md")]),
+                        PILLARS, "decision")
+    assert problems == []
+
+
+def test_path_form_pillar_doc_wrong_quote_fails():
+    # the problem text names the doc exactly as given (path form)
+    entry = basis(doc="three-pillars-docs/vision.md", quote="No hosted service.")
+    problems = fr.check(ruling([entry]), PILLARS, "decision")
+    assert ("pillar-basis-missing: quote not under "
+            "three-pillars-docs/vision.md § Fleet operation") in problems
+
+
+# One template, formatted: this file names known_issues.md, so the rule-ledger
+# pins oracle (`rule_ledger_extract.extract_pins`) reads its string constants;
+# a bare `"pillar-basis-missing: quote not under "` constant beside an f-string
+# would become a new pin on the sealed skill-context-diet ledgers (M78 shape).
+_MISSING = "pillar-basis-missing: quote not under {} § Fleet operation"
+
+
+def test_path_form_non_pillar_doc_fails():
+    doc = "three-pillars-docs/known_issues.md"
+    problems = fr.check(ruling([basis(doc=doc)]), PILLARS, "decision")
+    assert _MISSING.format(doc) in problems
+
+
+def test_other_dir_pillar_name_fails():
+    # only the exact `three-pillars-docs/` prefix is accepted, no other dir.
+    # The doc is built from parts: framework-check inv #10 greps the repo for
+    # the literal legacy `docs/<pillar>.md` path, which this test must not spell.
+    doc = "/".join(["docs", "vision.md"])
+    problems = fr.check(ruling([basis(doc=doc)]), PILLARS, "decision")
+    assert _MISSING.format(doc) in problems

@@ -101,10 +101,30 @@ def repo(tmp_path: Path) -> Path:
 def test_allowlist_names():
     for name in ("design.md", "plan.md", "decisions.md", "lock.json",
                  "handoff.md", "seed.md", "research.md", "spike-results.md",
-                 "implementation-audit.md"):
+                 "implementation-audit.md", "retro-findings.json",
+                 "retro-outbox.json"):
         assert name in ALLOWLIST
     assert "detailed-design*.md" in ALLOWLIST
     assert "review*.md" in ALLOWLIST
+
+
+def test_retro_artifacts_survive_the_prune(tmp_path: Path):
+    # design-learn-retro: `run_retro.py pr-section` reads the archived dir, so the
+    # step-6e2 prune keeps both top-level retro files even when nothing names them.
+    _init_repo(tmp_path)
+    d = f"{COMPL}/rslug"
+    for rel in ("design.md", "retro-findings.json", "retro-outbox.json",
+                "scratch/retro-outbox.json", "junk.txt"):
+        _write(tmp_path, d + "/" + rel, "{}\n")
+    _commit(tmp_path, "archived design", ".")
+    plan = plan_prune(d, tmp_path)
+    assert d + "/retro-findings.json" in plan.keep
+    assert d + "/retro-outbox.json" in plan.keep
+    # only top-level names are allowlistable: a nested copy is still a candidate
+    assert plan.drop == [d + "/junk.txt", d + "/scratch/retro-outbox.json"]
+    apply(plan, tmp_path)
+    assert (tmp_path / d / "retro-findings.json").exists()
+    assert (tmp_path / d / "retro-outbox.json").exists()
 
 
 def test_behavior_4_fixpoint(repo: Path):

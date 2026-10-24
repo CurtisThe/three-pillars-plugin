@@ -4,9 +4,16 @@
 
 - Keep the orchestrator in **one worktree on `tp/{slug}` for the entire run**; a drifted HEAD orphans commits.
 1. The candidate branch is **remote-only to the orchestrator**: after Tier 3.5 it lives at `origin/candidate/{slug}/single` and the orchestrator **never checks out** that ref in its own worktree — inspect it read-only (`git show`/`diff`/`log`). Only the Tier 5.6 fold writes: `git merge --no-ff` the candidate *into* the checked-out branch keeps HEAD on `tp/{slug}`.
-2. **Any slot needing** the candidate's working tree runs with `isolation="worktree"`. The read-only audit fan-out (Slots 4/6/8) may share `tp/{slug}`; the worker (Tier 3) and regression check (Tier 5 Step 1) **must** isolate. Exception: the Tier 7 **round tail**, the **one working-tree writer** on the orchestrator's own `tp/{slug}` checkout (never checks out; orchestrator idle).
+2. **Any slot needing** the candidate's working tree is isolated from `tp/{slug}`. The read-only audit fan-out (Slots 4/6/8) may share `tp/{slug}`; the regression check (Tier 5 Step 1) opens its checkout with `wt_root.py`. The worker (Tier 3) and the cert-fix `tp-worker` take their isolation from `worker_root.py` (`## Classifier no-verdict`). Exception: generator slots and the Tier 7 **round tail**, the one working-tree writer, are the sanctioned `tp/{slug}` writers on the orchestrator's own checkout (never checks out; orchestrator idle).
 3. **Assert before every orchestrator commit.** Before any `git commit`, `git symbolic-ref --short HEAD` equals `tp/{slug}`, else `git checkout tp/{slug}` and log `[tp-run-full-design/branch-hygiene] head-reattached {prev-ref}`. Never commit on a drifted HEAD; after a HEAD-moving op run `index_guard.py check`.
 - Orphan recovery: restore via a path-scoped `git checkout <sha> -- <path>` (never `git checkout <ref> -- .` mid-merge), re-commit on `tp/{slug}`.
+
+## Classifier no-verdict
+
+- The auto-mode classifier gives **no verdict** (a hard failure: "retrying this action will get the same answer") on a `Write` or `Edit` whose path sits under a `.claude/` directory. A permission allow rule does not help. The one rule: no framework checkout lives under `.claude/`; every checkout opens through `wt_root.py`, and `wt_layout_hook.py` denies the rest.
+- The orchestrator opens the worker's worktree with `python3 "$TP_ROOT"/skills/_shared/worker_root.py open --slug {slug} --phase {N} --base-ref {base-ref} --root .` (under `.tp-scratch/`, never `.claude/`); `check` and `open` refuse a `.claude/` write root with `worker-root-refused`, and `agents/tp-worker.md` tells the worker to stay inside it (a prompt rule and a `verify` start check, not a per-call hook). `worker_root.py assert-unmoved` compares the `tp/{slug}` tip before and after each worker (`tier-2-4-build.md` Tier 3), so a stray commit is caught; an uncommitted stray edit is not.
+- A worker that still reports a no-verdict is a **stop**: never retry, never a workaround. Log to `decisions.md` the agent type, model, tool, target path (repo-relative or `portable_path` form, never an absolute host path: the file is committed), content size and the exact message with any host path rewritten the same way (no content, no secrets), then run `SKILL.md` §Cleanup step 0 (finalizer first).
+- The stop card offers one ruled option: run Slot 7 **inline** in the orchestrator's own worktree (you implement each task, red then green commits), recorded in `decisions.md`. Under `TP_DESIGN_RUN=1` the stop is no card: put it with `ruling_cli.py ask --kind classifier-denial` (`--option 'inline=Run Slot 7 inline'`, recommended, and `--option 'stop-run=Stop the run'`), so it stays the operator's and the seat never rules it, then `ruling_cli.py wait` (`skills/_shared/escalation.md` §Design run). An inline write that itself gets no verdict stops the run.
 
 ## Token budget
 
@@ -55,7 +62,7 @@ See [`throughput.md`](throughput.md) §Retry with advice (audits): Slot 4/6 `nee
 
 - The terminal fallback: self-heal first; all confidences are retried — confidence is advice, never a gate.
 - Map-check: any `category: "map-check"` finding, any verdict, escalates at once — append `[orchestrator/<audit-slot>] map-check-escalated`, leave lock + branch as-is.
-- Budget exhausted — one patch + one re-check spent, still `needs-work`: finalizer first (`SKILL.md` §Cleanup step 0), append `[orchestrator/<audit-slot>] retry-exhausted` with the findings, exit per `SKILL.md` ## Cleanup.
+- Budget exhausted — one patch + one re-check spent, still `needs-work`: finalizer first (`SKILL.md` §Cleanup step 0; a second `needs-work` after a `resolved` finalizer follows `skills/_shared/escalation.md` §Run "Second budget stop"), append `[orchestrator/<audit-slot>] retry-exhausted` with the findings, exit per `SKILL.md` ## Cleanup.
 - **`certification-unverified`** — a Slot 4/8 `python3 "$CERT" route` of `escalate` (`tree_mutated`, `claimant-records`, `records-handoff`, an unmatched phrase) or a certify.py exit ≠ 0 / incomplete `--out` (a lint exit 2 included) (`tier-5-closeout.md` #### Step 2c). An `unverified` claim still `unverified` after its one retry is a `cert-gap`, never this escalation; `false-red` is a cert-fix, as `not-binding` is. Append `[orchestrator/<audit-slot>] certification-unverified`, add `tp:needs-human-attention` where a PR exists, exit per `SKILL.md` ## Cleanup; **never** re-spawn advice. Order per audit return: map-check → `certification-unverified` → `status`.
 - The audit gate stays a true floor: never advance on `needs-work`, never auto-merge, exhaust automated repairs.
 
@@ -67,3 +74,4 @@ See [`throughput.md`](throughput.md) §Retry with advice (audits): Slot 4/6 `nee
 ## Lock ownership
 
 - Write `owner: "orchestrator:<git-email>"` at lock creation; a mid-run `--force-takeover` aborts at the next lock-refresh.
+- `seat_commit_guard` refuses a hand-started run's conflicted merge commit (a clean merge passes); launch with `TP_DESIGN_RUN=1` (the design-run launcher sets it).

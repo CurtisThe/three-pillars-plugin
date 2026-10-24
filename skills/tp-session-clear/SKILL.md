@@ -17,7 +17,7 @@ Wipe the handoff file so the next `/tp-session-restore` starts fresh.
 1. **Resolve the design directory**: `three-pillars-docs/tp-designs/{design-name}/`.
 2. **Check if `handoff.md` exists** in the design directory. If not, tell the user there's nothing to clear and stop.
 3. **Show the user a 2-3 line summary** of what's currently in the handoff (phase + key state) so they can confirm they want to discard it.
-4. **Ask for confirmation** before deleting. A simple "Clear this?" is enough.
+4. **Ask for confirmation** before deleting. A simple "Clear this?" is enough; give it a line `seat-allow: session-clear` of its own.
 5. **On confirmation, delete `three-pillars-docs/tp-designs/{design-name}/handoff.md`.**
 6. **Confirm deletion** in one line.
 

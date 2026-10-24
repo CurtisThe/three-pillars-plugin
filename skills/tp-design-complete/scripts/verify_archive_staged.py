@@ -164,9 +164,10 @@ def verify_no_dangling(repo: str, slug: str) -> list[str]:
     """
     # (a) reuse the shared dead-cite detector (skills/_shared already on sys.path).
     from citation_liveness import dead_design_cites
+    from pending_changes import without_compile_owned  # fragment mode: the docs compile repoints them
 
     failures: list[str] = []
-    dead = [c for c in dead_design_cites(repo) if c.slug == slug]
+    dead = [c for c in without_compile_owned(repo, dead_design_cites(repo)) if c.slug == slug]
     for c in dead:
         failures.append(
             f"{c.path}:{c.line}: live 'tp-designs/{slug}' cite survives the archive "

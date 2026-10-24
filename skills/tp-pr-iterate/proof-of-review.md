@@ -78,9 +78,17 @@ finisher** for a structurally-clean round (the Tier-7 reviewed-stable finish). I
 `post_codereview_comment` BEFORE shelling `run_round.py`**. That posted comment is the
 **last head-binding action**: the digest embeds the exact full head SHA, so no commit
 may land after it (a later commit moves HEAD and stales the head-bound proof, flipping
-the merge gate to INDETERMINATE). The one carried exception is the `two-stable` round-log
+the merge gate to INDETERMINATE). The carried exceptions are two. The first is the `two-stable` round-log
 commit (`decisions.md` and the two `.ndjson` logs of the archived design), which the gate
-carries the proof across (`skills/_shared/round_log_carry.py`). converge.py then seeds the untracked
+carries the proof across (`skills/_shared/round_log_carry.py`). The second is the proof-neutral
+commit, which also keeps the proof: living-doc `.md` edits, comment-only Python edits with no
+directive comment, and a base-sync merge from the base branch whose hand-resolved paths are all
+living-doc `.md` (paths git merges cleanly are fine; a file kept whole from one side is not; `skills/_shared/merge_carry.py`),
+at most 4 links and 200 changed lines (`skills/_shared/proof_neutral_carry.py`). A docs-only
+base-sync is carried: no new round, no new proof. A merge that hand-resolves code or skill text, or
+whose second parent is off the base's first-parent history, is not carried.
+`review.proof_neutral_carry: false` turns this off. The ci-local stamp and the human approval
+stay head-bound. converge.py then seeds the untracked
 `iterate-state.v1.json`, shells `run_round.py` (paths `str()`-ed, `decisions_path`
 omitted, `config` explicit), and asserts `convergence_proof.non_degraded_proof_on_head`
 is PASS before emitting `two-stable [code-review-only]`; HEAD is invariant across the

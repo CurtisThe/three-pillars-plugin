@@ -38,7 +38,7 @@ Validation rules — each maps to an explicit failure mode:
 The contract appended to `worker_prompt` is a literal numbered list. Six items, in order, no negotiation:
 
 1. **Set up the candidate branch for this phase.**
-   - **Phase 1**: `git checkout -b candidate/{slug}/single {base-ref}` — create the shared candidate branch off the orchestrator's base ref (typically `tp/{slug}` HEAD). Do NOT work on the auto-entry `worktree-agent-<id>` branch (S13 finding F2).
+   - **Phase 1**: `git checkout -b candidate/{slug}/single {base-ref}` — create the shared candidate branch off the orchestrator's base ref (typically `tp/{slug}` HEAD). Run every command in the `WORKTREE:` path your prompt names (it opens detached); never on the orchestrator's `tp/{slug}` checkout (S13 finding F2).
    - **Phase 2+**: `git fetch origin && git checkout candidate/{slug}/single` — continue building on the branch Phase 1 already pushed. Do not create a new branch.
 2. **Implement this phase's tasks on the candidate branch.** Execute only the tasks belonging to Phase N from `plan.md` — prior phases are already committed on the branch. Each task is one red-green-refactor cycle and one commit on the candidate branch.
 3. **Commit work on the candidate branch.** One commit per plan task. No `--no-verify`, no `Co-Authored-By` trailer, no `git add -A` — scope each commit to the files the task touched.

@@ -28,10 +28,28 @@ Exit codes:
 The command is the operator's own declared text (e.g. `make ci`, a pytest
 invocation), run with `shell=True` like a Makefile target — not parsed or
 sanitised by this wrapper.
+
+The command runs with a cleaned environment (`gate_env`): a gate started inside
+a design run must not inherit the run's route, so every name the launcher owns,
+every `CLAUDE_LAUNCHER_*` name and the run names `TP_LOCAL`, `TP_LOCAL_MODE`
+and `TP_DESIGN_RUN` are dropped. Kept: the worker cap
+`PYTEST_XDIST_AUTO_NUM_WORKERS` and the `PATH`/`HOME`/`TMPDIR` floor, even when
+the launcher lists them as owned.
+
+The command also gets `CI_LOCAL_MANIFEST_DIR`. When the caller has not set it,
+it is the junit default path `<common git dir>/tp-ci-junit/<HEAD sha>/` (shared
+by all worktrees, so it survives `git worktree remove`; the newest 20 heads are
+kept). An explicit `CI_LOCAL_MANIFEST_DIR` wins and is never pruned.
+`ci_gate_run.py` exports `CI_LOCAL_MANIFEST_DIR` to the gate command; only gate
+commands that honour it write junit there. In a repo whose gate does not read
+the variable (plain pytest included) the default directory stays empty, is
+removed, and nothing is printed.
 """
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -43,8 +61,82 @@ if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
 from ci_local_stamp import StampError, _get_head_sha, _is_dirty, write_stamp  # noqa: E402
+import launcher_env  # noqa: E402
 from hot_patch_check import main as _hot_patch_check_main  # noqa: E402
 from repo_config_load import load_repo_config  # noqa: E402
+
+
+RUN_ENV_NAMES = ("TP_LOCAL", "TP_LOCAL_MODE", "TP_DESIGN_RUN")
+KEEP_NAMES = ("PYTEST_XDIST_AUTO_NUM_WORKERS", "PATH", "HOME", "TMPDIR")
+JUNIT_ENV = "CI_LOCAL_MANIFEST_DIR"
+JUNIT_SUBDIR = "tp-ci-junit"
+JUNIT_KEEP = 20
+
+
+def junit_dir(repo: Path, head: str) -> Path:
+    """`<common git dir>/tp-ci-junit/<head>`; the common dir outlives a linked worktree."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True, text=True, check=True,
+    )
+    return Path(proc.stdout.strip()) / JUNIT_SUBDIR / head
+
+
+def _gate_env_with_junit(repo: Path, start_head: str) -> "tuple[dict, Path | None]":
+    """The gate env, plus the default junit dir (created, emptied) when none was given.
+
+    Any failure to set the default dir up (an old git without `--path-format`,
+    a failing `rev-parse`, an unwritable directory) skips junit and returns no dir."""
+    env = gate_env(os.environ)
+    if env.get(JUNIT_ENV):
+        return env, None
+    try:
+        made = junit_dir(repo, start_head)
+        made.mkdir(parents=True, exist_ok=True)
+        for stale in made.iterdir():  # a re-run at this head must not mix old and new junit
+            if stale.is_file():
+                stale.unlink()
+    except (subprocess.CalledProcessError, OSError):
+        return env, None  # junit is a best-effort side channel: skip it, run the gate
+    env[JUNIT_ENV] = str(made)
+    return env, made
+
+
+def _finish_junit(made: "Path | None") -> None:
+    """Drop empty default dirs silently, then keep the newest JUNIT_KEEP head dirs."""
+    if made is None:
+        return
+    for d in (made, made.parent):
+        try:
+            if d.exists() and not any(d.iterdir()):
+                d.rmdir()
+        except OSError:
+            pass
+    parent = made.parent
+    if not parent.exists():
+        return
+    try:
+        heads = sorted(
+            (p for p in parent.iterdir() if p.is_dir()),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+    except OSError:
+        return
+    for old in heads[JUNIT_KEEP:]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def gate_env(env: "dict[str, str]") -> "dict[str, str]":
+    """A copy of `env` without the design-run launcher route. Never mutates `env`."""
+    out = launcher_env.strip_launcher_keys(dict(env))
+    out = {
+        k: v for k, v in out.items()
+        if not k.startswith("CLAUDE_LAUNCHER_") and k not in RUN_ENV_NAMES
+    }
+    for name in KEEP_NAMES:
+        if name in env:
+            out[name] = env[name]
+    return out
 
 
 def _resolve_repo(repo_arg: "str | None") -> Path:
@@ -127,7 +219,11 @@ def main(argv: "list[str] | None" = None) -> int:
     start_head = _get_head_sha(repo)
     start_dirty = _is_dirty(repo)
 
-    proc = subprocess.run(command, shell=True, cwd=str(repo))  # nosec B602 — operator's own declared command
+    env, made = _gate_env_with_junit(repo, start_head)
+    try:
+        proc = subprocess.run(command, shell=True, cwd=str(repo), env=env)  # nosec B602 — operator's own declared command
+    finally:
+        _finish_junit(made)
     if proc.returncode != 0:
         return proc.returncode
 

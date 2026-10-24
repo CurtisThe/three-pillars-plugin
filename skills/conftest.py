@@ -6,6 +6,10 @@ dir, removed after the test, so a bare `tempfile.mkdtemp()`, a subprocess or a s
 ~21k git repos into /tmp). It lives under skills/ rather than the repo root so it
 ships: dev runs, a run over the shipped tree and plugin installs all get it.
 The dir stays short (`<tmp>/tpt-XXXXXXXX/tXXXXXXXX`) for the 107-char AF_UNIX limit.
+When the session's temp dir is the run's in-tree dir (`<wt>/.tp-scratch/run`) or too long for that
+limit, pytest's own basetemp (`tmp_path`) moves too: to a fresh `tpt-<tag>-b<8 hex>/p` in the system
+temp root (`_SOCKET_PARENT`), removed at session end, so no test's temp dir sits inside a git
+checkout (`pytest_configure`).
 
 It also sandboxes the local router's state (`_no_live_slot_release`) for the same reason: a
 guard in the dev-only `_shared/conftest.py` never reaches the shipped tree. And it pins the
@@ -15,8 +19,12 @@ posts as the bot this repo's own config names.
 from __future__ import annotations
 
 import functools
+import hashlib
 import importlib
+import os
+import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -27,17 +35,88 @@ import pytest
 _STALE_ROOT_S = 24 * 3600
 
 
-@pytest.fixture(scope="session")
-def _tempfile_root(tmp_path_factory):
-    tmp_path_factory.getbasetemp()  # pin pytest's own basetemp before TMPDIR is redirected
-    real = Path(tempfile.gettempdir())
-    for old in real.glob("tpt-*"):  # roots left by killed runs
+_SOCKET_PARENT = "/tmp"  # nosec B108  # where a long or in-tree TMPDIR run keeps its short roots
+_SHORT_TMP_MAX = 40
+_RUN_SUFFIX = os.sep + os.path.join(".tp-scratch", "run")
+
+
+def _needs_short(path: str) -> bool:
+    """True when tests must not run under `path`: the run's in-tree dir, or too long for AF_UNIX."""
+    norm = os.path.normpath(path)
+    return len(norm) > _SHORT_TMP_MAX or norm.endswith(_RUN_SUFFIX)
+
+
+def _sweep_stale(parent: str) -> None:
+    """Remove `tpt-*` roots older than a day under `parent` (left by killed runs, whatever their tag)."""
+    for old in Path(parent).glob("tpt-*"):
         try:
             if time.time() - old.stat().st_mtime > _STALE_ROOT_S:
                 shutil.rmtree(old, ignore_errors=True)
         except OSError:
             pass
-    root = tempfile.mkdtemp(prefix="tpt-", dir=real)
+
+
+def _run_tag() -> str:
+    """6 hex of sha1(realpath worktree): the same recipe as `run_scratch.tag`, inline so this ships alone.
+
+    The worktree is two levels above a run-dir-shaped session TMPDIR (`<wt>/.tp-scratch/run`), so a
+    nested attempt worker's leak carries the run's tag; else the cwd's top level.
+    """
+    tmp = os.path.normpath(os.environ.get("TMPDIR") or "")
+    if os.path.isabs(tmp) and tmp.endswith(_RUN_SUFFIX):
+        wt = os.path.dirname(os.path.dirname(tmp))
+    else:
+        try:
+            out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=10)
+            wt = out.stdout.strip() if out.returncode == 0 else ""
+        except (OSError, subprocess.SubprocessError):
+            wt = ""
+        wt = wt or os.getcwd()
+    return hashlib.sha1(os.path.realpath(wt).encode(), usedforsecurity=False).hexdigest()[:6]  # noqa: S324
+
+
+def _make_root() -> str:
+    real = tempfile.gettempdir()
+    if not _needs_short(real):
+        parent, prefix = real, "tpt-"
+    else:
+        parent, prefix = _SOCKET_PARENT, "tpt-" + _run_tag() + "-"
+    _sweep_stale(parent)
+    return tempfile.mkdtemp(prefix=prefix, dir=parent)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    """Move pytest's basetemp out of a long or in-tree temp dir (controller only; fail-open).
+
+    Runs before pytest's tmpdir plugin reads `--basetemp`. An explicit `--basetemp` is kept, and an
+    xdist worker already has one (`<controller basetemp>/popen-gwN`), so workers inherit the move.
+    The holder is a fresh 0700 dir; pytest makes `p` inside it, so the name is never pre-claimed.
+    """
+    if getattr(config.option, "basetemp", None) or hasattr(config, "workerinput"):
+        return
+    if not _needs_short(os.environ.get("PYTEST_DEBUG_TEMPROOT") or tempfile.gettempdir()):
+        return
+    try:
+        _sweep_stale(_SOCKET_PARENT)
+        holder = os.path.join(_SOCKET_PARENT, "tpt-" + _run_tag() + "-b" + secrets.token_hex(4))
+        os.mkdir(holder, 0o700)
+    except OSError:
+        return  # pytest keeps its default basetemp
+    config._tpt_basetemp_holder = holder
+    config.option.basetemp = os.path.join(holder, "p")
+
+
+def pytest_unconfigure(config):
+    holder = getattr(config, "_tpt_basetemp_holder", None)
+    if holder:
+        shutil.rmtree(holder, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def _tempfile_root(tmp_path_factory):
+    tmp_path_factory.getbasetemp()  # pin pytest's own basetemp before TMPDIR is redirected
+    root = _make_root()
     yield root
     shutil.rmtree(root, ignore_errors=True)
 

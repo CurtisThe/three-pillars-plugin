@@ -37,9 +37,11 @@ NOT_TRUE = ("carry off: review.approval_survives_safe_base_sync is not true "
 
 
 def _config(key_true: bool) -> dict:
+    # The neutral merge carry (basesync-docs-only-carry) would carry this docs-only merge whatever
+    # the base-sync key says, so it is off here: these cases isolate the base-sync key.
     return {"schema_version": 1,
             "review": {"approval_survives_safe_base_sync": key_true,
-                       "base_sync_carry_max_chain": 2}}
+                       "base_sync_carry_max_chain": 2, "proof_neutral_carry": False}}
 
 
 def _commit_config(scenario, cfg: dict) -> None:

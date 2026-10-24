@@ -6,6 +6,7 @@ self-claim pins in `test_certification_wiring_ledger.py`, and the `.github/`
 review-doc pins in the dev-only `test_certification_wiring_review_docs.py`
 (`.github/` never ships).
 """
+# pin-source: skills/tp-implementation-audit/SKILL.md
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,7 +31,7 @@ def test_worker_claims_only():
 # Interactive audit surfaces (Tasks 7.4, 7.5): one shared certify-step shape.
 # --------------------------------------------------------------------------- #
 PROTOCOL = "skills/_shared/certification-protocol.md"
-DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus")'
+DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), model="opus")'
 RS_LINE = ('if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then '
            'RS="$TOP"/skills/_shared/resolve_script.py; else '
            'RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi')

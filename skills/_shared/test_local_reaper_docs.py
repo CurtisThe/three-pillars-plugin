@@ -72,10 +72,10 @@ def test_full_design_stops_records_and_sweeps():
 def test_full_design_worktree_path_source_order():
     body = _section("Full-design")
     assert "agent_meta.worktreePath" in body
-    first = body.index("<worktreePath>")
-    second = body.index(".claude/worktrees/agent-<id>")
-    third = body.index("missing-worktree")
-    assert first < second < third
+    first = body.index("worker_root.py open")
+    second = body.index("missing-worktree")
+    assert first < second
+    assert ".claude/worktrees/agent-<id>" not in body
 
 
 def test_interactive_records_its_own_stop():

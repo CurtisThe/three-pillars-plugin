@@ -231,6 +231,8 @@ def _completeness_problems(header, rows, root) -> list:
     text = _range_text(_blob_text(root, blob), header.get("ranges"))
     problems = []
     for kind in header.get("kinds") or []:
+        if kind == "pins" and header.get("final_blob"):
+            continue  # sealed: later tests naming the source are not this ledger's pins
         extract = _EXTRACTORS.get(kind)
         if extract is None:
             problems.append(f"rows: unknown kind {kind!r}")

@@ -120,6 +120,29 @@ def test_escalate_subcommand_needs_no_reply_and_no_dispatch(capsys, tmp_path, re
     assert reason in text(tmp_path) and "no finalizer dispatched" in text(tmp_path)
 
 
+def test_pillar_doc_hunk_escalates_with_a_ruling_and_no_dispatch(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    rec = Rec()
+    stop = {"source": "question", "signal": "base-sync-hunk", "target": "widgets",
+            "detail": {"question": "Hunk in the pillar doc under Principles?"}}
+    rc, out = run(capsys, rec, "escalate", "--stop", json.dumps(stop), "--reason", "pillar-doc",
+                  "--decisions", tmp_path / "decisions.md", "--scope", "widgets")
+    assert (rc, out["outcome"], out["problems"]) == (0, "escalate", ["pillar-doc"])
+    assert rec.resolved == [] and rec.calls == []
+    ruling = (tmp_path / out["ruling_path"]).read_text(encoding="utf-8")
+    assert "pillar doc" in ruling and "operator's" in ruling and "pillar-doc" in ruling
+
+
+def test_no_proposal_hunk_escalates_with_a_ruling_and_no_dispatch(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    rec = Rec()
+    stop = {"source": "question", "signal": "base-sync-hunk", "target": "widgets", "detail": {}}
+    rc, out = run(capsys, rec, "escalate", "--stop", json.dumps(stop), "--reason", "no-proposal",
+                  "--decisions", tmp_path / "decisions.md", "--scope", "widgets")
+    assert (rc, out["outcome"], out["problems"]) == (0, "escalate", ["no-proposal"])
+    assert "waits for the human" in (tmp_path / out["ruling_path"]).read_text(encoding="utf-8")
+
+
 def test_escalate_subcommand_without_a_pr_only_logs(capsys, tmp_path):
     rec = Rec()
     run(capsys, rec, "escalate", "--stop", json.dumps(HALT), "--reason", "nested",

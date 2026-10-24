@@ -79,9 +79,8 @@ def _outcome(testcase) -> str:
     return "skipped" if "skipped" in tags else "passed"
 
 
-def parse(report) -> list[tuple] | None:
-    """``[(file or None, classname, name, passed|failed|skipped)]`` per ``<testcase>``,
-    or None when the report is missing or malformed (module docstring)."""
+def _root(report):
+    """The report's root element, or None when it is missing or malformed (module docstring)."""
     try:
         with open(report, encoding="utf-8") as fh:
             text = fh.read()
@@ -93,7 +92,27 @@ def parse(report) -> list[tuple] | None:
         root = ET.fromstring(text)  # nosec B314 — DTD-free input only (checked above)
     except ET.ParseError:
         return None
-    if root.tag not in ("testsuites", "testsuite"):
+    return root if root.tag in ("testsuites", "testsuite") else None
+
+
+def skip_reasons(report) -> list[str]:
+    """Every ``<skipped>`` element's reason, ``"<message>\\n<body>"``, in document order;
+    ``[]`` when the report is missing or malformed. A skip raised while running a test
+    carries its reason in ``message``; a collection-time skip (a module-level
+    ``importorskip``) says only ``collection skipped`` there and carries the reason in the
+    body, as ``Skipped: <reason>``. The report never holds captured output
+    (``junit_logging=no``), so a warning or a print is never read as a reason."""
+    root = _root(report)
+    if root is None:
+        return []
+    return [f"{el.get('message') or ''}\n{el.text or ''}" for el in root.iter("skipped")]
+
+
+def parse(report) -> list[tuple] | None:
+    """``[(file or None, classname, name, passed|failed|skipped)]`` per ``<testcase>``,
+    or None when the report is missing or malformed (module docstring)."""
+    root = _root(report)
+    if root is None:
         return None
     cases = []
     for testcase in root.iter("testcase"):
@@ -259,7 +278,8 @@ def verdict(cases: list | None, targets, cwd) -> tuple[str, str]:
     return next((j for j in judged if j[0] != "pass"), ("pass", ""))
 
 
-def run_judged(run, target: str, cwd, *, failed_out: list | None = None):
+def run_judged(run, target: str, cwd, *, failed_out: list | None = None,
+               skipped_out: list | None = None):
     """``run(extra_args, [target])`` in ``cwd`` with `report_args` for a fresh report in
     a temp dir (removed after) → ``(run's result, verdict(parse(report), [target],
     cwd))``. Exactly one declared target per run, everywhere: pytest aborts a whole
@@ -267,8 +287,9 @@ def run_judged(run, target: str, cwd, *, failed_out: list | None = None):
     shared run would let one target mask another. The caller combines its targets'
     verdicts, the most severe winning. When ``failed_out`` is given, the resolved node
     ids (`resolve`/`_node`) of every failed case are appended to it; a foreign failure
-    (no resolved id) is skipped. The return value is unchanged either way, so existing
-    callers are unaffected."""
+    (no resolved id) is skipped. When ``skipped_out`` is given, the report's
+    `skip_reasons` are appended to it. The return value is unchanged either way, so
+    existing callers are unaffected."""
     if not isinstance(target, str):
         raise TypeError("run_judged judges exactly one declared target per run")
     with tempfile.TemporaryDirectory(prefix="tp-junit-") as tmp:
@@ -280,4 +301,6 @@ def run_judged(run, target: str, cwd, *, failed_out: list | None = None):
             if nodes is not None:
                 failed_out.extend(node for node, outcome in nodes
                                   if outcome == "failed" and node)
+        if skipped_out is not None:
+            skipped_out.extend(skip_reasons(report))
         return result, verdict(cases, [target], cwd)

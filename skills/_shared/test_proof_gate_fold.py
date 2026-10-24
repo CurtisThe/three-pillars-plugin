@@ -222,7 +222,7 @@ def test_proof_active_in_pure_live_mode(monkeypatch):
     calls = {}
 
     def fake_pred(pr_url, head_oid, *, comments_fn=None, config=None, self_login_fn=None,
-                 run_git=None, derive_base_ref_fn=None, repo_root=None):
+                 run_git=None, derive_base_ref_fn=None, repo_root=None, head_fn=None):
         calls["ran"] = True
         calls["comments_fn"] = comments_fn
         return PredicateResult(name="review_proof_on_head",

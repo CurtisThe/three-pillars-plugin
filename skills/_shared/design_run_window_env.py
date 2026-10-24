@@ -14,6 +14,9 @@ planned for the seat's folder. The run's window must not inherit that route:
   `launcher_which.SCRUB_NAMES` name plus every owned name, whatever the seat's env
   carries; `CLAUDE_LAUNCHER_ROLE` is unset too because the command applies its
   own role after the unsets.
+- `scratch` (the run's `run_scratch.env_pairs`) is appended last, after the pin and
+  `TP_LOCAL_MODE`, and its names are never unset (`SCRATCH_NAMES`, in `NEVER_UNSET` and the
+  launcher keep set), so a window never sets and unsets the same name.
 - Every name in `CLAUDE_LAUNCHER_OWNED` is unset (`env -u`) so the run's own
   launcher plans from the worktree folder. Only shell names are kept (anything
   else is dropped with one note, so a hostile token never reaches the command),
@@ -27,8 +30,9 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Mapping, Optional, Tuple
+from typing import List, Mapping, Optional, Sequence, Tuple
 
+import run_scratch
 from launcher_env import OWNED_ENV, owned_keys
 from launcher_which import SCRUB_NAMES
 
@@ -37,9 +41,11 @@ LOCAL_MODES = ("wait", "fallback", "exclusive")
 FORCE_PROFILE_ENV = "CLAUDE_LAUNCHER_FORCE_PROFILE"
 CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR"
 PROFILES_DIR = ".claude-profiles"
+# The run's temp and cache variables (run_scratch.env_pairs); the window sets them, never unsets.
+SCRATCH_NAMES = frozenset({"TMPDIR", "TMP", "TEMP", *run_scratch.CACHE_VARS})
 # The names the window command sets itself, plus the two a shell cannot lose.
 NEVER_UNSET = frozenset({"CLAUDE_LAUNCHER_ROLE", CONFIG_DIR_ENV, FORCE_PROFILE_ENV,
-                         LOCAL_MODE_ENV, "TP_DESIGN_RUN", "PATH", "HOME"})
+                         LOCAL_MODE_ENV, "TP_DESIGN_RUN", "PATH", "HOME"}) | SCRATCH_NAMES
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -59,12 +65,13 @@ def profile_name(env: Mapping[str, str]) -> Optional[str]:
     return os.path.basename(path) or None
 
 
-def plan(env: Mapping[str, str], local_mode: Optional[str] = None, launcher: bool = False
+def plan(env: Mapping[str, str], local_mode: Optional[str] = None, launcher: bool = False,
+         scratch: Optional[Sequence[Tuple[str, str]]] = None
          ) -> Tuple[List[Tuple[str, str]], List[str], List[str]]:
     """`(assignments, unset_keys, notes)` for the run's window. `assignments` are
-    `(name, value)` pairs (profile pin first, then `TP_LOCAL_MODE`); `unset_keys`
-    is sorted and deduped; `notes` holds at most one line about dropped tokens.
-    `ValueError` for a `local_mode` outside `LOCAL_MODES`."""
+    `(name, value)` pairs (profile pin first, then `TP_LOCAL_MODE`, then `scratch`);
+    `unset_keys` is sorted and deduped; `notes` holds at most one line about dropped
+    tokens. `ValueError` for a `local_mode` outside `LOCAL_MODES`."""
     if local_mode is not None and local_mode not in LOCAL_MODES:
         raise ValueError(f"invalid local mode {local_mode!r}; allowed: {' '.join(LOCAL_MODES)}")
     assignments: List[Tuple[str, str]] = []
@@ -73,10 +80,11 @@ def plan(env: Mapping[str, str], local_mode: Optional[str] = None, launcher: boo
         assignments.append((FORCE_PROFILE_ENV, profile))
     if local_mode:
         assignments.append((LOCAL_MODE_ENV, local_mode))
+    assignments.extend(scratch or ())
     owned = owned_keys(env)
     bad = sorted(name for name in owned if not _NAME_RE.match(name))
     if launcher:
-        keep = frozenset({LOCAL_MODE_ENV, "TP_DESIGN_RUN", "PATH", "HOME"})
+        keep = frozenset({LOCAL_MODE_ENV, "TP_DESIGN_RUN", "PATH", "HOME"}) | SCRATCH_NAMES
         unset = sorted(n for n in set(SCRUB_NAMES) | set(owned) if _NAME_RE.match(n) and n not in keep)
     else:
         unset = sorted(name for name in owned if _NAME_RE.match(name) and name not in NEVER_UNSET)

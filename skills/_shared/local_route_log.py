@@ -62,6 +62,10 @@ _REASON_CLAUSE = {
         "every rung on this base URL stalls"
     ),
     "error": "the probe failed (see detail); suspected env mismatch or router fault",
+    "upstream-down": (
+        "the router answers but the model proxy behind it is down, so every local "
+        "rung would stall; resume once the upstream is back"
+    ),
 }
 
 
@@ -148,11 +152,11 @@ def render_entry(result: dict, scope: str, frm: str) -> str:
     """Render the `[routing]` entry text for `result` at `scope`, transitioning
     from `frm`. Round-trips: the first line matches `CHECK_RE`."""
     base_url = result.get("base_url") or "none"
-    ollama = result.get("ollama") or "n/a"
+    engine = result.get("engine") or result.get("ollama") or "n/a"
     return (
         f"### [routing] {scope}: {frm} -> {result['state']}/{result['reason']}\n"
         f"**Checked**: {result['checked_at']} · **Base URL**: {base_url} · "
-        f"**Ollama**: {ollama} (info only)\n"
+        f"**Local engine**: {engine} (info only)\n"
         f"**Effect**: {_effect_text(result['reason'])}"
     )
 
@@ -224,7 +228,7 @@ SCHEMA_HEADER = "# Decisions log — schema v1\n"  # auto-mode.md §Schema versi
 
 def _route_projection(obj: dict) -> dict:
     """The `route` print: exactly the five `ROUTE_KEYS`, never `transition`/
-    `ollama`/`detail`."""
+    `engine` (nor its deprecated alias `ollama`)/`detail`."""
     return {key: obj[key] for key in ROUTE_KEYS}
 
 
@@ -332,6 +336,17 @@ def _handle_append(decisions: Path, stdin: str) -> dict:
     return result
 
 
+def _skip_reason(result: dict) -> str:
+    """One line saying why `append` wrote nothing: the result's `error` when
+    set, else the no-op cause (a check line carries no transition entry; an
+    end line has nothing to close)."""
+    if result["error"] is not None:
+        return " ".join(str(result["error"]).split())
+    if result["route"] is not None:
+        return "the check line has no transition entry (state unchanged, or no --decisions on check)"
+    return "the end line has nothing to close (no open routing window)"
+
+
 def main(argv: list[str] | None = None) -> int:
     """`append --decisions PATH` reads one JSON line on stdin (a `check` or an
     `end` line), appends its entry and prints one JSON line. Always exits 0:
@@ -351,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
         result = {"route": None, "line": None, "appended": False,
                   "error": f"append failed: {exc}"}
     print(json.dumps(result))
+    if not result["appended"]:  # stdout stays one JSON line; the why goes to stderr
+        print(f"local_route_log append: nothing appended: {_skip_reason(result)}",
+              file=sys.stderr)
     return 0
 
 

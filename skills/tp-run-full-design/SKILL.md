@@ -7,7 +7,7 @@ effort: high
 
 # tp-run-full-design — Autonomous Orchestrator (Mode A0, single candidate)
 
-- Dispatch each tier into its own subagent (## Dispatch loop); read only clipped envelopes plus the running token total, never tier work product.
+- Dispatch each tier into its own subagent (## Dispatch loop); read only clipped envelopes plus the running token total.
 - Log decisions to `decisions.md` (`skills/_shared/auto-mode.md`) as `[tp-run-full-design/tier-N]`.
 - Tier 7 is on by default (`--no-iterate`: stop after Tier 6 (PR open) without driving it) and **never merges** — a human merges.
 
@@ -41,7 +41,7 @@ effort: high
 
 ## Execution flow
 
-0. **Run first-run preflight** per `skills/_shared/first-run.md`, then the design-run launch check (`skills/_shared/design-run-launch.md`, `TP_DESIGN_RUN`): marker set → proceed; unset and started by a parent agent's task prompt → refuse before pickup, print the launcher call; otherwise warn once, continue.
+0. **Run first-run preflight** per `skills/_shared/first-run.md`, then the design-run launch check (`skills/_shared/design-run-launch.md`, `autonomous_gate.py`): exit 0 → proceed; exit 1 and started by a parent agent's task prompt (always so for a `claude -p` child) → refuse before pickup, print the launcher call; otherwise warn once, continue.
 1. Validate `{slug}` per `skills/_shared/validate-name.md`.
 2. Read project docs per `skills/_shared/read-project-docs.md`, then walk the slots (## Dispatch loop); stage boundaries: [`throughput.md`](throughput.md) §Stage reset.
 3. On a non-retryable failure, go to ## Cleanup; exit non-zero.
@@ -51,7 +51,7 @@ effort: high
 
 - Never read tier work product (design.md, plan.md, audit findings, council output); walk the slots, one subagent per tier, absorbing only clipped return envelopes.
 - Run the orchestrator in the main conversation, never as a subagent; the one second level is Slot 7's `tp-worker` spawning `tp-task-worker` per `skills/_shared/local-dispatch.md`.
-- Dispatch each slot as `Agent(subagent_type=agent_ref("tp-generator"), isolation="worktree", description="orchestrator/{slug}/{slot}", prompt=compose(...))`.
+- Dispatch each slot as `Agent(subagent_type=agent_ref("tp-generator"), description="orchestrator/{slug}/{slot}", prompt=compose(...))`, run in the orchestrator's own `tp/{slug}` checkout (idle meanwhile); the prompt carries `WORKING DIRECTORY: <abs path>`.
 - On return run ## Return clipping, then advance, retry-with-advice, resume, escalate or abort per `status`.
 - Fill `{project_context_block}` once per run from `skills/_shared/project_context.py` into every slot dispatch (the `tp-worker`, `tp-readonly-auditor` and `tp-generator` slots alike); omit when empty.
 
@@ -96,7 +96,7 @@ Slot agents: [`throughput.md`](throughput.md) §Slot agents.
 - `/tp-phase-implement {slug} --auto` as `subagent_type=agent_ref("tp-worker")` (write-capable, plus Agent; default model `sonnet`); nested `tp-task-worker` per task (per-task cheap dispatch); returns via `run_tier_3_5.py`, not `parse_tier_return`.
 - Run `run_tier_3_5.py` in the background and wait through `bg_wait.py` (`skills/_shared/local-dispatch.md` §3 Long commands), in that doc's start form (`mkdir -p .tp-scratch/bg && rm -f <M> && { <cmd>; } > <M>.out 2> <M>.err; echo $? > <M>` — stderr in its own file, so `<M>.out` stays parseable): write its stdin JSON to a file first and feed it with `<`; its `{status, case, ...}` stdout JSON and exit code come from `<M>.out` and the `done <exit>` line.
 - Under `--local` only: `run_in_background=True`, then the `local-reaper.md` §Full-design reaper loop until it returns.
-- Workers: split by responsibility, never grow past a cap (`skills/_shared/file-size-caps.md`).
+- Workers obey `skills/_shared/file-size-caps.md`.
 
 ### Slot 8 — `impl-audit`
 - Same fan-out over `design.md` + `plan.md` **and the candidate code** via `--code-input`; **audit-return** class; verdict-only — never edits code regardless of confidence.
@@ -110,14 +110,14 @@ Runs `/tp-design-learn {slug} --auto --cheap-tier`. **generator-return** class; 
 
 ### Slot 11 — `pr-iterate`
 - Terminal; review to reviewed-stable; skipped under `--no-iterate` or `--no-review`.
-- Round loop (Tier 7 Step 1): each round fans out `ANGLES` as `tp-review-confirmer` sub-agents, then a round tail shells `run_round.py` and fixes inline; the round tail is the one working-tree writer, on the orchestrator's own `tp/{slug}` checkout (never checks out, orchestrator idle).
+- Round loop (Tier 7 Step 1): each round fans out `ANGLES` as `tp-review-confirmer` sub-agents, then a round tail shells `run_round.py` and fixes inline as the one working-tree writer, on the orchestrator's `tp/{slug}` checkout (never checks out).
 - generator-return class; a non-converged loop is reported, never escalated past the merge-only gate.
 
 ### Light slot mapping (`weight-class: light`)
 
 - **Slot 2 (`design`) emits design.md + plan.md in one dispatch** (must still pass `validate_design_floor.py`).
 - Slots 3 and 5 skipped; Slots 4 + 6 merge into one fan-out, `--light` prompts (`skills/tp-plan-audit/SKILL.md` §Light mode prompts), **single round**.
-- **Slot 8 = regression check + a single fidelity auditor**: regression check still gates; **one** verdict-only auditor works `skills/_shared/weight-class.md` §Light fidelity checklist, confidences via `auto_verdict.compute_verdict` (`"$TP_ROOT"/skills/_shared/auto_verdict.py`); returns at most 6 `guard_claims[]`, in the auditor's order, each with a production-file subject in the design diff; Step 2b lints them with `--light`.
+- **Slot 8 = regression check + a single fidelity auditor**: regression check still gates; **one** verdict-only auditor works `skills/_shared/weight-class.md` §Light fidelity checklist, confidences via `auto_verdict.compute_verdict` (`"$TP_ROOT"/skills/_shared/auto_verdict.py`); returns at most 6 `guard_claims[]` (safety-gate designs only: `cert_once.py should-run --light` exits 0; a skipped certification makes item 6 not applicable), in the auditor's order, each with a production-file subject in the design diff; Step 2b lints them with `--light`; run `tier-5-closeout.md` Step 0 first; Slot 9 + Tier 5.6 Step 3 run as one closeout dispatch (§Light and just-do-it closeout).
 
 ### Just-do-it slot mapping (`weight-class: just-do-it`)
 
@@ -134,10 +134,10 @@ python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/audit_artifact.py --write <d> --
 - Log `[tp-run-full-design] jdi plan: mechanical one-task plan.md written`, then commit `plan.md` + `.plan-audit-pass.json` with the slot's `decisions.md` entry (scoped `git add` on `tp/{slug}`, before the Slot 7 dispatch - as [`throughput.md`](throughput.md) §Plan-audit prechecks does for light; the Slot 7 worktree is cut from committed HEAD).
 - **Any non-zero exit** (incl. `plan_couplings.py` findings) -> `python3 "$TP_ROOT"/skills/_shared/weight_class.py escalate <d> --to light --reason <step>`, logged, then the light route. Never continue jdi.
 - `write` is idempotent: a cold resume with a `**Status**`-bearing plan.md or another class leaves it `unchanged`. Every plan-dependent gate then runs unchanged.
-- **Slot 7** = one implement phase on that plan, normal `--local` routing.
-- **Eligibility re-checkpoints**: after Slot 7 and after Slot 8 (before Slot 9 / Tier 5.6, `<d>` still in flight), both `--base $(git merge-base origin/{default} HEAD) --head origin/candidate/{slug}/single`: `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir <d> --base <mb> --head <head>`. `route: light` or exit 2 -> log the line, run the **light** Slot 8 on the existing diff and plan.md (no second implementation). When the check stamps `plan.md` and the siblings, commit them with the escalation's decisions.md entry (scoped `git add` on `tp/{slug}`) before the light Slot 8 runs, so the Tier 5.6 fold of a candidate that changed `plan.md` Status lines does not refuse.
-- **Slot 8** reviews the **candidate**, not `tp/{slug}` HEAD — HEAD carries no implementation until the Tier 5.6 fold. Same `<mb>`/`<head>` as the re-checkpoints bullet: `/code-review` + `python3 "$TP_ROOT"/skills/_shared/phase_check.py prepare --jdi --design-dir <d> --phase jdi --base <mb> --head origin/candidate/{slug}/single`, `/code-review` on that same range, and each finding is fixed by a worker on the candidate branch (`skills/_shared/phase-check.md` §Worker once) — never the orchestrator window — before `close --phase jdi`. Certifier skipped.
-- Slot 9 + Tier 5.6 as light; the advisory `phase_check.py jdi-warn` before `pr-create` stays (`tier-6-pr.md` ## Tier 6); Tier 6 via `/tp-design-complete`.
+- **Slot 7** = one implement phase on that plan, normal `--local` routing; after the plan commit run `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir <d> --base origin/<base> --head HEAD --plan <d>/plan.md`: `route: inline` (the plan fits the inline bound, at most 2 files and 80 lines: `INLINE_MAX_FILES` and `INLINE_MAX_LINES` in `jdi_eligibility.py`) means the orchestrator implements Slot 7 itself per `tier-2-4-build.md` ## Inline Slot 7; `route: just-do-it` keeps the dispatch.
+- **Eligibility re-checkpoints**: after Slot 7 and after Slot 8 (before Slot 9 / Tier 5.6, `<d>` still in flight), both `--base $(git merge-base origin/{default} HEAD) --head origin/candidate/{slug}/single`: `python3 "$TP_ROOT"/skills/_shared/jdi_eligibility.py route --design-dir <d> --base <mb> --head <head>`. `route: light` or exit 2 -> log the line, run the **light** Slot 8 on the existing diff and plan.md (no second implementation). When the check stamps `plan.md` and the siblings, commit them with the escalation's decisions.md entry (scoped `git add` on `tp/{slug}`) before the light Slot 8 runs, so the Tier 5.6 fold does not refuse.
+- **Slot 8** reviews the **candidate**, not `tp/{slug}` HEAD — HEAD carries no implementation until the Tier 5.6 fold. Same `<mb>`/`<head>` as the re-checkpoints bullet: `/code-review` + `python3 "$TP_ROOT"/skills/_shared/phase_check.py prepare --jdi --design-dir <d> --phase jdi --base <mb> --head origin/candidate/{slug}/single`, and each finding is fixed by a worker on the candidate branch (`skills/_shared/phase-check.md` §Worker once; its worktree comes from `worker_root.py open`, `tier-2-4-build.md` Tier 3) — never the orchestrator window — before `close --phase jdi`. Certifier skipped.
+- Slot 9 + Tier 5.6 as light, `tier-5-closeout.md` Step 0 first; the advisory `phase_check.py jdi-warn` before `pr-create` stays (`tier-6-pr.md` ## Tier 6); Tier 6 via `/tp-design-complete`.
 
 ## Handoff protocol — pre-split (M2)
 
@@ -187,7 +187,7 @@ Context rollover: `skills/_shared/context-rollover.md`.
 ## Per-tier briefing emit
 
 - After each tier's **outcomes** land in `decisions.md`, run once (CLI, pro-tier, no Python hook): `python3 "$TP_ROOT"/skills/_shared/html_briefing/emit_run_briefing.py --slug {slug} --worktree {worktree} --tier {tier-id} --tokens {running-total}` (total: ## Token accounting).
-- **Fail-open**: any failure (bad args, raising producer, absent `html_briefing` in FREE core) never aborts the tier loop; `decisions.md` stays the record. Never pass `--serve` (foreground server blocks the auto loop).
+- **Fail-open**: any failure (bad args, raising producer, absent `html_briefing` in FREE core) never aborts the tier loop; `decisions.md` stays the record. Never pass `--serve` (it blocks the loop).
 
 ## Per-slot return contract
 
@@ -205,7 +205,7 @@ On slot return, in order:
 2. Parse with `parse_tier_return(reply, schema_path)` for the slot's schema class (## Slots; last fenced ```json block); `phase-implement` keeps `candidate.v1` via `run_tier_3_5.py`.
 3. **Clip**: keeps only the parsed dict and **discards the raw reply**; nothing else (reasoning, artifacts) enters context.
 4. Branch on `status`: `pass` → next slot; `needs-work` → retry-with-advice or escalate; `handoff-pending` → resume from the committed handoff; `errored` → escalate.
-5. Log an `[orchestrator/<slot>]` entry to `decisions.md`: `status`, clipped summary, running total.
+5. At each slot dispatch note the UTC start (`date -u +%FT%TZ`); log the `[orchestrator/<slot>]` entry with `python3 "$TP_ROOT"/skills/_shared/slot_entry.py append --decisions <d>/decisions.md --slot <slot> --title <status + clipped summary> --started <start> --body <running total>` (the heading carries wall-clock minutes).
 
 Record/replay hooks (`--record`/`--replay`): see `record-replay.md`.
 
@@ -213,10 +213,11 @@ Record/replay hooks (`--record`/`--replay`): see `record-replay.md`.
 
 On any abnormal exit (token cap, validation failure, audit BLOCKED, non-retryable worker failure):
 
-0. **Finalizer first** — send the stop (env-error halts too) to `tp-finalizer` per `skills/_shared/finalizer-first.md` and operator questions per `skills/_shared/escalation.md`; `resolved` continues, escalate runs 1–4.
+0. **Finalizer first** — send the stop (env-error halts too) to `tp-finalizer` per `skills/_shared/finalizer-first.md` and operator questions per `skills/_shared/escalation.md`; `resolved` continues, escalate runs 0b–4.
+0b. `python3 "$TP_ROOT"/skills/_shared/scratch_leftovers.py provision --slug {slug}` (`created` → log `scratch-provisioned-late`), then `python3 "$TP_ROOT"/skills/_shared/scratch_leftovers.py check --expect --slug {slug}`. Exit 1: put each `scratch-leftover:` line in the terminal entry, label the PR `tp:needs-human-attention` when one exists, name the paths in the stop report, keep the exit status non-zero.
 1. Append the terminal decisions.md entry. Under `--local`, the exit report prints the read-back routing line (`summary`; `local-routing.md` §Orchestrator).
 2. Release the lock or hand it back to the prior owner (`skills/_shared/collaboration.md`).
 3. Keep the candidate branch on `origin/`; never `git reset --hard` or drop a remote ref.
-4. Clean worker worktrees (`skills/tp-run-full-design/scripts/cleanup_worker_worktree.py`), then `python3 "$TP_ROOT"/skills/_shared/task_verify.py sweep --design-dir three-pillars-docs/tp-designs/{slug}` and `python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/sweep_orphan_branches.py` (both fail-open).
+4. Clean worker worktrees (`skills/tp-run-full-design/scripts/cleanup_worker_worktree.py`, then `python3 "$TP_ROOT"/skills/_shared/worker_root.py reap --slug {slug} --root .`), then `python3 "$TP_ROOT"/skills/_shared/task_verify.py sweep --design-dir three-pillars-docs/tp-designs/{slug}` and `python3 "$TP_ROOT"/skills/tp-run-full-design/scripts/sweep_orphan_branches.py --slug {slug}` (both fail-open).
 
 The rationale for the rules dropped in condensing this skill is in the architecture archive, section `Skill rationale (skill-context-diet-skills)`.

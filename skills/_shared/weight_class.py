@@ -83,13 +83,14 @@ _AXIS_LEVELS = ("low", "medium", "high")
 
 
 def recommend_class(risk, blast_radius, reversibility, novelty) -> tuple:
-    """Map the four rubric axes to ``(class, justification)``.
+    """Map the four rubric axes to ``(class, justification)`` (lean rubric).
 
     Each axis takes ``low | medium | high``. Reversibility is inverted —
-    ``high`` reversibility is good (minimal concern). Mapping: all four
-    minimal -> just-do-it; novelty high -> spike; at most one axis medium,
-    none high -> light; otherwise -> full. Ties and unknown axis values
-    resolve heavier (full). The justification names the deciding axis.
+    ``high`` reversibility is good (minimal concern). Order: novelty high ->
+    spike; risk or blast radius high -> full; every axis minimal ->
+    just-do-it; everything else (medium axes, low reversibility) -> light.
+    An unknown axis value counts as medium and the justification carries a
+    ``warning``. Only risk and blast radius can make a design ``full``.
     """
     axes = {
         "risk": risk,
@@ -97,25 +98,27 @@ def recommend_class(risk, blast_radius, reversibility, novelty) -> tuple:
         "reversibility": reversibility,
         "novelty": novelty,
     }
+    warnings = []
     for name, value in axes.items():
         if value not in _AXIS_LEVELS:
-            return ("full", f"{name} value {value!r} is unknown — resolving heavier")
+            warnings.append(f"warning: {name} value {value!r} is unknown — counted as medium")
+            axes[name] = "medium"
+    suffix = "".join(f"; {w}" for w in warnings)
+    if axes["novelty"] == "high":
+        return ("spike", "novelty is high — the approach is unknown" + suffix)
+    if axes["risk"] == "high":
+        return ("full", "risk concern is high" + suffix)
+    if axes["blast_radius"] == "high":
+        return ("full", "blast_radius concern is high" + suffix)
     # Normalize to concern levels: reversibility high (easy to undo) = low concern.
     concern = dict(axes)
     concern["reversibility"] = {"high": "low", "medium": "medium", "low": "high"}[
-        reversibility
+        axes["reversibility"]
     ]
     if all(level == "low" for level in concern.values()):
         return ("just-do-it", "all axes minimal")
-    if novelty == "high":
-        return ("spike", "novelty is high — the approach is unknown")
-    highs = [name for name, level in concern.items() if level == "high"]
-    mediums = [name for name, level in concern.items() if level == "medium"]
-    if not highs and len(mediums) == 1:
-        return ("light", f"only {mediums[0]} is medium; no axis is high")
-    if highs:
-        return ("full", f"{highs[0]} concern is high")
-    return ("full", f"multiple medium axes: {', '.join(mediums)}")
+    raised = [name for name, level in concern.items() if level != "low"]
+    return ("light", f"raised axes: {', '.join(raised)}; risk and blast radius not high" + suffix)
 
 
 _SIBLING_ARTIFACTS = ("seed.md", "detailed-design.md", "plan.md")
@@ -256,7 +259,29 @@ def main(argv=None) -> int:
     esc.add_argument("--to", required=True)
     esc.add_argument("--reason", required=True)
 
+    lt = sub.add_parser("lighten", help="suggest a lighter class from the axes")
+    lt.add_argument("design_dir")
+    for axis in ("--risk", "--blast-radius", "--reversibility", "--novelty"):
+        lt.add_argument(axis)
+
+    cst = sub.add_parser("cost", help="rough Mtok cost per weight class")
+    cst.add_argument("--root", default=".")
+
     args = parser.parse_args(argv)
+    if args.command == "cost":
+        from weight_cost import cost_table  # lazy: weight_cost imports us
+
+        print(cost_table(Path(args.root)))
+        return 0
+    if args.command == "lighten":
+        from weight_lighten import lighten  # lazy: weight_lighten imports us
+
+        flags = {"risk": args.risk, "blast_radius": args.blast_radius,
+                 "reversibility": args.reversibility, "novelty": args.novelty}
+        line, rc = lighten(Path(args.design_dir),
+                           {k: v for k, v in flags.items() if v is not None})
+        print(line)
+        return rc
     if args.command == "recommend":
         klass, why = recommend_class(
             args.risk, args.blast_radius, args.reversibility, args.novelty

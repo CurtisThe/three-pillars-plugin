@@ -61,12 +61,12 @@ What artifacts (MP4s, screenshots, logs) we'll produce to prove findings.
 Resource limits, time budget, dependencies.
 ```
 
-10. **Register in Design Inventory**: If `three-pillars-docs/product_roadmap.md` exists and contains a Design Inventory table, check whether `{spike-name}` already has a row. If not, propose appending a row with type "spike", status "Spiking", the parent design as a dependency (if any), and any other dependencies from the conversation. Show the proposed row and get user confirmation before writing. If the roadmap doesn't exist or has no Design Inventory table, skip this step silently.
-11. **Update Current Focus**: If the roadmap has a `## Current Focus` table and the user indicated this spike is a near-term priority during the conversation, propose adding it to the Current Focus table with an appropriate priority, next action (`/tp-spike-plan`), and any blockers. Show the proposed row and get user confirmation. If the user didn't indicate priority, ask whether it belongs in Current Focus.
+10. **Register in Design Inventory**: If `three-pillars-docs/product_roadmap.md` exists and contains a Design Inventory table, check whether `{spike-name}` already has a row (in the table, or as a `+` line in its fragment). If not, propose appending a row with type "spike", status "Spiking", the parent design as a dependency (if any), and any other dependencies from the conversation. Show the proposed row and get user confirmation, then write it as a `+ | ... |` line under `### Design Inventory` in `## Roadmap` of `three-pillars-docs/changes/{spike-name}.md`, creating the fragment (frontmatter `slug`, `kind: spike`, today's `date`) when absent, per `skills/_shared/living-doc-fragments.md`. A spike branch never edits `product_roadmap.md`. If the roadmap doesn't exist or has no Design Inventory table, skip this step silently.
+11. **Update Current Focus**: If the roadmap has a `## Current Focus` table and the user indicated this spike is a near-term priority during the conversation, propose adding it to the Current Focus table with an appropriate priority, next action (`/tp-spike-plan`), and any blockers. Show the proposed row and get user confirmation, then write it as a `+` line under `### Current Focus` in the same `## Roadmap`. If the user didn't indicate priority, ask whether it belongs in Current Focus. When step 10 or 11 wrote the fragment, run `python3 "$TP_ROOT"/skills/_shared/changes_fragment.py validate three-pillars-docs/changes/{spike-name}.md --repo-root .`; on exit 1 fix the section it names and re-run.
 12. **Commit the artifacts** per `skills/_shared/commit-after-work.md`. Artifact paths to stage:
     - `three-pillars-docs/tp-designs/{spike-name}/design.md`
     - `three-pillars-docs/tp-designs/{spike-name}/lock.json` (rolled into the same commit)
-    - `three-pillars-docs/product_roadmap.md` (only if step 10 or 11 modified it)
+    - `three-pillars-docs/changes/{spike-name}.md` (only if step 10 or 11 wrote it)
     Commit message: `Spike: {spike-name} design`.
 13. **Tell the user** the next step is `/tp-spike-plan {spike-name}` to create an experiment plan.
 

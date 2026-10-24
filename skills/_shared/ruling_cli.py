@@ -10,17 +10,25 @@ nothing written. Root: project root else cwd. Stdlib only.
   link     --id I --explain REF
   show     --id I
   subject  --id I --out F   card  --id I [--html P]
+  ask      --scope S --question Q --option L=D (2-4) --recommended L [--kind K] [--context T]
+           (prints its JSON line, then `awaiting-operator: ruling <id>`, then the
+           answer command)
+  wait     --id I [--timeout S] [--interval S]  (read only; label on line 1,
+           answer text on line 2 when present; exit 3 on timeout)
 """
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import finalizer_ruling as fr  # noqa: E402
+import ruling_ask  # noqa: E402
 import ruling_file as rf  # noqa: E402
 from project_root import find_project_root  # noqa: E402
 
@@ -120,6 +128,27 @@ def _card_opt(o, basis, recommended):
             "description": desc}
 
 
+def _repo_root() -> Path:
+    """The cwd's git repo root (resolved), else the cwd when git fails."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                              capture_output=True, text=True, check=True)
+        top = done.stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        top = ""
+    return Path(top or Path.cwd()).resolve()
+
+
+def _confined(out: Path) -> Path:
+    """``out`` resolved, refused unless it sits inside the repo root."""
+    resolved = out.resolve()
+    root = _repo_root()
+    if resolved != root and root not in resolved.parents:
+        raise CliError(f"--out {str(out)!r} resolves outside the repo "
+                       f"{root}; use a path inside it")
+    return resolved
+
+
 def cmd_subject(args, **_):
     path = _ruling_path(args.id)
     parsed = rf.parse(path)
@@ -130,6 +159,7 @@ def cmd_subject(args, **_):
     for k in ("options", "pillar_basis", "commits_to", "tie_breaker"):
         subject[k] = ruling.get(k, subject[k])
     out = Path(args.out)
+    _confined(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(subject, indent=2, ensure_ascii=False) + "\n",
                    encoding="utf-8")
@@ -165,7 +195,58 @@ def cmd_card(args, **_):
                               for o in ordered]})
 
 
-_COMMANDS = {"answer": cmd_answer, "feedback": cmd_feedback, "link": cmd_link,
+_sleep = time.sleep
+_clock = time.monotonic
+
+
+def _answer_text(parsed):
+    """Text after the first `` — `` of the last ``answer:`` line, else None."""
+    for line in reversed(parsed.get("feedback") or []):
+        m = rf._ANSWER.match(line)
+        if m:
+            _, sep, text = m.group(1).partition(" — ")
+            return text if sep and text else None
+    return None
+
+
+def cmd_wait(args, **_):
+    path = _ruling_path(args.id)
+    deadline = _clock() + args.timeout
+    while True:
+        parsed = rf.parse(path)
+        label = rf.answer_of(parsed)
+        if label:
+            print(label)
+            text = _answer_text(parsed)
+            if text is not None:
+                print(text)
+            return 0
+        if _clock() >= deadline:
+            print(f"awaiting-operator: ruling {args.id} "
+                  f"(no answer after {args.timeout:g}s)")
+            return 3
+        _sleep(args.interval)
+
+
+def cmd_ask(args, **_):
+    try:
+        path = ruling_ask.ask(
+            _root(), scope=args.scope, question=args.question,
+            options=args.option or [], recommended=args.recommended,
+            kind=args.kind, context=args.context)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+    rid = path.stem
+    _emit({"id": rid, "path": str(path), "kind": args.kind,
+           "options": [ruling_ask.parse_option(t)[0] for t in args.option],
+           "recommended": args.recommended})
+    print(f"awaiting-operator: ruling {rid}")
+    print('python3 "$TP_ROOT"/skills/_shared/ruling_cli.py answer '
+          f"--id {rid} --choice <label>")
+    return 0
+
+
+_COMMANDS = {"ask": cmd_ask, "wait": cmd_wait, "answer": cmd_answer, "feedback": cmd_feedback, "link": cmd_link,
              "show": cmd_show, "subject": cmd_subject, "card": cmd_card}
 
 
@@ -192,6 +273,17 @@ def _parser() -> argparse.ArgumentParser:
     c = sub.add_parser("card", help="print the AskUserQuestion card")
     c.add_argument("--id", required=True)
     c.add_argument("--html", default="", help="explain page path")
+    k = sub.add_parser("ask", help="write a run-asked ruling instead of a card")
+    k.add_argument("--scope", required=True)
+    k.add_argument("--question", required=True)
+    k.add_argument("--option", action="append", default=None)
+    k.add_argument("--recommended", default="")
+    k.add_argument("--kind", default=ruling_ask.DEFAULT_KIND)
+    k.add_argument("--context", default="")
+    w = sub.add_parser("wait", help="poll for the operator's answer")
+    w.add_argument("--id", required=True)
+    w.add_argument("--timeout", type=float, default=270)
+    w.add_argument("--interval", type=float, default=5)
     return top
 
 

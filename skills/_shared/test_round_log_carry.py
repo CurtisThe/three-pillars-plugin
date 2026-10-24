@@ -1,4 +1,4 @@
-"""round_log_carry: only a single-parent commit touching the three log files of ONE existing
+"""round_log_carry: only a single-parent commit touching the round-log files of ONE existing
 archived design dir is a round-log commit; the strip walks at most 3 and fails closed."""
 import os
 import subprocess
@@ -146,4 +146,5 @@ def test_unknown_head_fails_closed(repo):
 
 def test_names_constant():
     assert round_log_carry.ROUND_LOG_NAMES == (
-        "decisions.md", "dispatch-telemetry.ndjson", "escape-ledger.ndjson")
+        "decisions.md", "dispatch-telemetry.ndjson", "escape-ledger.ndjson",
+        "finalizer-ledger.json")

@@ -4,7 +4,8 @@ Covers:
   (a) main() prints the deleted list as JSON and always exits 0.
   (b) a raising sweep_orphan_agent_branches is swallowed — the CLI still
       prints an empty deleted list and exits 0 (backstop contract).
-  (c) --decisions-log is forwarded through to the helper unchanged.
+  (c) --decisions-log is forwarded through to the helper unchanged, with
+      owned= (empty without --slug) and root= (default ".").
   (d) an argparse usage error (unknown flag) degrades to exit 0 — the
       fail-open backstop must never make the orchestrator's exit non-zero.
 """
@@ -49,7 +50,7 @@ def test_cli_forwards_decisions_log_flag(tmp_path, capsys):
         rc = main(["--decisions-log", str(log)])
 
     assert rc == 0
-    sweep_mock.assert_called_once_with(decisions_log=log)
+    sweep_mock.assert_called_once_with(decisions_log=log, owned=set(), root=".")
 
 
 def test_cli_argparse_error_degrades_to_zero(capsys):

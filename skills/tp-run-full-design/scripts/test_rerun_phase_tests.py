@@ -3,7 +3,7 @@
 design: local-implement-and-review
 
 Real tmp git repos (`rerun_fixture`), never the ambient repository (M23). Every run
-is checked for leftovers: no `.claude/worktrees/tp-rerun-*` dir and no `tp-rerun/*`
+is checked for leftovers: no `tp-rerun-*` dir under the `-wt` scratch parent and no `tp-rerun/*`
 branch may survive any path.
 """
 from __future__ import annotations

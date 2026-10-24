@@ -95,6 +95,21 @@ EXCLUDED_FILES = frozenset({
     # closure walk does not reach, e.g. ci_gate_run.py / ci_local_stamp.py),
     # the sentinel body, and every one of their on-disk tests.
     "skills/_shared/commit_guard.py",
+    "skills/_shared/changes_fragment.py",
+    "skills/_shared/docs_fold.py",
+    "skills/_shared/docs_fold_issues.py",
+    "skills/_shared/docs_fold_text.py",
+    "skills/_shared/fragment_commit_check.py",
+    "skills/_shared/iteration_lane.py",
+    "skills/_shared/number_issues.py",
+    "skills/_shared/pending_changes.py",
+    "skills/_shared/task_scope.py",
+    "skills/_shared/task_scope_corpus.py",
+    "skills/_shared/task_scope_files.py",
+    "skills/_shared/task_scope_runner.py",
+    "skills/_shared/task_targets.py",
+    "skills/_shared/test_commit_guard_fragment.py",
+    "skills/_shared/test_commit_guard_fragment_index.py",
     "skills/_shared/commit_guard_settings.py",
     "skills/_shared/commit_guard_hooks.py",
     "skills/_shared/repo_config_load.py",
@@ -114,6 +129,8 @@ EXCLUDED_FILES = frozenset({
     "skills/_shared/test_repo_config_load.py",
     "skills/_shared/test_repo_config_load_committed.py",
     "skills/_shared/test_ci_gate_run.py",
+    "skills/_shared/test_ci_gate_run_env.py",
+    "skills/_shared/test_ci_gate_run_junit.py",
     "skills/_shared/test_ci_local_stamp.py",
     "skills/_shared/test_ci_local_stamp_cli.py",
     "skills/_shared/test_ci_local_stamp_config_gate.py",
@@ -126,6 +143,21 @@ EXCLUDED_FILES = frozenset({
     "skills/_shared/test_bootstrap_immunization_cli.py",
     "skills/_shared/test_bootstrap_immunization_r2.py",
     "skills/_shared/test_bootstrap_immunization_worktree.py",
+    # seat-escalate-first B11: the seat-commit guard step and the escalation
+    # modules commit_guard.py now reaches through it (its closure), plus the
+    # guard's own test.
+    "skills/_shared/seat_commit_guard.py",
+    "skills/_shared/seat_scope.py",
+    "skills/_shared/escalate_first_hook.py",
+    "skills/_shared/finalizer_ruling.py",
+    "skills/_shared/lessons.py",
+    "skills/_shared/project_root.py",
+    "skills/_shared/ruling_cli.py",
+    "skills/_shared/ruling_file.py",
+    # run-no-cards-hook: the run's card deny hook, and ruling_cli.py's new import.
+    "skills/_shared/run_no_cards_hook.py",
+    "skills/_shared/ruling_ask.py",
+    "skills/_shared/test_commit_guard_seat.py",
 })
 
 

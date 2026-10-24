@@ -44,7 +44,7 @@ _GITHUB_NATIVE_AUTOMATION: frozenset = frozenset(
 )
 
 
-def automation_identities(*, self_login, config) -> frozenset:
+def automation_identities(*, self_login, config, pr_author=None) -> frozenset:
     """Lowercased automation logins the approver must NOT be (D3 hybrid set).
 
     Base floor = hardcoded known framework/CI bots:
@@ -52,6 +52,7 @@ def automation_identities(*, self_login, config) -> frozenset:
         copilot-pull-request-reviewer[bot], copilot)
       - the GitHub-native logins (github-actions[bot], github-actions, dependabot[bot])
     PLUS the framework's own gh-authenticated *self* login when truthy (lowercased).
+    PLUS the PR author (`pr_author`, lowercased), so an author's own review never counts.
     PLUS any extra logins from config review.automation_identities (list[str]), so an
     org can name its own service accounts (and, for multi-account separation-of-duties,
     its committing CI identity) WITHOUT a code change.
@@ -70,6 +71,8 @@ def automation_identities(*, self_login, config) -> frozenset:
 
     if isinstance(self_login, str) and self_login:
         members.add(self_login.lower())
+    if isinstance(pr_author, str) and pr_author:
+        members.add(pr_author.lower())  # an author never approves their own PR
 
     if isinstance(config, dict):
         review = config.get("review")
@@ -192,7 +195,7 @@ def _build_live_runners(pr_url: str) -> dict:
     owner, repo, number = thread_resolver._parse_pr_url(pr_url)
 
     def head_fn(url: str) -> dict:
-        return _gh_json(["pr", "view", url, "--json", "headRefOid,commits"])
+        return _gh_json(["pr", "view", url, "--json", "headRefOid,commits,author,isCrossRepository"])
 
     def self_login_fn() -> str:
         result = subprocess.run(
@@ -284,9 +287,12 @@ def approved_on_head_result(pr_url: str, *, runners=None, config=None) -> "tuple
         if not self_login or not isinstance(self_login, str):
             return False, ""
 
-        automation = automation_identities(self_login=self_login, config=config)
-
         head = _safe_fetch(head_fn, pr_url, default={})
+        import per_developer_author  # noqa: E402 — in _shared/ beside this file
+
+        automation = automation_identities(
+            self_login=self_login, config=config,
+            pr_author=per_developer_author.login_from_head(head))
         reviews = _safe_fetch(reviews_fn, pr_url, default=[])
 
         # Path B: native APPROVED review (the sole currency path after retire-approval-tags).

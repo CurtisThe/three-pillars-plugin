@@ -80,6 +80,16 @@ A malformed field is an audit ERROR. A missing field is only a NOTE, but the tas
 - `**Split**: <path> | none — <reason>` — for a task whose largest **File** would reach its file-size hard cap: the new file the addition splits into, or `none — <reason>` to opt out. `/tp-plan-audit` (`plan_couplings.py`) flags a task that needs one and has neither.
 - `**Growth**: +N` — the lines the task adds to its largest **File** (default `+50`); `+0` or less on a grandfathered file opts out of the split check.
 
+**Task sizing.** These limits target local-model workers; every number lives only in `skills/tp-plan-audit/scripts/sizing_limits.py` — the single source of truth, so this block quotes none — and `/tp-plan-audit` reports each as an advisory WARN.
+- **Cap headroom**: the largest **File**'s current lines plus its **Growth** stay under its soft cap minus `SOFT_HEADROOM`; otherwise name a `**Split**` module, add a preceding refactor task, or write `**Split**: none — <reason>` — never "fit it in N lines".
+- **One concern**: `MAX_ENTRY_POINTS` entry point at most, and at most `MAX_RED_CLAUSES` Red clauses.
+- **Production growth**: **Growth** at most `MAX_GROWTH` lines.
+- **Files/Targets closure**: an existing test that imports a modified **File** goes in **Targets**, or is named "must stay green, untouched".
+- **Read set**: the files the task reads stay within `MAX_READ_TOKENS`.
+- **Environment**: a Red needing a real pytest, a tmp git repo, a worktree or a subprocess names your repo's test helper (list it in `plan_audit.test_helpers`), else add a preceding fixture task; in the framework repo the defaults are `sizing_limits.TEST_HELPERS`, such as `inner_pytest`.
+- **Carried inputs**: a task names its exact file and anchor, quotes the current text, and carries the target text or a tight rule; a condense/move task's input arrives pre-sliced to the section it changes.
+- **One Targets run**: **Targets** is one node list run once at green, and a fully specified edit may carry `**Kind**: clerical` so it starts on `local-medium`.
+
 **Per-phase budget annotation.** Each phase header carries a `(~Nk)` token-budget annotation — a rough estimate of the tokens implementing that phase will cost. Keep each phase **under the per-phase cap of 200k**: when `/tp-run-full-design` drives the plan it dispatches every plan phase under a single `phase-implement` slot, whose **200k soft budget** comes from that orchestrator's static **budget table** (`skills/tp-run-full-design/SKILL.md` → ## Per-slot budget table). Reference that table value as the authoritative source rather than re-deriving the number here — if the slot budget changes, this annotation target tracks it. A phase whose estimate exceeds 200k should be split into smaller phases so each fits one dispatch. The annotation is a sizing hint (for the human reviewer and for the orchestrator's pre-split decision), not a hard gate this skill enforces.
 
 7. **Confirm the plan with the user**. Walk through it briefly. Adjust if they want to reorder, split, or drop tasks.

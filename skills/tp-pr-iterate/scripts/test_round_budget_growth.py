@@ -87,15 +87,39 @@ def test_growth_multiplier_from_config():
     assert term is None
 
 
+WIDE = {"pdw": {"guards": {"growth_multiplier": 100}}}  # growth-lines cannot fire first
+
+
 def test_test_code_ratio_fires_over_floor():
-    base = baseline(code=1000, test=0)  # original 1000 → growth limit 1500
-    st, term, detail = run(base, "h2", rows(code=1010, test=120))
-    assert term == "budget-exhausted" and st["termination_reason"] == "test-code-ratio"
-    assert detail["measured"] == 120 and detail["limit"] == 30
+    # the terminal reports the PR figures: measured 3100 and limit 3030 (3 x 1010 code)
+    # the whole PR (1010 code / 3100 test) is over 3x, and so is the loop delta (10 / 3100)
+    base = baseline(code=1000, test=0)
+    st, term, detail = run(base, "h2", rows(code=1010, test=3100), config=WIDE)
+    assert term == "budget-exhausted" and st["termination_reason"] == "test-code-ratio", (
+        f"expected the PR figures 3100 and 3030, got term={term!r} "
+        f"reason={st.get('termination_reason')!r} detail={detail!r}")
+    assert detail["measured"] == 3100 and detail["limit"] == 3030, (  # the PR figures
+        f"expected measured 3100 and limit 3030, got {detail!r}")
 
 
 def test_test_code_ratio_below_floor_is_fine():
-    _, term, _ = run(baseline(code=1000, test=0), "h2", rows(code=1010, test=99))
+    # PR over 3x, loop delta over 3x, but the delta adds 99 test lines: under the floor
+    _, term, _ = run(baseline(code=1000, test=3500), "h2", rows(code=1000, test=3599),
+                     config=WIDE)
+    assert term is None
+
+
+def test_round_in_a_pr_under_the_ratio_does_not_fire():
+    # 22 code / 154 test in the round, but the PR is 122 code / 254 test: under 3x
+    _, term, detail = run(baseline(code=100, test=100), "h2", rows(code=122, test=254),
+                          config=WIDE)
+    assert term is None and detail["holding"] == []
+
+
+def test_balanced_round_in_an_over_ratio_baseline_does_not_fire():
+    # the PR is over 3x (140 / 600) but the round (40 code / 100 test) is under 3x
+    _, term, _ = run(baseline(code=100, test=500), "h2", rows(code=140, test=600),
+                     config=WIDE)
     assert term is None
 
 

@@ -24,7 +24,7 @@ Move a repo from the legacy `docs/tdd-*` layout to the current `three-pillars-do
    - If the output says the repo is already migrated: report and stop. No work needed.
    - If the output says the repo is already on the current layout: report and stop. No work needed.
    - Otherwise, the output is a list of moves and rewrites. Continue.
-3. **Confirm with the user**: ask `"Apply this migration plan? (yes/no)"`. Stop on `no`.
+3. **Confirm with the user**: ask `"Apply this migration plan? (yes/no)"` with a line `seat-allow: migrate-confirm` of its own. Stop on `no`.
 4. **Apply the migration**: run `python3 "$TP_ROOT"/skills/_shared/migrate.py --apply --repo {repo}`. This delegates everything to migrate.py — moves, rewrites, the new commit, and the config stamp. This skill itself must not stamp the migration field; ownership of that field belongs to migrate.py alone.
 5. **Read back and report**:
    - Read `.three-pillars/config.json` and confirm `migration.completed_at` is non-null and `migration.from_layout` is `"docs+tdd"`.

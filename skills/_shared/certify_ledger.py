@@ -19,14 +19,15 @@ certify's (`unverified:cap` / `:budget` distinct); triage rows read `not-a-claim
 (`no-result`). `ledger verify` re-renders from the header's snapshots (never a live
 inventory) and exits 1 on any difference. `issues render|apply` live in `certify_issues.py`;
 `apply` files each miss under a placeholder `M-new-<slug>` (numbered at landing), never a
-next-free number.
+next-free number: into `known_issues.md` (`--known-issues K`), or on a design branch, which never edits a
+living doc, into the design's fragment (`--fragment F`, the docs read beside its `changes/` directory).
 
     certify_ledger.py design-dir <slug> [--root R]    # prints resolve_design_dir(R, slug)
     certify_ledger.py ledger render --inventory I --triage T [--result R]...
                       [--self-result S] --out F [--date D] [--sha S] [--after-repair N]
     certify_ledger.py ledger verify --ledger L [--result R]... [--self-result S]
     certify_ledger.py issues render [--result R]... [--self-result S] --out P
-    certify_ledger.py issues apply --pending P --known-issues K [--resolved R]
+    certify_ledger.py issues apply --pending P (--known-issues K [--resolved R] | --fragment F)
 
 Exit 0 ok, 1 verify mismatch, 2 bad input. No subprocess, no git, no dev-only imports.
 """
@@ -311,7 +312,13 @@ def cmd_issues_render(args) -> int:
 
 def cmd_issues_apply(args) -> int:
     pending = Path(args.pending).read_text(encoding="utf-8")
-    ids = certify_issues.apply(pending, args.known_issues, args.resolved)
+    if args.fragment and args.resolved:
+        raise ValueError("--resolved goes with --known-issues, not --fragment")
+    if args.fragment:
+        docs = Path(args.fragment).resolve().parent.parent  # three-pillars-docs/changes/<slug>.md
+        ids = certify_issues.apply_to_fragment(pending, args.fragment, docs / "known_issues.md")
+    else:
+        ids = certify_issues.apply(pending, args.known_issues, args.resolved)
     print(json.dumps({"applied": ids}))
     return EXIT_OK
 
@@ -353,7 +360,9 @@ def build_parser() -> argparse.ArgumentParser:
     irender.set_defaults(func=cmd_issues_render)
     iapply = issues.add_parser("apply")
     iapply.add_argument("--pending", required=True)
-    iapply.add_argument("--known-issues", required=True)
+    target = iapply.add_mutually_exclusive_group(required=True)
+    target.add_argument("--known-issues")
+    target.add_argument("--fragment")
     iapply.add_argument("--resolved")
     iapply.set_defaults(func=cmd_issues_apply)
     return parser

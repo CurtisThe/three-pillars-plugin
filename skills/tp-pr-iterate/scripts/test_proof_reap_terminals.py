@@ -132,3 +132,37 @@ def test_missing_rounds_dir_is_loud(tmp_path, capsys):
     res = proof_reap.close_and_prune(tmp_path / "nowhere", "7", closed_by="stop")
     assert "nowhere" in json.dumps(res)
     assert "nothing reaped" in capsys.readouterr().err
+
+
+def test_flush_wrong_root_appends_log_then_refuses(tmp_path, capsys):
+    # Two wrong roots, each in its own dir so each case proves its own append:
+    # a root that does not exist, and an existing root that has no rounds/ dir.
+    for case in ("wrong", "bare"):
+        base = tmp_path / case
+        base.mkdir()
+        root = base / "root"
+        if case == "bare":
+            root.mkdir()
+        log, dec = _files(base)
+        rc = _flush(log, dec, "--root", str(root), "--pr-url", URL)
+        out = capsys.readouterr().out
+        assert rc == 2, f"{case}: flush on {URL} with no rounds dir exited {rc}, want 2: {out}"
+        assert "entry" in dec.read_text(encoding="utf-8"), f"{case}: log not appended to {dec}"
+        assert "refused" in out, f"{case}: {URL}: no refused line: {out}"
+        assert str(root / "rounds") in out, f"{case}: {URL}: refusal must name the rounds path: {out}"
+
+
+def test_flush_terminal_before_any_round_still_exits_zero(tmp_path, capsys):
+    root = tmp_path / "root"
+    (root / "rounds").mkdir(parents=True)
+    log, dec = _files(tmp_path)
+    assert _flush(log, dec, "--root", str(root), "--pr-url", URL) == 0
+    assert "entry" in dec.read_text(encoding="utf-8")
+
+
+def test_stop_with_root_and_no_round_dir_exits_zero(tmp_path, capsys):
+    root = tmp_path / "root"
+    (root / "rounds").mkdir(parents=True)
+    log, dec = _files(tmp_path)
+    assert _stop(log, dec, "--root", str(root)) == 0
+    assert "entry" in dec.read_text(encoding="utf-8")

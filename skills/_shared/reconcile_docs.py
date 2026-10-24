@@ -786,6 +786,9 @@ def main(argv) -> int:
               else f"error: {msg}")
         return 0
 
+    import final_doc_state  # lazy
+    if (args.archive_cites or args.pre_merge) and final_doc_state.fragment_mode(args.repo, args.slug):
+        print(json.dumps({"mode": "fragment", "edits": []})); return 0  # docs compile owns it
     repo_root = Path(args.repo)
     edits: list[Edit] = []
     all_skipped: list[dict] = []

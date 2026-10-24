@@ -154,7 +154,9 @@ class Forecast:
 
 def forecast(repo: str, merge_sha: str, base: str) -> Forecast:
     """Dry-run git revert -m 1 --no-commit in a scratch worktree (always cleaned up)."""
-    wt = Path(repo) / ".claude" / "worktrees" / f"revert-probe-{merge_sha[:8]}"
+    import wt_root  # skills/_shared is on sys.path (see top of file)
+
+    wt = Path(wt_root.ensure_parent(repo, "revert-probe")) / f"revert-probe-{merge_sha[:8]}"
     wt_created = False
     try:
         add_result = subprocess.run(

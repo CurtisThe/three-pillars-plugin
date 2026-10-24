@@ -32,11 +32,10 @@ import re
 import sys
 from pathlib import Path
 
-# Ensure _shared/ is on sys.path for sibling imports (diff_balloon_guard.py pattern).
 _SHARED_DIR = Path(__file__).resolve().parent
 if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
-
+import wt_root  # noqa: E402
 from default_branch import resolve_default_branch  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ from default_branch import resolve_default_branch  # noqa: E402
 
 DIFF_CAP = 150
 LEDGER_RELPATH = "three-pillars-docs/tp-designs/orchestration/hot-patches.md"
-WORKTREE_PREFIX = ".claude/worktrees/hot-patch-"
+WORKTREE_NAME_PREFIX = "hot-patch-"
 BRANCH_PREFIX = "hot-patch/"
 
 # Exclusion tuple (must match hot_patch_check.py exactly)
@@ -95,6 +94,21 @@ EXCLUDED_FILES = frozenset({
     # closure walk does not reach, e.g. ci_gate_run.py / ci_local_stamp.py),
     # the sentinel body, and every one of their on-disk tests.
     "skills/_shared/commit_guard.py",
+    "skills/_shared/changes_fragment.py",
+    "skills/_shared/docs_fold.py",
+    "skills/_shared/docs_fold_issues.py",
+    "skills/_shared/docs_fold_text.py",
+    "skills/_shared/fragment_commit_check.py",
+    "skills/_shared/iteration_lane.py",
+    "skills/_shared/number_issues.py",
+    "skills/_shared/pending_changes.py",
+    "skills/_shared/task_scope.py",
+    "skills/_shared/task_scope_corpus.py",
+    "skills/_shared/task_scope_files.py",
+    "skills/_shared/task_scope_runner.py",
+    "skills/_shared/task_targets.py",
+    "skills/_shared/test_commit_guard_fragment.py",
+    "skills/_shared/test_commit_guard_fragment_index.py",
     "skills/_shared/commit_guard_settings.py",
     "skills/_shared/commit_guard_hooks.py",
     "skills/_shared/repo_config_load.py",
@@ -114,6 +128,8 @@ EXCLUDED_FILES = frozenset({
     "skills/_shared/test_repo_config_load.py",
     "skills/_shared/test_repo_config_load_committed.py",
     "skills/_shared/test_ci_gate_run.py",
+    "skills/_shared/test_ci_gate_run_env.py",
+    "skills/_shared/test_ci_gate_run_junit.py",
     "skills/_shared/test_ci_local_stamp.py",
     "skills/_shared/test_ci_local_stamp_cli.py",
     "skills/_shared/test_ci_local_stamp_config_gate.py",
@@ -126,6 +142,18 @@ EXCLUDED_FILES = frozenset({
     "skills/_shared/test_bootstrap_immunization_cli.py",
     "skills/_shared/test_bootstrap_immunization_r2.py",
     "skills/_shared/test_bootstrap_immunization_worktree.py",
+    "skills/_shared/seat_commit_guard.py",
+    "skills/_shared/seat_scope.py",
+    "skills/_shared/escalate_first_hook.py",
+    "skills/_shared/finalizer_ruling.py",
+    "skills/_shared/lessons.py",
+    "skills/_shared/project_root.py",
+    "skills/_shared/ruling_cli.py",
+    "skills/_shared/ruling_file.py",
+    # run-no-cards-hook: the run's card deny hook, and ruling_cli.py's new import.
+    "skills/_shared/run_no_cards_hook.py",
+    "skills/_shared/ruling_ask.py",
+    "skills/_shared/test_commit_guard_seat.py",
 })
 
 
@@ -211,7 +239,7 @@ def build_plan(
         }
 
     base_branch = _resolve_base_branch(repo_root)
-    worktree_path = f"{repo_root}/{WORKTREE_PREFIX}{slug}"
+    worktree_path = f"{wt_root.scratch_parent(repo_root, slug)}/{WORKTREE_NAME_PREFIX}{slug}"
     branch = f"{BRANCH_PREFIX}{slug}"
     ledger_path = f"{worktree_path}/{LEDGER_RELPATH}"
 
@@ -344,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     # Live mode: execute the plan
     import subprocess  # noqa: PLC0415
     print(f"Provisioning worktree: {plan['worktree_path']}")
+    wt_root.ensure_parent(repo_root, args.slug)
     result = subprocess.run(
         ["git", "-C", repo_root, "worktree", "add",
          "-b", plan["branch"], plan["worktree_path"]],

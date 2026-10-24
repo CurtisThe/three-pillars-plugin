@@ -37,7 +37,8 @@ the loop-excluded config and design docs and untracked files are ignored), and
 re-checks after running. It merges the manifest replies, writes
 `R/tail/findings.json`, appends downgrade and note lines to the manifest's
 `log_path` (never decisions.md) and prints
-`{blocking, downgraded, inconclusive, notes, tally}`.
+`{blocking, downgraded, inconclusive, notes, tally}`. It then deletes the angles' exec
+dirs (`round_scratch.reap_exec_dirs`), so the clean-round scratch check never sees them.
 """
 
 from __future__ import annotations
@@ -352,6 +353,10 @@ def run_cli(round_dir, cwd, head, *, timeout=DEFAULT_TIMEOUT, runner=subprocess.
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write("".join(line + "\n" for line in lines))
+    # The replies are merged: the angles' exec dirs (tree copies in the system temp) go now,
+    # before the clean-round scratch check (`tail-check` stays the idempotent backstop).
+    import round_scratch  # noqa: PLC0415 — lazy: keeps this module's import graph unchanged
+    round_scratch.reap_exec_dirs(round_dir)
     t = tally(findings)
     return {"blocking": t["blocking"],
             "downgraded": sum(1 for r in records if r["reason"] != INCONCLUSIVE),

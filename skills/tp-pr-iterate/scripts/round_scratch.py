@@ -11,7 +11,8 @@ is derived from the dirs (cold-resume safe), never from memory; a dir is never
 reused. `read_replies` turns a missing or empty reply into an unparseable
 string, so a clobbered sibling becomes a sentinel and blocks (fail-closed).
 `flush_log` moves the loop log into decisions.md; `safe_remove` deletes only an
-`r<N>` dir inside its owner; `tail_check` validates `tail/envelope.json`
+`r<N>` dir inside its owner; `reap_exec_dirs` (called by `reproduce.py` once the
+replies are merged) deletes the angles' exec dirs; `tail_check` validates `tail/envelope.json`
 against `schemas/round-tail.v1.json`.
 
 CLI: `prepare | flush | remove | tail-check | put` (exit 2 + one JSON line on
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import shutil
 import sys
@@ -36,12 +38,14 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import angles as angles_mod  # noqa: E402 — first: it puts skills/_shared on sys.path
+import angle_tree  # noqa: E402
 import agent_ref  # noqa: E402,I001 — the one spawn-reference resolver
 import budget_clock  # noqa: E402
 import finder_segments  # noqa: E402
 import proof_reap  # noqa: E402
 import review_instructions  # noqa: E402
 import review_prep  # noqa: E402
+import run_scratch  # noqa: E402 — the run's in-tree TMPDIR shape
 from repo_config_load import load_repo_config  # noqa: E402
 
 SCHEMA_PATH = _HERE.parent / "schemas" / "round-tail.v1.json"
@@ -123,6 +127,8 @@ def _next_ordinal(rounds_dir: Path) -> tuple[int, str]:
         env = json.loads((path / TAIL / ENVELOPE).read_text(encoding="utf-8"))
         action = env["action"]
     except (OSError, ValueError, TypeError, KeyError) as exc:
+        if proof_reap._terminal(path):  # closed round: no tail envelope needed
+            return n + 1, f"r{n + 1}"
         raise TailFailed(f"{path.name}: no valid tail envelope ({exc})") from exc
     if action == "rerun-review":
         if is_rerun:
@@ -166,6 +172,9 @@ def prepare(root, pr_url, angles, *, base, head, effort, state_path, log_path,
             raise ValueError(f"unsafe angle name for a scratch dir: {a.get('name')!r}")
     instructions_present = (
         review_instructions.status(repo, load_repo_config(repo).config) == "present")
+    rev = angle_tree.head_commit(repo, head)  # each angle gets a private copy of this commit
+    if rev is None:
+        print(f"angle trees skipped: head {head} is not a commit in {repo}", file=sys.stderr)
     root = Path(root).absolute()
     rounds_dir = root / "rounds" / _pr_number(pr_url)
     n, ordinal = _next_ordinal(rounds_dir)
@@ -197,18 +206,21 @@ def prepare(root, pr_url, angles, *, base, head, effort, state_path, log_path,
     for a, agent in zip(angles, agents):
         (round_dir / a["name"]).mkdir()
         reply = str(round_dir / a["name"] / REPLY)
-        exec_dir = tempfile.mkdtemp(prefix=f"tp-angle-{a['name']}-")  # outside the proof root
+        exec_dir = tempfile.mkdtemp(prefix=f"tp-angle-{a['name']}-",  # outside the proof root
+                                    dir=run_scratch.outside_tmpdir())  # and the checkout
+        tree_dir = angle_tree.make_tree(repo, rev, exec_dir) if rev and not a.get("skipped") else None
         entries.append({
             "name": a["name"], "role": a["role"], "model": a["model"],
             "agent": agent, "agent_ref": refs[agent],
             "dispatch_model": angles_mod.dispatch_model(a, config, root=repo),
             "tier": angles_mod.tier(a), "reply_path": reply, "exec_dir": exec_dir,
+            "tree_dir": tree_dir,
             **{k: a[k] for k in ("skipped", "advisory", "segment") if a.get(k)},
             "prompt": angles_mod.build_prompt(a, base=base, head=head, effort=effort,
                                               reply_path=reply, round_dir=str(round_dir),
                                               put_script=str(_HERE / "round_scratch.py"),
                                               instructions_present=instructions_present)
-            + _EXEC_NOTE.format(exec_dir=exec_dir)
+            + _EXEC_NOTE.format(exec_dir=exec_dir) + angle_tree.note(exec_dir, tree_dir)
             + review_prep.prompt_suffix(prep.get(a["name"])),
         })
     manifest = {
@@ -329,6 +341,56 @@ def tail_check(round_dir):
     return dict(TAIL_FAILED) if envelope_errors(env) else None
 
 
+def _exec_dirs(round_dir) -> list[str]:
+    """Each manifest angle's non-empty `exec_dir` string; [] on any read error."""
+    try:
+        entries = json.loads((Path(round_dir) / MANIFEST).read_text(encoding="utf-8")).get("angles") or []
+    except (OSError, ValueError, AttributeError):
+        entries = []
+    return [e["exec_dir"] for e in entries
+            if isinstance(e, dict) and isinstance(e.get("exec_dir"), str) and e["exec_dir"]]
+
+
+def _rm_exec(d, res) -> None:
+    """Delete one exec dir: missing is fine, a failure is a stderr line + `exec_failed`."""
+    try:
+        shutil.rmtree(d, ignore_errors=False)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(f"exec dir not deleted {d}: {exc}", file=sys.stderr)
+        res["exec_failed"].append(d)
+
+
+def _reapable(d) -> bool:
+    """A real (non-symlink) absolute `tp-angle-*` dir directly under the system temp,
+    tempfile's temp or `run_scratch.outside_tmpdir()` — where `prepare` makes them."""
+    try:
+        p = Path(d)
+        parents = {os.path.realpath(x) for x in (tempfile.gettempdir(), run_scratch._SYSTEM_TMP,
+                                                 run_scratch.outside_tmpdir()) if x}
+        real_parent = os.path.realpath(p.parent)
+        return (p.is_absolute() and p.name.startswith("tp-angle-") and not p.is_symlink()
+                and real_parent in parents
+                and os.path.realpath(p) == os.path.join(real_parent, p.name))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def reap_exec_dirs(round_dir) -> dict:
+    """Delete each angle's exec dir once its reply is merged (`reproduce.py`, before the
+    clean-round scratch check). Guarded (`_reapable`): any other path is left in place and
+    listed in `exec_refused`. Never raises; `cleanup_round` stays the idempotent backstop."""
+    res = {"exec_failed": [], "exec_refused": []}
+    for d in _exec_dirs(round_dir):
+        if _reapable(d):
+            _rm_exec(d, res)
+        else:
+            print(f"exec dir left in place (not a tp-angle temp dir) {d}", file=sys.stderr)
+            res["exec_refused"].append(d)
+    return res
+
+
 def cleanup_round(round_dir, *, strip) -> dict:
     """Delete every manifest angle's exec dir; strip the angle dirs when `strip`.
 
@@ -336,21 +398,8 @@ def cleanup_round(round_dir, *, strip) -> dict:
     """
     round_dir = Path(round_dir)
     res = {"exec_failed": [], "stripped": []}
-    try:
-        entries = json.loads((round_dir / MANIFEST).read_text(encoding="utf-8")).get("angles") or []
-    except (OSError, ValueError, AttributeError):
-        entries = []
-    for e in entries:
-        d = e.get("exec_dir") if isinstance(e, dict) else None
-        if not isinstance(d, str) or not d:
-            continue
-        try:
-            shutil.rmtree(d, ignore_errors=False)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            print(f"exec dir not deleted {d}: {exc}", file=sys.stderr)
-            res["exec_failed"].append(d)
+    for d in _exec_dirs(round_dir):
+        _rm_exec(d, res)
     if strip:
         res["stripped"] = _strip_round(round_dir)
     return res

@@ -70,6 +70,7 @@ Tier 5 Step 3 and Slot 9 always dispatch `/tp-design-learn {slug} --auto --cheap
 - `/tp-design-learn --auto` still never edits `vision.md`, and its stubs never draft for it.
 - The tier-summary Decision Entry is not a slot (plan.md §Deviations 3), so this orchestrator still holds no stub of its own.
 - **Depth 2.** When the Slot 9 `tp-generator` spawns `tp-drafter` at those stubs, that is a second sanctioned subagent level (orchestrator → `tp-generator` → `tp-drafter`). It sits beside Slot 7's `tp-worker` → `tp-task-worker` (`SKILL.md`, "The orchestrator runs in the main conversation"). The drafter writes one file and spawns nothing, so there is never a third level. Tier 5 Step 3 runs the skill inline, so its drafter is depth 1.
+- **Depth 2, the retro reviewer.** Step 10b of that skill spawns one `Agent(subagent_type=agent_ref("tp-readonly-auditor"), model="opus")`, only when `run_retro.py draft` printed `review_needed`. It is a second sanctioned level beside `tp-drafter`'s (orchestrator → `tp-generator` → reviewer); it reads and spawns nothing, so there is never a third level.
 - **Run-end resume line (under `--local`).** After Slot 9 — where the run's Strata task work has ended, so Tier 7 rounds fall outside the window — read the run's own number:
 
   ```bash

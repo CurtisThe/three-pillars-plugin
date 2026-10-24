@@ -13,14 +13,22 @@ The line that pointed you here is the operator's instruction. Follow this brief 
 ## Decisions
 - Answer design questions from the seed's recommended answers. Where the seed has none, choose the
   smallest option that serves `vision.md` and log the choice in `decisions.md`.
-- Ask in this window only what cannot be decided from the seed, the docs and the code. Name the
-  question, the options and your recommendation, then wait.
+- A question the seed, the docs and the code cannot settle goes through
+  `skills/_shared/escalation.md`: a ruling first, then a tagged card if it escalates; never as
+  prose in this window.
 
 ## Routing (when the run was launched with `--local`)
 - Every dispatch that has a local option takes it.
 - Review finders and council members run on Strata; Opus judges (gates, audit synthesis, the opus check).
 - {busy_line}
 - Stop only on a non-busy fallback reason, and report the reason in this window.
+
+## Long commands
+- Run anything past ~4 minutes (the full test suite, Tier 3.5) with Bash `run_in_background`.
+  Then end your turn: the completion notice wakes you. To check sooner, use the start form in
+  `bg_wait.py`'s docstring and poll `python3 "$TP_ROOT"/skills/_shared/bg_wait.py --marker <M>`
+  (`skills/_shared/local-dispatch.md`, Long commands).
+- Never call a tool only to pass time: no `Workflow`, no `sleep` loop, no no-op agent.
 
 ## Reporting
 - Commit per task or artifact with scoped `git add`; push fail-open; no `--no-verify`.

@@ -80,18 +80,27 @@ def create_pr(
     `--reviewer <comma-joined>`. Returns the child's returncode; stdout/stderr
     pass through (never capture_output on this call — the PR URL must reach
     the caller). On a token-probe failure, `BotAuthUnavailable` propagates
-    and the create runner is NEVER invoked (no ambient fallback).
+    and the create runner is NEVER invoked (no ambient fallback), except under
+    `github.per_developer_author: self`: a plain ambient create plus a warning.
     """
     run = runner or _default_create_runner
     base_env = env if env is not None else os.environ
 
     account = resolve_pr_author(config, context)
+    automation_identity.per_developer_mode(config)  # eager: a bad value raises with any account
 
     if account is None:
         result = run(["gh", "pr", "create", *gh_args], env=base_env)
         return result.returncode
 
-    child_env = automation_identity.account_env(account, base_env, token_runner=token_runner)
+    child_env = automation_identity._account_env_or_ambient(
+        account, config, base_env, token_runner)
+    if child_env is None:  # per_developer_author: self, bot token unavailable: plain create
+        print(f"!! per_developer_author: self — this PR is authored as "
+              f"{automation_identity.ambient_login()}, not {account}; if that login is the "
+              "maintainer's own account it cannot approve the PR", file=sys.stderr)
+        result = run(["gh", "pr", "create", *gh_args], env=base_env)
+        return result.returncode
     args = _reviewer_args(config, gh_args)
     result = run(["gh", "pr", "create", *args], env=child_env)
     return result.returncode

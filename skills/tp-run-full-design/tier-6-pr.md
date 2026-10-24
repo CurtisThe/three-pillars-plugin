@@ -27,14 +27,16 @@ FORGE="$(python3 "$RS" forge.py)" || exit 1
 HEADLINE=$(python3 "$TP_ROOT"/skills/_shared/explainer/explain_cli.py headline --slug {slug} || true
 )
 [ -z "$HEADLINE" ] || HEADLINE="$HEADLINE"$'\n\n'
-python3 "$FORGE" pr-create --context autonomous -- --base {default} --head tp/{slug} --title "{slug}: {task_metadata.title}" --body "${HEADLINE}$(structured PR description)"
+FRICTION="$(python3 "$TP_ROOT"/skills/_shared/run_retro.py pr-section --design-dir three-pillars-docs/completed-tp-designs/{slug} || true)"
+[ -z "$FRICTION" ] || FRICTION=$'\n\n'"$FRICTION"
+python3 "$FORGE" pr-create --context autonomous -- --base {default} --head tp/{slug} --title "{slug}: {task_metadata.title}" --body "${HEADLINE}$(structured PR description)${FRICTION}"
 ```
 
 - Before `pr-create`: `phase_check.py jdi-warn --design-dir <d>` (advisory); `review_time.py --design-dir <d> --phase impl` in the PR body.
 
 ### Step 2b — PR-number writeback
 
-- Completion path only: the legacy fallback never runs it. After create succeeds, resolve `{n}` from the PR URL and, per `skills/_shared/final-doc-state.md`, run the writeback, commit and push, before the Copilot request:
+- Completion path only: the legacy fallback never runs it. In fragment mode (`three-pillars-docs/changes/{slug}.md` exists) `reconcile_docs.py --pre-merge` prints `{"mode": "fragment", "edits": []}` and is a no-op, so skip the add, commit and push. After create succeeds, resolve `{n}` from the PR URL and, per `skills/_shared/final-doc-state.md`, run the writeback, commit and push, before the Copilot request:
 
 ```
 python3 "$TP_ROOT"/skills/_shared/reconcile_docs.py --slug {slug} --pre-merge --pr {n} --apply --json
@@ -44,7 +46,7 @@ git push origin tp/{slug}
 ```
 
 - A writeback or push failure logs `[tp-run-full-design/tier-6] doc-writeback-failed` (Medium) and continues; the head keeps `Done (completion PR)`.
-- After the push, the certification gap label (one line, fail-open; `$CERT` resolved as in `tier-5-closeout.md` ## Tier 5 Step 2b, `<final route>` the route JSON Step 2c kept):
+- After the push, the certification gap label (skipped on a `certification-skipped` run, which has no route JSON; one line, fail-open; `$CERT` resolved as in `tier-5-closeout.md` ## Tier 5 Step 2b, `<final route>` the route JSON Step 2c kept):
 
 ```
 python3 "$CERT" gap-label --route <final route> --pr {n} || true
@@ -74,10 +76,11 @@ gh api repos/{owner}/{repo}/pulls/{n}/requested_reviewers -f 'reviewers[]=copilo
 ```
 
 - PR description: link to the task source (`pickup_contract.task_metadata.external_ref`).
+- PR description: every `scratch-allowed: <path> (accepted <date> <reason>)` line the Tier 5 and Tier 7 scratch checks printed this run, verbatim, under a `Scratch accepted` heading (none printed: omit it).
 - Candidate `summary` from the parsed response.
 - `test_results.{passed,failed,skipped}` counts + a fenced excerpt of `raw`.
 - Tier 5 verdict (PASS or PASS WITH NOTES; the notes inline if present).
-- Certification block: `python3 "$CERT" gap-block --route <final route> --lint <lint json>` (the route and lint JSONs `tier-5-closeout.md` #### Step 2c kept).
+- Certification block (on a `certification-skipped` run, the one line `Certification: skipped (not a safety gate)` and no `gap-block`): `python3 "$CERT" gap-block --route <final route> --lint <lint json>` (the route and lint JSONs `tier-5-closeout.md` #### Step 2c kept).
 - Tier 5 design-learn synopsis (one-paragraph what-changed).
 - **Closeout status**: design archived to `completed-tp-designs/{slug}/`, plus the Tier 5.6 learn-verify result (any stale-ref flags inline, advisory); routing `end` lines read back from it.
 - Explicit label: "produced by orchestrator MVP — single candidate, closed before merge".

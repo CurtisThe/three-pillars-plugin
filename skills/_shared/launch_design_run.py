@@ -42,6 +42,8 @@ when one could be built).
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -58,6 +60,7 @@ import repo_config_load as rcl  # noqa: E402
 import cheap_tier_default  # noqa: E402
 import cheap_deprecation  # noqa: E402
 import local_implement_config as lic  # noqa: E402
+import launch_roster  # noqa: E402  (register the run on the fleet roster)
 import design_run_tmux  # noqa: E402
 import design_run_brief  # noqa: E402
 import design_run_routing  # noqa: E402,F401  (the report's modules, kept as patch points)
@@ -68,6 +71,8 @@ import design_run_launch_plan  # noqa: E402  (the run role, the env scrub, the r
 import design_run_mcp as drm  # noqa: E402  (the MCP allow-list argv + readout)
 import design_run_window_env as dwe  # noqa: E402  (LOCAL_MODES for --local-mode)
 import design_run_resume_cli as drrc  # noqa: E402  (--resume and --list-resumable)
+import scratch_leftovers  # noqa: E402  (the run's scratch dir and its leftover baseline)
+import run_scratch  # noqa: E402  (create the run dir for a base-sync window)
 
 
 def find_worktree(porcelain: str, slug: str) -> Optional[str]:
@@ -209,6 +214,20 @@ def _write_brief(args, wt: str, root: str) -> Optional[tuple]:
     return path, source
 
 
+def _provision_scratch(slug: str, wt: str, env: Mapping[str, str]) -> Optional[str]:
+    """Create the run's scratch dir and leftover baseline (idempotent); None, or the one note."""
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = scratch_leftovers.main(["provision", "--worktree", wt, "--slug", slug], env=dict(env))
+        why = out.getvalue().strip().splitlines()[-1:] or ["exit %d" % rc]
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        rc, why = 1, [str(exc)]
+    if rc == 0:
+        return None
+    return (f"note: could not provision the run's scratch dir ({why[0]}); "
+            "the run starts without the TMPDIR redirect")
+
+
 def _report(args, runner, brief: Optional[tuple], env: Mapping[str, str]) -> None:
     """After the run opens: the brief, its routing, the first message (design_run_delivery)."""
     design_run_delivery.report(args.slug, runner, args.wait, brief=brief, env=env)
@@ -284,6 +303,8 @@ def main(
         return 2
 
     if args.base_sync:
+        if not args.dry_run and os.path.isdir(wt):  # a pruned worktree is not recreated
+            run_scratch.ensure_run_dir(wt)  # the window's TMPDIR must exist before its first write
         # The base-sync window's engine is chosen here, not by seat memory.
         bs_cmd, bs_notes = base_sync_window.window_command(
             args.slug, wt, local=args.local,
@@ -292,7 +313,13 @@ def main(
             print(note, file=sys.stderr)
         print(bs_cmd)  # last, so callers can take the final line as the command
         return 0
-    plan = design_run_launch_plan.build(env, cfg, args.direct, args.local_mode, wt)
+    scratch = True  # the run's TMPDIR pairs; a dry run prints them but creates nothing
+    if not args.dry_run:  # once, before the command is built; resume rides the same plan
+        note = _provision_scratch(args.slug, wt, env)
+        if note:
+            print(note, file=sys.stderr)
+            scratch = None
+    plan = design_run_launch_plan.build(env, cfg, args.direct, args.local_mode, wt, scratch=scratch)
     for note in plan.notes:
         print(note, file=sys.stderr)
     help_fn = help_probe or claude_help  # resolved now so a patched module global applies
@@ -345,6 +372,9 @@ def main(
     print(result.message)
     print(f"attach to it directly: tmux attach -t {args.slug}")
     _report(args, runner, brief, env)
+    note = launch_roster.register(args.slug, root)  # fail-open: a line, never the exit code
+    if note:
+        print(note)
     return 0
 
 

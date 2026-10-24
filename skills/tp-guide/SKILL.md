@@ -27,16 +27,16 @@ Read the project's current state and recommend the highest-impact next step.
    - **High alignment**: directly advances the vision's Problem, serves its Users, or fixes a break that blocks a Success signal. These go to the top.
    - **Low alignment**: solves a real technical problem but isn't load-bearing for the stated why. These get deprioritized even if they're interesting. Call out the deprioritization explicitly so the user can override it.
    - **Conflict**: the work pushes the project toward a stated non-goal. Recommend *against* it and suggest updating the vision via `/tp-docs-update` if the user thinks the non-goal has moved.
-7. **Choose the weight class**. Not everything needs the full pipeline. Score the four rubric axes — **risk, blast radius, reversibility, novelty** (each low/medium/high; see `skills/_shared/weight-class.md`, or shell `python3 "$TP_ROOT"/skills/_shared/weight_class.py recommend --risk … --blast-radius … --reversibility … --novelty …`) — and match the class to the complexity:
+7. **Choose the weight class**. Not everything needs the full pipeline. Score the four rubric axes — **risk, blast radius, reversibility, novelty** (each low/medium/high; see `skills/_shared/weight-class.md`, or shell `python3 "$TP_ROOT"/skills/_shared/weight_class.py recommend --risk … --blast-radius … --reversibility … --novelty …`) — and match the class to the complexity. For work already under a design dir, run `python3 "$TP_ROOT"/skills/_shared/weight_class.py lighten three-pillars-docs/tp-designs/{name} --risk … --blast-radius … --reversibility … --novelty …` (it prints `keep {class}` or `suggest {class} because {axis}`), and show `python3 "$TP_ROOT"/skills/_shared/weight_class.py cost` beside each class you offer; the class printed is the default answer:
 
    | Weight class | When to use | Example |
    |---|---|---|
    | **Just do it** (`just-do-it`) | All axes minimal. Small, well-understood, reversible. Mini design.md, no plan. | Fix a bug, add a config option, rename a module |
-   | **Light** (`light`) | At most one axis medium, none high. Real work, small surface. Collapsed design.md + thin plan.md in one sitting. | Contained feature, focused refactor, one-module change |
-   | **Spike** (`/tp-spike`) | Novelty high — unclear if an approach works. Validate before committing. | New integration, unfamiliar API, performance experiment |
-   | **Full design** (`/tp-design`) | Any axis high or several medium. Multi-phase work, needs the full quality gates. | New subsystem, major refactor, cross-cutting feature |
+   | **Light** (`light`) | Everything else: a medium axis or low reversibility, with risk and blast radius not high. Real work, small surface. Collapsed design.md + thin plan.md in one sitting. | Contained feature, focused refactor, one-module change |
+   | **Spike** (`/tp-spike`) | Novelty high — unclear if an approach works. Validate before committing (checked first). | New integration, unfamiliar API, performance experiment |
+   | **Full design** (`/tp-design`) | Risk or blast radius high. Multi-phase work, needs the full quality gates. | New subsystem, major refactor, cross-cutting feature |
 
-   Default to the lightest class that fits — but ties and ambiguity resolve heavier. A spike that proves an approach works can always feed into a full design later. Don't recommend `/tp-design` at full weight for something that can be built in 20 minutes.
+   Default to the lightest class that fits — ties resolve lighter. For work not yet started, point at /tp-seed to capture it as a seed rather than opening a design. A spike that proves an approach works can always feed into a full design later. Don't recommend `/tp-design` at full weight for something that can be built in 20 minutes.
 
 8. **Synthesize a recommendation**. Present:
    - **Current state** (1-2 sentences): what's active, what's blocked, what recently completed
@@ -85,4 +85,4 @@ their worktree plugin's own tail/kill commands if they want to.
 - If no intent is given and there's an active design with a handoff, recommend continuing that work — but still sanity-check that it's still aligned with the current vision.
 - Don't start doing the recommended work — just propose it and let the user decide.
 - This skill's argument is freeform intent text, not a `[a-z0-9-]+` design-name interpolated into file paths.
-- Bias toward the lightest weight class that fits (ties resolve heavier). Most work doesn't need a full design.
+- Bias toward the lightest weight class that fits (ties resolve lighter). Most work doesn't need a full design.

@@ -60,10 +60,12 @@ Present the draft to the user for review before writing. Keep the whole file den
    - `CLAUDE.md` (only if step 5 modified it)
    Commit message: `Setup: vision`.
 
-7. **Tell the user the next step**. Point to `/tp-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tp-test-setup` configures test infrastructure informed by the architecture.
+7. **Print the recommended allow list.** Run `python3 "$TP_ROOT"/skills/_shared/allowlist_mine.py --print-settings` and show the user its stdout (the `permissions` JSON block) and stderr (target file, present count, warnings, VERIFY steps). Tell the user to paste the block into the named settings file themselves, then run the VERIFY steps. Never write or edit a settings file: the classifier blocks settings edits, and applying the list is the operator's call.
+
+8. **Tell the user the next step**. Point to `/tp-docs-init` as the natural next step — it scaffolds `architecture.md`, `product_roadmap.md`, and `known_issues.md` using the vision you just drew out. After that, `/tp-test-setup` configures test infrastructure informed by the architecture.
 
 ## Rules
-- **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. Those belong in `/tp-test-setup` (test infra) or `/tp-session-save` (gitignore for handoff). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.
+- **Vision is the only thing this skill produces.** Do not touch test infrastructure, permissions, or `.gitignore` patterns. The allow-list step only prints; it never writes settings. Those belong in `/tp-test-setup` (test infra) or `/tp-session-save` (gitignore for handoff). Keeping this skill single-purpose prevents users from being forced into testing-framework decisions before they have an architecture to base them on.
 - The vision conversation is a **conversation**, not a form. Draw out one section at a time and push back on vague answers. Do not write `three-pillars-docs/vision.md` until the user has answered all five sections.
 - Never invent vision content the user didn't say. If the repo gives you no signal and the user is unsure, record uncertainty honestly ("Target users: to be sharpened — project is pre-first-user") rather than guessing.
 - If the project already has a vision.md, read it and confirm. Do not silently overwrite.

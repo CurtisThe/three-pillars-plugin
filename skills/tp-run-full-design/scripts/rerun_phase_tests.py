@@ -15,8 +15,8 @@ onto its exit contract.
   no scratch is created. A ``phase_base_sha`` that does not resolve to a commit (after
   one best-effort fetch) → skipped ``base-unresolved``, never a silent ``env-broken``.
 * **Scratch** — a *named* throwaway branch ``tp-rerun/<slug>-<sha8>-<nonce>`` (a detached
-  HEAD breaks ``git symbolic-ref``, M23) in ``<repo>/.claude/worktrees/tp-rerun-…``
-  (the isolation-guard placement), removed, pruned and branch-deleted in ``finally`` on
+  HEAD breaks ``git symbolic-ref``, M23) in ``tp-rerun-…`` under
+  ``wt_root.scratch_parent`` (the ``-wt`` root), removed, pruned and branch-deleted in ``finally`` on
   every path, including an exception.
 * **Verdict** — **one pytest run per declared target** (amendment A31: the task run,
   the confirm and the control), each judged per node from its own ``--junitxml`` report
@@ -58,10 +58,9 @@ if _SHARED not in sys.path:
 import junit_verdict  # noqa: E402 — the per-node report verdict (stdlib only)
 import rerun_budget  # noqa: E402 — the phase budget (sibling script, stdlib only)
 import task_scope  # noqa: E402 — stdlib-only sibling; called via module attributes
+import wt_root  # noqa: E402 — the one checkout root, off `.claude/`
 from rerun_budget import PHASE_BUDGET_S, reserve_for  # noqa: E402,F401
 from rerun_budget import Deadline as _Deadline, OutOfBudget as _OutOfBudget  # noqa: E402
-
-_SCRATCH_PARENT = Path(".claude") / "worktrees"
 
 
 def _git(repo, *args: str, check: bool = True, timeout=None) -> subprocess.CompletedProcess:
@@ -116,9 +115,8 @@ def _resolve_commit(repo: Path, rev: str, deadline: _Deadline) -> str:
 def _add_scratch(repo: Path, sha: str, slug: str) -> tuple[Path, str]:
     """Create the named-branch scratch worktree at ``sha`` → ``(path, branch)``."""
     tag = f"{slug}-{sha[:8]}-{secrets.token_hex(3)}"
-    path = repo / _SCRATCH_PARENT / f"tp-rerun-{tag}"
+    path = Path(wt_root.ensure_parent(repo, slug)) / f"tp-rerun-{tag}"
     branch = f"tp-rerun/{tag}"
-    path.parent.mkdir(parents=True, exist_ok=True)
     _git(repo, "worktree", "add", "-q", "-b", branch, str(path), sha)
     return path, branch
 

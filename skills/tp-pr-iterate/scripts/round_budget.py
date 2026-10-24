@@ -228,9 +228,11 @@ def _growth(state: dict, lim: dict, measure) -> list[tuple[str, object, object]]
     if measure["total"] > limit:
         out.append(("growth-lines", measure["total"], limit))
     d = loop_delta(state.get("budget_baseline_split"), measure)
-    ratio_limit = lim["test_code_ratio"] * max(d["code_added"], 1)
-    if d["test_added"] > ratio_limit and d["test_added"] >= lim["ratio_floor_lines"]:
-        out.append(("test-code-ratio", d["test_added"], ratio_limit))
+    delta_limit = lim["test_code_ratio"] * max(d["code_added"], 1)
+    pr_limit = lim["test_code_ratio"] * max(measure["code_added"], 1)
+    if (d["test_added"] > delta_limit and d["test_added"] >= lim["ratio_floor_lines"]
+            and measure["test_added"] > pr_limit):  # the whole PR must be over the ratio too
+        out.append(("test-code-ratio", measure["test_added"], pr_limit))
     return out
 
 

@@ -17,8 +17,17 @@ The tests see exactly ``head``'s tree, so a stale or dirty caller can never prod
 The verdict, in order: a non-pytest or absent runner (`task_scope.resolve_runner`, rooted at
 the temp clone) is ``unverified`` with the runner's reason; else each run judges every
 changed test file per node (`junit_verdict.run_judged`) and the first non-pass stops the loop
-with ``fail``; a runner that cannot start is ``unverified``; no changed test is ``pass`` with
-``targets: []``. ``conftest.py`` is a changed test file but no run target (it holds no tests).
+with ``fail``, except a file whose tests all skip (``unverified``/``skipped``: an opt-in tier),
+which does not stop the loop. A timeout always stays ``fail``, even when its report shows every
+test skipped, and so does a skip whose reason, read from the junit report's ``<skipped>``
+elements and never from the output tail, says pytest could not import a module (a missing
+dependency is an environment fault, not an opt-in tier: ``<file>: missing-dependency:
+<module>``; a warning or a user-written reason that quotes the phrase stays a skip). A runner
+that cannot start is ``unverified``. With no failure and at least one skipped file the verdict is
+``unverified`` (``skipped (opt-in?): <files>``) and each run that held a skipped file reads
+``unverified`` in ``runs``, never ``pass``; the predicate then applies ``fragility.strict``. No
+changed test is ``pass`` with ``targets: []``. ``conftest.py`` is a changed test file but no run
+target (it holds no tests).
 
 The record is ``{schema, head, base, targets, runs, verdict, reason, at}`` in
 ``<git-dir>/three-pillars/fragility/runs.json``, the latest head only, written atomically.
@@ -35,6 +44,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +54,7 @@ from pathlib import Path
 
 import fragility_ast
 import junit_verdict
+import run_scratch
 import task_scope
 
 SCHEMA = 1
@@ -52,6 +63,9 @@ TMP_PREFIX = "tp-runs-"
 HEAD_UNAVAILABLE = "head not available"
 BASE_UNAVAILABLE = "base not available"
 CHANGED_UNAVAILABLE = "changed files not available"
+# pytest's own `importorskip` reason, at the start of a `<skipped message>` (a skip raised in a
+# test) or after `Skipped: ` in the body of a collection-time skip (`junit_verdict.skip_reasons`).
+_IMPORT_SKIP = re.compile(r"(?:^|Skipped: )could not import '([^']+)'", re.MULTILINE)
 
 
 class _Refused(Exception):
@@ -101,7 +115,7 @@ def _detached(root, sha):
     """A ``--shared`` clone detached at ``sha`` under a fresh temp dir; always removed. Its
     objects come from ``root``'s store through alternates, so nothing is copied and nothing
     is registered in ``root``."""
-    parent = tempfile.mkdtemp(prefix=TMP_PREFIX)
+    parent = tempfile.mkdtemp(prefix=TMP_PREFIX, dir=run_scratch.outside_tmpdir())
     path = os.path.join(parent, "wt")
     try:
         try:
@@ -118,20 +132,29 @@ def _detached(root, sha):
 
 
 def _judge(runner: str, wt: str, target: str, timeout: int):
-    """One test file alone → ``(pass|red|missing|unverified, rc, reason, runner fault)``."""
+    """One test file alone → ``(pass|red|missing|unverified, rc, reason, runner fault)``. An
+    all-skipped file whose report says a module could not be imported reads
+    ``missing-dependency: <module>`` (module docstring)."""
     def go(extra, one):
         rc, tail, _timed_out = task_scope.run_capture(
             task_scope.runner_argv(runner, [*one, *extra]), wt, timeout,
             env=task_scope._git_env(), tail_chars=2000)
         return rc, tail
-    (rc, tail), (kind, why) = junit_verdict.run_judged(go, target, wt)
-    return kind, rc, why, task_scope.runner_broken(rc, tail, why)
+    skips: list[str] = []
+    (rc, tail), (kind, why) = junit_verdict.run_judged(go, target, wt, skipped_out=skips)
+    fault = task_scope.runner_broken(rc, tail, why)
+    missing = None
+    if (kind, why) == ("unverified", "skipped"):
+        missing = next((m for m in map(_IMPORT_SKIP.search, skips) if m), None)
+    return kind, rc, f"missing-dependency: {missing.group(1)}" if missing else why, fault
 
 
 def _execute(wt: str, runner: str, files, runs: int, timeout: int):
     """``runs`` passes over ``files`` → ``(per-run verdicts, verdict, reason)``."""
     results: list[str] = []
+    skipped: list[str] = []
     for _ in range(runs):
+        skipped_here = False
         for target in files:
             try:
                 kind, rc, why, fault = _judge(runner, wt, target, timeout)
@@ -139,10 +162,19 @@ def _execute(wt: str, runner: str, files, runs: int, timeout: int):
                 return results, "unverified", f"runner command unusable: {exc}"
             if fault:
                 return results, "unverified", f"runner could not start: {fault}"
+            # An opt-in tier, not a failure. A timeout (rc None) stays `fail` even when the junit
+            # report, written before the exit hung, shows every node skipped.
+            if kind == "unverified" and why == "skipped" and rc is not None:
+                skipped_here = True
+                if target not in skipped:
+                    skipped.append(target)
+                continue
             if kind != "pass":
                 results.append("fail")
                 return results, "fail", f"{target}: {'timeout' if rc is None else why or kind}"
-        results.append("pass")
+        results.append("unverified" if skipped_here else "pass")
+    if skipped:
+        return results, "unverified", f"skipped (opt-in?): {', '.join(skipped)}"
     return results, "pass", ""
 
 

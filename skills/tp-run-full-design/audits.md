@@ -4,7 +4,7 @@
 
 - Each audit slot (`design-audit`, `plan-audit`, `impl-audit`) runs an orchestrator-owned council fan-out, not one `/tp-*-audit --auto` subagent.
 - Drive `/council --orchestrator` (## ORCHESTRATOR MODE in `skills/council/SKILL.md`) inline, never as a subagent; issue the `council-{name}` and synthesizer dispatches, top-level only.
-- Personas and synthesizer are read-only: share `tp/{slug}`, NO `isolation="worktree"` (`phase-implement` workers unchanged).
+- Personas and synthesizer are read-only: share `tp/{slug}`, NO harness worktree isolation (`phase-implement` workers open their worktree with `worker_root.py`, not `isolation`).
 - Reader: one `tp-readonly-auditor` (`model="opus"`) confirms artifact paths exist; it consumes `subagent_tokens` (`SKILL.md` ## Per-slot budget table).
 - Rounds run in parallel. Round 1: `/council --orchestrator --round 1 --members {triad} --artifacts {paths}`. Round 2 (skipped under `--fast-audit`): `--round 2 --members {triad} --round1 {bundle}`, the full Round-1 bundle, never a summary. Only `impl-audit` appends `--code-input base=tp/{slug},candidate=origin/candidate/{slug}/single,files=…` to both; serial per `strata-members.md` if `council_member`=`local`.
 - Each round: validate the bundle, then each envelope (`SKILL.md` ## Return clipping two-step); keep only `argument_summary`, `findings`, per-finding and envelope `confidence`; discard raw replies; sum `subagent_tokens`.

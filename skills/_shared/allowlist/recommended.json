@@ -1,0 +1,231 @@
+{
+  "schema": 1,
+  "updated": "2026-10-22",
+  "allow": [
+    {
+      "cmd": "python3 {ROOT}skills/_shared/design_run_send.py",
+      "script": "skills/_shared/design_run_send.py",
+      "comment": "types one line, then Enter, into a window of the local tmux session named <slug> that shows a prompt; no remote write, no kill"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/_shared/ruling_cli.py",
+      "script": "skills/_shared/ruling_cli.py",
+      "comment": "reads and answers the design's local ruling files; no remote write"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/_shared/context_rollover_drive.py",
+      "script": "skills/_shared/context_rollover_drive.py",
+      "comment": "drives one run through save, /clear, restore by typing into its own pane; no remote write"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/_shared/worker_root.py",
+      "script": "skills/_shared/worker_root.py",
+      "comment": "opens/reaps the run's own scratch worktrees (local git worktree remove --force); no remote write"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-merge-from-main/scripts/merge_driver.py",
+      "script": "skills/tp-merge-from-main/scripts/merge_driver.py",
+      "comment": "merges a base ref into the current worktree branch locally and defers conflicts; never pushes"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-merge-from-main/scripts/sync_gate.py",
+      "script": "skills/tp-merge-from-main/scripts/sync_gate.py",
+      "comment": "checks local push-readiness of a base-sync and reports; never pushes"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-merge-from-main/scripts/gate_cli.py",
+      "script": "skills/tp-merge-from-main/scripts/gate_cli.py",
+      "comment": "read-only merge-gate predicates (forge reads), prints a label; never merges"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-merge-from-main/scripts/generator_catalog.py",
+      "script": "skills/tp-merge-from-main/scripts/generator_catalog.py",
+      "comment": "detects undeclared generated lockfiles; its accept/decline subcommands write merge_from_main.generators in .three-pillars/config.json of the --repo checkout; no remote write"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-post-merge/scripts/sweep_candidates.py",
+      "script": "skills/tp-post-merge/scripts/sweep_candidates.py",
+      "comment": "lists and classifies candidate branches; reporter, the skill decides deletion"
+    },
+    {
+      "cmd": "python3 {ROOT}skills/tp-post-merge/scripts/bypass_check.py",
+      "script": "skills/tp-post-merge/scripts/bypass_check.py",
+      "comment": "prints the post-merge banner for an unproved landing; read-only reporter"
+    },
+    {
+      "cmd": "git status",
+      "comment": "shows working tree status; read-only"
+    },
+    {
+      "cmd": "git log",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git log --oneline",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git log --oneline -5",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git log --oneline -10",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git log -1",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git log -5",
+      "exact": true,
+      "comment": "shows history; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --stat",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --name-only",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --shortstat",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --cached",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --cached --stat",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git diff --cached --name-only",
+      "exact": true,
+      "comment": "shows changes; read-only; exact shape only, since a quoted or split --output slips past the deny globs"
+    },
+    {
+      "cmd": "git add",
+      "comment": "stages files in the local index; no remote write"
+    },
+    {
+      "cmd": "git commit",
+      "comment": "records a local commit (hooks still run); no remote write"
+    },
+    {
+      "cmd": "git merge",
+      "comment": "merges locally into the current branch; no remote write"
+    },
+    {
+      "cmd": "git worktree list",
+      "comment": "lists worktrees; read-only"
+    },
+    {
+      "cmd": "git fetch",
+      "exact": true,
+      "comment": "fetches refs from the remote; exact shape only, since git accepts abbreviated --upload-pack"
+    },
+    {
+      "cmd": "git fetch origin",
+      "exact": true,
+      "comment": "fetches refs from the remote; exact shape only, since git accepts abbreviated --upload-pack"
+    },
+    {
+      "cmd": "git fetch -q origin",
+      "exact": true,
+      "comment": "fetches refs from the remote; exact shape only, since git accepts abbreviated --upload-pack"
+    },
+    {
+      "cmd": "gh pr view",
+      "forge": "github",
+      "comment": "reads one PR on the forge; read-only"
+    },
+    {
+      "cmd": "gh pr list",
+      "forge": "github",
+      "comment": "lists PRs on the forge; read-only"
+    },
+    {
+      "cmd": "gh pr checks",
+      "forge": "github",
+      "comment": "reads PR checks on the forge; read-only"
+    },
+    {
+      "cmd": "tea pr list",
+      "forge": "gitea",
+      "comment": "lists PRs on the forge; read-only"
+    },
+    {
+      "cmd": "tea pulls list",
+      "forge": "gitea",
+      "comment": "lists PRs on the forge; read-only"
+    }
+  ],
+  "deny": [
+    {
+      "rule": "Bash(git fetch --upl*)",
+      "comment": "refuses --upl* (abbreviated --upload-pack) on git fetch"
+    },
+    {
+      "rule": "Bash(git fetch * --upl*)",
+      "comment": "refuses --upl* (abbreviated --upload-pack) on git fetch"
+    },
+    {
+      "rule": "Bash(git log --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git log"
+    },
+    {
+      "rule": "Bash(git log * --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git log"
+    },
+    {
+      "rule": "Bash(git diff --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git diff"
+    },
+    {
+      "rule": "Bash(git diff * --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git diff"
+    },
+    {
+      "rule": "Bash(git -C * fetch --upl*)",
+      "comment": "refuses --upl* (abbreviated --upload-pack) on git -C fetch; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    },
+    {
+      "rule": "Bash(git -C * fetch * --upl*)",
+      "comment": "refuses --upl* (abbreviated --upload-pack) on git -C fetch; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    },
+    {
+      "rule": "Bash(git -C * log --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git -C log; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    },
+    {
+      "rule": "Bash(git -C * log * --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git -C log; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    },
+    {
+      "rule": "Bash(git -C * diff --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git -C diff; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    },
+    {
+      "rule": "Bash(git -C * diff * --outp*)",
+      "comment": "refuses --outp* (abbreviated --output) on git -C diff; known over-match: the mid * can absorb the verb, so a git -C commit message holding ' log --outp', ' diff --outp' or ' fetch --upl' is refused (reword it); --outp* also refuses --output-indicator-*"
+    }
+  ]
+}

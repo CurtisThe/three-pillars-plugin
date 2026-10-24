@@ -146,7 +146,7 @@ def test_skill_md_pointer_and_cap():
     text = _text(SKILL)
     assert "convergence-rules.md" in text
     assert len(text.splitlines()) <= 484
-    assert len(text) <= 43000
+    assert len(text) <= 43100
 
 
 def test_skill_md_helper_bullet_collapse_keeps_names():

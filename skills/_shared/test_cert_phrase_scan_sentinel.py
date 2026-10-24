@@ -10,6 +10,7 @@ a claim that binds stays matched and the audit is PASS.
 Every artifact below is built from the real template line read out of the shipped
 SKILL.md at test time; nothing here pastes a copy of it.
 """
+# pin-source: skills/tp-implementation-audit/SKILL.md
 
 from __future__ import annotations
 

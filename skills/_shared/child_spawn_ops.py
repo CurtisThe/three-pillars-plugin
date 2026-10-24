@@ -70,13 +70,14 @@ import transcript_tail  # noqa: E402
 
 __all__ = ["CHILD_MAX_S_DEFAULT", "KILL_GRACE_S", "HOST_AGENT", "HOST_MODEL", "CLAUDE_SESSION_ENV", "child_max_s",
            "claude_bin", "host_instruction", "host_argv", "child_env", "cmd_stop", "cmd_sweep",
-           "RESOLVE_S", "RESOLVE_POLL_S", "PROMPT_SUBDIR"]
+           "RESOLVE_S", "RESOLVE_POLL_S", "PROMPT_SUBDIR", "CHILD_SESSION_ENV"]
 
 CHILD_MAX_S_DEFAULT = 1800  # the `timeout` cap; > attempt_watchdog.DEFAULT_WALL_S (1200)
 KILL_GRACE_S = 30           # `timeout -k`: TERM to the group, then KILL
 HOST_AGENT = "tp-spawn-host"
 HOST_MODEL = "sonnet"  # matches agents/tp-spawn-host.md
 CLAUDE_SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+CHILD_SESSION_ENV = "TP_CHILD_SESSION"  # `start` sets it to "1": the Stop hook never gates a child
 BG_WAIT_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"  # 0 = no ceiling; timeout -k bounds the child
 RESOLVE_S = 120             # `start`'s bound for the inner transcript to appear
 RESOLVE_POLL_S = 1.0        # `start`'s poll interval while it waits for the inner transcript

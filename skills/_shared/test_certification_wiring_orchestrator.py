@@ -18,7 +18,7 @@ import skill_text
 ROOT = Path(__file__).resolve().parent.parent.parent
 SKILL_MD = ROOT / "skills" / "tp-run-full-design" / "SKILL.md"
 PROTOCOL = "skills/_shared/certification-protocol.md"
-DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus")'
+DISPATCH = 'Agent(subagent_type=agent_ref("tp-certifier"), model="opus")'
 RS_LINE = ('if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then '
            'RS="$TOP"/skills/_shared/resolve_script.py; else '
            'RS="$TP_ROOT"/skills/_shared/resolve_script.py; fi')

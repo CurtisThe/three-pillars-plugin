@@ -66,8 +66,11 @@ ALLOWLIST = [
     "implementation-audit.md",
     "dispatch-telemetry.ndjson",  # Decision 12 measurement data (run-throughput H1)
     "escape-ledger.ndjson",  # escape_ledger.NDJSON_NAME
+    "finalizer-ledger.json",  # finalizer.py ledger
     "brief.md",  # explainer PR brief (skills/_shared/explainer.md)
     "rulings.ndjson",  # explainer auto-ruling ledger
+    "retro-findings.json",  # run_retro.FINDINGS: pr-section reads the archived dir
+    "retro-outbox.json",  # run_retro_file.OUTBOX_NAME: the sealed board outbox
 ]
 
 # Repo-form reference: `tp-designs/<slug>/<rest>` or

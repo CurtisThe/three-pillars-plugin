@@ -52,17 +52,17 @@ def resolve_config_dir(env: Mapping[str, str]) -> Tuple[Optional[str], Optional[
     )
 
 
-def env_prefix(config_dir: Optional[str], backend_env: str = "", extra_env=(), unset=()) -> str:
+def env_prefix(config_dir: Optional[str], backend_env: str = "", extra_env=(), unset=(), scratch=None) -> str:
     """Env words (trailing space) before `claude`: `env -u CLAUDE_CODE_EFFORT_LEVEL` (a session
-    effort pin must not leak; the run's effort is `--effort`), one `-u` per `unset` name, the
-    marker, `backend_env` (a seat-role `NAME=value`), the profile dir, then `extra_env` pairs."""
+    effort pin must not leak), one `-u` per `unset` name, the marker, `backend_env` (a seat-role
+    `NAME=value`), the profile dir, `extra_env` pairs, then the run's `scratch` pairs (TMPDIR, caches)."""
     unsets = "".join(f"-u {shlex.quote(n)} " for n in dict.fromkeys((EFFORT_ENV, *unset)))
     prefix = f"env {unsets}{MARKER}=1 "
     if backend_env:
         prefix += f"{backend_env} "
     if config_dir:
         prefix += f"CLAUDE_CONFIG_DIR={shlex.quote(config_dir)} "
-    return prefix + "".join(f"{name}={shlex.quote(value)} " for name, value in extra_env)
+    return prefix + "".join(f"{name}={shlex.quote(value)} " for name, value in (*extra_env, *(scratch or ())))
 
 
 def effort_args(effort: str = DEFAULT_EFFORT) -> str:

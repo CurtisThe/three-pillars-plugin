@@ -49,6 +49,7 @@ def test_reasons_table():
         "ok": "routed", "no-base-url": "unrouted", "non-loopback": "unrouted",
         "connect-refused": "router-down", "timeout": "router-down", "bad-status": "router-down",
         "not-tp-router": "router-down", "schema-unsupported": "router-down", "error": "router-down",
+        "upstream-down": "router-down",
     }
 
 

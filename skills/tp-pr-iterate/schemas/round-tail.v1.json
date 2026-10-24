@@ -44,7 +44,7 @@
       }
     },
     "finalizer_stop": {
-      "description": "Copied verbatim from the run_round / converge output's finalizer_stop (a newly fired budget terminal); null when absent. The orchestrator passes it to finalizer_cli.py prepare --stop before any label.",
+      "description": "Copied verbatim from the run_round / converge output's finalizer_stop (a newly fired budget terminal, or the review stop: a question/decision stop with terminal null); null when absent. The orchestrator passes it to finalizer_cli.py prepare --stop before any label; a terminal-null one goes to round-topology.md Review stop.",
       "type": ["object", "null"],
       "required": ["source", "signal", "target"],
       "properties": {

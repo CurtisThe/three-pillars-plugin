@@ -27,7 +27,8 @@ _NO_PROOF_DETAIL = (
 )
 
 
-def _trusted_digest_heads(pr_url, *, comments_fn=None, config=None, self_login_fn=None):
+def _trusted_digest_heads(pr_url, *, comments_fn=None, config=None, self_login_fn=None,
+                          pr_author_fn=None, head_authors=None):
     """ONE comments fetch → the `frozenset` of full-SHA heads carried by a
     TRUSTED-authored, non-degraded proof digest — or `None` on a fetch/parse
     failure (fail-closed; distinct from a proven-empty, successful fetch, which
@@ -39,6 +40,9 @@ def _trusted_digest_heads(pr_url, *, comments_fn=None, config=None, self_login_f
     built LAZILY — only once a digest-shaped line is actually seen — mirroring
     `review_proof.proof_comment_on_head`'s own lazy-trust discipline (a garbage
     comment must never trigger a live `gh api user` call). Total, never raises.
+
+    `pr_author_fn` (`per_developer_author: self`) adds the PR author to the trust set; a dict
+    `head_authors` is filled head -> set of the trusted lowercased digest authors on it.
     """
     try:
         import review_proof  # noqa: E402 — in tp-pr-iterate/scripts, now on sys.path
@@ -64,18 +68,42 @@ def _trusted_digest_heads(pr_url, *, comments_fn=None, config=None, self_login_f
                 if not m:
                     continue
                 if trusted is None:
-                    trusted = review_proof._trusted_digest_authors(config, self_login_fn)
+                    if pr_author_fn is None:
+                        trusted = review_proof._trusted_digest_authors(config, self_login_fn)
+                    else:
+                        import automation_identity  # noqa: E402 — in _shared/ beside this file
+                        trusted = automation_identity.trusted_digest_authors(
+                            config, self_login_fn or review_proof._default_self_login_fn,
+                            pr_author_fn=pr_author_fn)
                 if author.lower() in trusted:
                     heads.add(m.group(1))
+                    if head_authors is not None:
+                        head_authors.setdefault(m.group(1), set()).add(author.lower())
         return frozenset(heads)
     except Exception:
         return None
 
 
+def _self_detail(detail, anchor, carry, *, config, self_login_fn, pr_author_fn, head_authors):
+    """`detail`, or the self-attested roster text (`per_developer_author.roster_detail`)."""
+    try:
+        if pr_author_fn is None or not (head_authors or {}).get(anchor):
+            return detail
+        import per_developer_author  # noqa: E402 — in _shared/ beside this file
+        import review_proof  # noqa: E402
+        return per_developer_author.roster_detail(
+            detail, anchor, head_authors, pr_author_fn(),
+            review_proof._trusted_digest_authors(config, self_login_fn), carry)
+    except Exception:
+        return detail
+
+
 def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
-              derive_base_ref_fn, repo_root, holder):
-    """Today's body: direct proof or certified base-sync carry. `holder` collects the
-    trusted heads when the config-on path fetched them (reused by the round-log carry)."""
+              derive_base_ref_fn, repo_root, holder, pr_author_fn=None, head_authors=None):
+    """Today's body: direct proof or certified base-sync carry. `holder` collects the trusted
+    heads when the config-on (or `self`) path fetched them (reused by the round-log carry)."""
+    sd = dict(config=config, self_login_fn=self_login_fn, pr_author_fn=pr_author_fn,
+              head_authors=head_authors)
     from deterministic_gate import PredicateResult, GateVerdict  # late, circular-safe
     name = "review_proof_on_head"
     try:
@@ -83,7 +111,7 @@ def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
         import base_sync_cert  # noqa: E402 — in _shared/ beside this file
 
         on = base_sync_cert.carry_enabled(config)
-        if not on:
+        if not on and pr_author_fn is None:
             if review_proof.proof_comment_on_head(pr_url, head_oid, comments_fn=comments_fn,
                                                   config=config, self_login_fn=self_login_fn):
                 return PredicateResult(
@@ -94,7 +122,8 @@ def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
                                    detail=_NO_PROOF_DETAIL)
 
         heads = _trusted_digest_heads(pr_url, comments_fn=comments_fn, config=config,
-                                      self_login_fn=self_login_fn)
+                                      self_login_fn=self_login_fn, pr_author_fn=pr_author_fn,
+                                      head_authors=head_authors)
         holder.append(heads)
         if heads is None:
             return PredicateResult(name=name, verdict=GateVerdict.INDETERMINATE,
@@ -102,8 +131,12 @@ def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
         if head_oid in heads:
             return PredicateResult(
                 name=name, verdict=GateVerdict.PASS,
-                detail="a head-bound proof comment exists on this head",
+                detail=_self_detail("a head-bound proof comment exists on this head",
+                                    head_oid, False, **sd),
             )
+        if not on:  # `self` with carry off: a heads miss never reaches the base-sync carry
+            return PredicateResult(name=name, verdict=GateVerdict.INDETERMINATE,
+                                   detail=_NO_PROOF_DETAIL)
 
         root = repo_root
         if root is None:
@@ -133,10 +166,9 @@ def _evaluate(pr_url, head_oid, *, comments_fn, config, self_login_fn, run_git,
             sha7 = (result.anchor or "")[:7]
             return PredicateResult(
                 name=name, verdict=GateVerdict.PASS,
-                detail=(
+                detail=_self_detail(
                     f"proof comment carried across {result.links} certified "
-                    f"base-sync merge(s) (anchor {sha7})"
-                ),
+                    f"base-sync merge(s) (anchor {sha7})", result.anchor, True, **sd),
             )
         return PredicateResult(
             name=name, verdict=GateVerdict.INDETERMINATE,
@@ -161,8 +193,10 @@ def _round_log_carry(r, pr_url, head_oid, holder, kw):
         if holder:
             heads = holder[0]
         else:
-            heads = _trusted_digest_heads(pr_url, comments_fn=kw["comments_fn"], config=config,
-                                          self_login_fn=kw["self_login_fn"])
+            heads = _trusted_digest_heads(
+                pr_url, comments_fn=kw["comments_fn"], config=config,
+                self_login_fn=kw["self_login_fn"], pr_author_fn=kw["pr_author_fn"],
+                head_authors=kw["head_authors"])
         if not heads:
             return r
         root = kw["repo_root"]
@@ -172,20 +206,30 @@ def _round_log_carry(r, pr_url, head_oid, holder, kw):
         if root is None:
             return r
         res = round_log_carry.strip_round_log_commits(root, head_oid, run_git=kw["run_git"])
+        kind = "round-log"
+        import merge_carry  # noqa: E402 — in _shared/ beside this file
+        base_ref_fn = merge_carry.lazy_base_ref(pr_url, kw["derive_base_ref_fn"])  # one gh call, if any
+        if not (res.links and res.anchor in heads):
+            import proof_neutral_carry  # noqa: E402 — in _shared/ beside this file
+            if proof_neutral_carry.proof_neutral_carry_enabled(config):
+                nres = proof_neutral_carry.strip_proof_neutral_commits(
+                    root, head_oid, run_git=kw["run_git"], stop_at=frozenset(heads),
+                    base_ref=base_ref_fn)
+                if nres.anchor and nres.links and (nres.neutral_links > 0 or nres.anchor in heads):
+                    res = nres
+                    kind = "proof-neutral" if nres.neutral_links else "round-log"
         if not res.links or not res.anchor:
             return r
-        detail = (f"proof comment carried across {res.links} round-log commit(s) "
+        detail = (f"proof comment carried across {res.links} {kind} commit(s) "
                   f"(anchor {res.anchor[:7]})")
+        sd = dict(config=config, self_login_fn=kw["self_login_fn"],
+                  pr_author_fn=kw["pr_author_fn"], head_authors=kw["head_authors"])
         if res.anchor in heads:
-            return PredicateResult(name=r.name, verdict=GateVerdict.PASS, detail=detail)
+            return PredicateResult(name=r.name, verdict=GateVerdict.PASS,
+                                   detail=_self_detail(detail, res.anchor, True, **sd))
         if not on:
             return r
-        fn = kw["derive_base_ref_fn"]
-        if fn is not None:
-            base_ref = fn(pr_url)
-        else:
-            import diff_balloon_guard  # noqa: E402
-            base_ref = diff_balloon_guard.derive_base_ref(pr_url)
+        base_ref = base_ref_fn()
         if not base_ref:
             return r
         import living_doc_carry  # noqa: E402 — in _shared/ beside this file
@@ -195,8 +239,9 @@ def _round_log_carry(r, pr_url, head_oid, holder, kw):
             max_links=base_sync_cert.carry_max_chain(config), run_git=kw["run_git"],
             carry_handres=living_doc_carry.carry_livingdoc_handres_enabled(config))
         if cert.certified:
-            both = (f"proof comment carried across {cert.links} certified base-sync "
-                    f"merge(s) (anchor {(cert.anchor or '')[:7]})")
+            both = _self_detail(
+                f"proof comment carried across {cert.links} certified base-sync "
+                f"merge(s) (anchor {(cert.anchor or '')[:7]})", cert.anchor, True, **sd)
             return PredicateResult(name=r.name, verdict=GateVerdict.PASS,
                                    detail=f"{detail}; {both}")
         return r
@@ -206,7 +251,7 @@ def _round_log_carry(r, pr_url, head_oid, holder, kw):
 
 def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None,
                               self_login_fn=None, run_git=None, derive_base_ref_fn=None,
-                              repo_root=None):
+                              repo_root=None, head_fn=None):
     """Gate predicate: was THIS head reviewed-with-proof (posted digest comment),
     directly OR via a certified no-op base-sync carry from a proof-bearing ancestor?
 
@@ -225,9 +270,17 @@ def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None
     `diff_balloon_guard.derive_base_ref(pr_url)`. An unresolvable repo_root/base_ref
     means "no carry attempted" — no "; carry:" suffix.
 
+    Under `github.per_developer_author: self` (an invalid value reads as `off`) the PR author
+    joins the trust set (`head_fn`: one fetch per evaluation) and the heads path runs even with
+    carry off; the roster detail then says self-attested. A fork PR or automation author never counts.
+
     A proof also carries across up to a few round-log commits (a terminal review-log
     flush that only adds to the archived design's log files; `round_log_carry`), so the
     two-stable flush push does not stale a converged review.
+    It also carries across up to 4 proof-neutral commits (living-doc `.md` edits, comment-only
+    `.py` edits and a base-sync merge whose hand-resolved paths are all living docs, within 200
+    changed lines; `proof_neutral_carry`, default ON, `review.proof_neutral_carry: false`
+    disables); the ci-local stamp is never carried over them.
 
     NEVER FAIL (D6, mirrors pred_human_approved / pred_copilot_on_head): a later
     proof-bearing review (or a later certified base-sync) + re-evaluation flips
@@ -238,9 +291,16 @@ def pred_review_proof_on_head(pr_url, head_oid, *, comments_fn=None, config=None
     name = "review_proof_on_head"
     try:
         holder = []
+        pr_author_fn = head_authors = None
+        import automation_identity  # noqa: E402 — in _shared/ beside this file
+        if automation_identity._gate_mode(config) == "self":
+            import per_developer_author  # noqa: E402
+            pr_author_fn = per_developer_author.pr_author_fn_for(pr_url, head_fn)
+            head_authors = {}
         kw = dict(comments_fn=comments_fn, config=config, self_login_fn=self_login_fn,
                   run_git=run_git, derive_base_ref_fn=derive_base_ref_fn,
-                  repo_root=repo_root, holder=holder)
+                  repo_root=repo_root, holder=holder, pr_author_fn=pr_author_fn,
+                  head_authors=head_authors)
         r = _evaluate(pr_url, head_oid, **kw)
         if r.verdict == GateVerdict.PASS:
             return r

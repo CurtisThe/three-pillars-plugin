@@ -56,7 +56,7 @@ Pass `--spike` or `--light` matching the flag given to the skill. Beside it, run
 ```bash
 python3 "$TP_ROOT"/skills/tp-plan-audit/scripts/plan_couplings.py "$DESIGN_DIR" --root .
 ```
-Exit 1 → each of its JSON `findings[]` is an INCONSISTENT finding at medium confidence: a `(new)` file matching a `plan_audit.couplings` `when_new` glob whose task does not list the `requires_listed` path, or a task whose **File** would reach its file-size hard cap with no `**Split**` (or `**Growth**: +0` on a grandfathered file). Exit 2 (usage error) → report it and go on.
+Exit 1 → each of its JSON `findings[]` is an INCONSISTENT finding at medium confidence: a `(new)` file matching a `plan_audit.couplings` `when_new` glob whose task does not list the `requires_listed` path, or a task whose **File** would reach its file-size hard cap with no `**Split**` (or `**Growth**: +0` on a grandfathered file). Exit 2 (usage error) → report it and go on. The step-2 audit also prints advisory sizing: WARNs; a repo lists its own test helpers under plan_audit.test_helpers in .three-pillars/config.json so the environment-helper WARN counts them.
 
 Capture the full output. This checks:
 - Task field completeness (File, Test, Red, Green, Done when)

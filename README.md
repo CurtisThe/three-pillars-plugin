@@ -36,7 +36,7 @@ Or inside a Claude Code session:
 /plugin install three-pillars@three-pillars
 ```
 
-The in-session `/plugin install` opens the plugin panel; choose a scope there (**user** makes it available in every project). Then run `/reload-plugins`, or start a new session. 39 skills and their agents are now live.
+The in-session `/plugin install` opens the plugin panel; choose a scope there (**user** makes it available in every project). Then run `/reload-plugins`, or start a new session. 40 skills and their agents are now live.
 
 To share it with everyone working in one repo, add `--scope project` to the shell commands. That records the marketplace and plugin in the repo's `.claude/settings.json`.
 
@@ -143,7 +143,7 @@ AI coding assistants are fast. The bottleneck is no longer writing code — it's
 Three layers, one source of truth:
 
 - **The canon (methodology writing)** — this `README.md`, [`CONTRIBUTING.md`](CONTRIBUTING.md), the `CLAUDE.md` framework guide, and the monthly cadence: `METHODOLOGY.md` (planned v1.6.0+), `adoption/` guides, `examples/` worked examples. Vendor-agnostic and host-agnostic — engage the methodology without installing anything.
-- **The Claude Code reference implementation** — `skills/` (38 `tp-*` skills + `/council`, including the autonomous PR-iteration loop `/tp-pr-iterate`/`/tp-pr-fix`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
+- **The Claude Code reference implementation** — `skills/` (39 `tp-*` skills + `/council`, including the autonomous PR-iteration loop `/tp-pr-iterate`/`/tp-pr-fix`) and `agents/` (18 council personas), installable via `claude plugin install`. The patterns the canon describes, made operational for Claude Code adopters.
 - **The Hermes-distribution source** — `scripts/build-hermes-distribution.py` (planned) + a GitHub Action will transform `skills/` into a Hermes-installable skill package at every release tag, force-pushed to `CurtisThe/three-pillars-hermes`. No drift by construction — humans never edit the downstream repo. See [CHANGELOG.md](CHANGELOG.md) for status.
 
 ## Runtime prerequisites
@@ -211,7 +211,7 @@ Every skill that produces substantial work commits before returning — design.m
 
 ## What's included
 
-**39 skills** organized into pipelines:
+**40 skills** organized into pipelines:
 
 | Pipeline | Skills | Purpose |
 |---|---|---|
@@ -314,6 +314,7 @@ Fresh-project setup follows a deliberate order — **why** before **how**, **how
 | Command | What it does |
 |---|---|
 | `/tp-inflight [--json]` | Show every in-flight `tp/*` design branch across the team — owner, phase, branch age, staleness flag. Read-only, fail-open. |
+| `/tp-seed {slug} [text]` | File an idea as a `seed.md` with its weight class settled up front. Offers to add it to a close open seed first, scores the four axes, shows the rough token cost per class, then writes and commits the seed. No design work. |
 
 ### Council of High Intelligence
 

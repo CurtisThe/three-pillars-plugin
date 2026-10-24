@@ -65,7 +65,7 @@ def test_first_dispatch_names_no_model():
     spans = [_span_from(text, m.start()) for m in re.finditer(re.escape(DISPATCH_OPEN), text)]
     assert spans, "no tp-worker dispatch span in tp-run-full-design/SKILL.md"
     for span in spans:
-        assert 'isolation="worktree"' in span
+        assert "isolation" not in span, f"tp-worker keeps harness isolation (a .claude/ write root): {span}"
         assert not re.search(r"\bmodel\s*=", span), f"re.search found a model= in the first dispatch: {span}"
 
 

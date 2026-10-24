@@ -229,9 +229,10 @@ def test_cleanup_invokes_orphan_sweep_after_removal(tmp_path):
             return r
         raise AssertionError(f"unexpected command: {cmd}")
 
-    def fake_sweep(decisions_log=None):
+    def fake_sweep(decisions_log=None, owned=None, root=None):
         calls.append("sweep")
         assert decisions_log == log
+        assert owned is None  # "worker-order" is not named agent-<id>
         return []
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run), patch(
@@ -240,7 +241,7 @@ def test_cleanup_invokes_orphan_sweep_after_removal(tmp_path):
         cleanup_worker_worktree(wt, decisions_log=log)
 
     assert calls == ["remove", "sweep"]
-    sweep_mock.assert_called_once_with(decisions_log=log)
+    sweep_mock.assert_called_once_with(decisions_log=log, owned=None)
 
 
 def test_cleanup_swallows_sweep_exception(tmp_path):
@@ -311,7 +312,9 @@ def test_sweep_deletes_only_orphan_agent_branches(tmp_path):
         raise AssertionError(f"unexpected command: {cmd}")
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run):
-        deleted = sweep_orphan_agent_branches()
+        deleted = sweep_orphan_agent_branches(
+            owned={"worktree-agent-LIVE", "worktree-agent-ORPHAN"}
+        )
 
     assert deleted == ["worktree-agent-ORPHAN"]
     assert deleted_cmds == [["git", "branch", "-D", "worktree-agent-ORPHAN"]]
@@ -340,7 +343,9 @@ def test_sweep_worktree_list_failure_fails_open_to_empty_exclusion(tmp_path):
         raise AssertionError(f"unexpected command: {cmd}")
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run):
-        deleted = sweep_orphan_agent_branches()  # must not raise
+        deleted = sweep_orphan_agent_branches(
+            owned={"worktree-agent-ORPHAN"}
+        )  # must not raise
 
     assert deleted == ["worktree-agent-ORPHAN"]
 
@@ -362,7 +367,9 @@ def test_sweep_branch_list_failure_returns_empty(tmp_path):
         raise AssertionError(f"unexpected command: {cmd}")
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run):
-        deleted = sweep_orphan_agent_branches()  # must not raise
+        deleted = sweep_orphan_agent_branches(
+            owned={"worktree-agent-ORPHAN"}
+        )  # must not raise
 
     assert deleted == []
 
@@ -398,7 +405,9 @@ def test_sweep_single_delete_failure_does_not_abort_remaining(tmp_path):
         raise AssertionError(f"unexpected command: {cmd}")
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run):
-        deleted = sweep_orphan_agent_branches()
+        deleted = sweep_orphan_agent_branches(
+            owned={"worktree-agent-A", "worktree-agent-B"}
+        )
 
     assert deleted == ["worktree-agent-B"]
     assert [c[3] for c in deleted_cmds] == ["worktree-agent-A", "worktree-agent-B"]
@@ -432,7 +441,9 @@ def test_sweep_decisions_log_append_oserror_is_swallowed(tmp_path):
     bad_log = tmp_path / "no-such-dir" / "decisions.md"
 
     with patch("cleanup_worker_worktree.subprocess.run", side_effect=run):
-        deleted = sweep_orphan_agent_branches(decisions_log=bad_log)  # must not raise
+        deleted = sweep_orphan_agent_branches(
+            decisions_log=bad_log, owned={"worktree-agent-X"}
+        )  # must not raise
 
     assert deleted == ["worktree-agent-X"]
     assert _SWEEP_LOG_PREFIX  # imported symbol used (log-line prefix contract)

@@ -56,10 +56,10 @@ the dispatcher of the nested attempts.
    still-running background `watch` (`TaskStop` of its Bash task; its output is ignored), then
    `python3 <TP>/skills/_shared/attempt_reaper.py sweep --dir <L>`, then stop and record each
    target (`why: armed-running`), then Tier 3.5 as today.
-5. **`agent_meta.worktreePath`** for `run_tier_3_5.py`: a background launch returns no
-   `worktreePath`, so it comes from the completion notification's `<worktree><worktreePath>`;
-   else it is derived as `<repo-common-root>/.claude/worktrees/agent-<id>` when that dir exists;
-   neither → the existing Tier 3.5 missing-worktree path (`### No-op short-circuit`).
+5. **`agent_meta.worktreePath`** for `run_tier_3_5.py`: the `path` that the dispatch's
+   `worker_root.py open` printed (the worker has no harness worktree, so a background launch needs
+   no notification field or derived path); no opened path → the existing Tier 3.5 missing-worktree
+   path (`### No-op short-circuit`).
 
 Inside the worker nothing changes: its `TaskStop` is refused, then `orphan-mark`. The next local
 row's orphan check (`orphans --settle-s 90`) sees the stopped orphan end once its open requests

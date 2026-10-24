@@ -24,7 +24,6 @@ from weight_class import (  # noqa: E402
     main,
     parse_frontmatter,
     read_class,
-    recommend_class,
     write_class,
 )
 
@@ -260,92 +259,7 @@ def test_check_consistency_invalid_design_class_vacuous(tmp_path):
     assert check_consistency(d) == []
 
 
-# ---------------------------------------------------------------------------
-# 1.4 recommend_class rubric
-# ---------------------------------------------------------------------------
-# Axes: risk, blast_radius, reversibility, novelty — each low|medium|high.
-# Reversibility is inverted: high reversibility is GOOD (minimal concern).
-
-def test_recommend_class_all_minimal_is_just_do_it():
-    klass, why = recommend_class("low", "low", "high", "low")
-    assert klass == "just-do-it"
-    assert why  # non-empty justification
-
-
-def test_recommend_class_novelty_high_is_spike():
-    klass, why = recommend_class("low", "low", "high", "high")
-    assert klass == "spike"
-    assert "novelty" in why
-
-
-def test_recommend_class_one_medium_is_light():
-    klass, why = recommend_class("medium", "low", "high", "low")
-    assert klass == "light"
-    assert "risk" in why
-
-
-def test_recommend_class_medium_reversibility_is_light():
-    klass, why = recommend_class("low", "low", "medium", "low")
-    assert klass == "light"
-    assert "reversibility" in why
-
-
-def test_recommend_class_two_mediums_is_full():
-    klass, _ = recommend_class("medium", "medium", "high", "low")
-    assert klass == "full"
-
-
-def test_recommend_class_high_risk_is_full():
-    klass, why = recommend_class("high", "low", "high", "low")
-    assert klass == "full"
-    assert "risk" in why
-
-
-def test_recommend_class_high_blast_radius_is_full():
-    klass, why = recommend_class("low", "high", "high", "low")
-    assert klass == "full"
-    assert "blast" in why
-
-
-def test_recommend_class_low_reversibility_is_full():
-    # Hard to reverse = high concern -> full.
-    klass, why = recommend_class("low", "low", "low", "low")
-    assert klass == "full"
-    assert "reversibility" in why
-
-
-def test_recommend_class_medium_novelty_counts_as_medium():
-    # novelty medium + risk medium -> two medium axes -> full (>1 medium escalates
-    # past light; the "ambiguity resolves heavier" rule itself is pinned by
-    # test_recommend_class_unknown_axis_value_is_full).
-    klass, _ = recommend_class("medium", "low", "high", "medium")
-    assert klass == "full"
-
-
-def test_recommend_class_one_medium_plus_one_high_is_full():
-    klass, _ = recommend_class("medium", "high", "high", "low")
-    assert klass == "full"
-
-
-def test_recommend_class_unknown_axis_value_is_full():
-    for args in (
-        ("banana", "low", "high", "low"),
-        ("low", "", "high", "low"),
-        ("low", "low", None, "low"),
-        ("low", "low", "high", "LOWISH"),
-    ):
-        klass, _ = recommend_class(*args)
-        assert klass == "full"
-
-
-def test_recommend_class_every_class_reachable():
-    reached = {
-        recommend_class("low", "low", "high", "low")[0],
-        recommend_class("low", "low", "high", "high")[0],
-        recommend_class("medium", "low", "high", "low")[0],
-        recommend_class("high", "high", "low", "low")[0],
-    }
-    assert reached == set(VALID_CLASSES)
+# 1.4 recommend_class rubric cases live in test_weight_class_lean.py
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,14 @@ def test_one_spawn_template_for_every_rung():
     assert len(calls) == 1, f"§3 must hold exactly one spawn template, found {len(calls)}"
 
 
+def test_the_probe_comes_before_the_spawn_template():
+    """design run-friction-1022 Task 1.14: §3 probes the spawn site before it spawns."""
+    sec = _section3()
+    probe = sec.index("child_spawn.py probe")
+    fence = sec.index("```python")
+    assert probe < fence, "§3 must run `child_spawn.py probe` before the Agent(...) fence"
+
+
 def test_the_template_spawns_in_the_background():
     keywords = {kw.arg: kw.value for kw in _agent_calls()[0].keywords}
     for name in ("run_in_background", "subagent_type", "model"):

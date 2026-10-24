@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import os
 
+import run_scratch
+
 _TMP = "/tmp"  # nosec B108 — a never-root entry, never written to
 _PAD_BASE_ENV = "TP_FENCE_PAD_BASE"
 _OFF = "off"
@@ -113,17 +115,24 @@ def compute_roots(kind, info, payload_cwd, env, git, scratch, session_id, uid):
     Anything on the never-root list, or that is a parent of one, is dropped.
     """
     env = env or {}
+    run_dir = None
     top = _real((info or {}).get("top"))
     listed = _worktrees(git, top or payload_cwd)
     roots = [top]
     if kind == "design-run":
         roots += [w for w in listed if top and _within(w, top)]
         roots.append(_cwd_top(payload_cwd, top, listed))
+        run_dir = run_scratch.run_dir_from_env(env)
+        if run_dir:
+            roots.append(run_dir)
     else:
         roots += listed
     roots.append(_real(scratch))
     roots += _pad_roots(env, session_id, uid)
-    never = _never_roots(env, uid)
+    own = None  # the run's own scratch path, lexically, even before the dir exists
+    if top and kind == "design-run" and os.path.exists(os.path.join(top, ".git")):
+        own = os.path.join(top, *run_scratch.RUN_SUBPATH)
+    never = _never_roots(env, uid, run_dir, own)
     out = []
     for root in roots:
         if root and root not in out and not _never(root, never, uid):
@@ -198,10 +207,15 @@ def _pad_roots(env, session_id, uid):
     return found
 
 
-def _never_roots(env, uid):
+def _never_roots(env, uid, run_dir=None, own_run=None):
     home = env.get("HOME") or os.path.expanduser("~")
     pad = env.get(_PAD_BASE_ENV) or os.path.join(_TMP, "claude-%s" % uid)
-    return [_real(p) for p in (os.sep, home, _TMP, env.get("TMPDIR"), pad) if p]
+    tmp = env.get("TMPDIR")
+    if tmp and run_dir and _real(tmp) == run_dir:
+        tmp = None  # the run's own in-tree scratch dir is a root, not shared
+    elif tmp and own_run and _real(tmp) == own_run:
+        tmp = None  # the same dir before it exists (a window starts first): the top stays a root
+    return [_real(p) for p in (os.sep, home, _TMP, tmp, pad) if p]
 
 
 def _never(root, never, uid):

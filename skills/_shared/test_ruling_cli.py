@@ -11,6 +11,7 @@ Run with: python3 -m pytest skills/_shared/test_ruling_cli.py
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -181,6 +182,47 @@ def test_subject_writes_dict(tmp_path, question_ruling, capsys):
     assert subject["tie_breaker"] == "pillar 1 wins"
 
 
+@pytest.fixture
+def repo_ruling(tmp_path, question_ruling):
+    """``question_ruling`` with cwd made a real git repo root; returns the id."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    return question_ruling
+
+
+def _refused(argv, capsys):
+    assert ruling_cli.main(argv) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("ruling-cli:"), captured.err
+
+
+def test_subject_out_outside_repo_refused(tmp_path, tmp_path_factory,
+                                          repo_ruling, capsys):
+    outside = tmp_path_factory.mktemp("outside") / "deep" / "x.json"
+    _refused(["subject", "--id", repo_ruling, "--out", str(outside)], capsys)
+    assert not outside.parent.exists()
+
+
+def test_subject_out_dotdot_refused(tmp_path, repo_ruling, capsys):
+    _refused(["subject", "--id", repo_ruling, "--out", "../x.json"], capsys)
+    assert not (tmp_path.parent / "x.json").exists()
+
+
+def test_subject_out_through_symlink_refused(tmp_path, tmp_path_factory,
+                                             repo_ruling, capsys):
+    target = tmp_path_factory.mktemp("elsewhere")
+    (tmp_path / "link").symlink_to(target, target_is_directory=True)
+    _refused(["subject", "--id", repo_ruling, "--out", "link/sub/x.json"],
+             capsys)
+    assert list(target.iterdir()) == []
+
+
+def test_subject_out_relative_in_repo_writes(tmp_path, repo_ruling, capsys):
+    assert ruling_cli.main(["subject", "--id", repo_ruling, "--out",
+                            "sub/subject.json"]) == 0
+    assert (tmp_path / "sub" / "subject.json").is_file()
+
+
 def test_card_recommended_first_and_tagged(tmp_path, question_ruling, capsys):
     assert ruling_cli.main(["card", "--id", question_ruling]) == 0
     card = _json_out(capsys)
@@ -245,3 +287,15 @@ def test_card_html_link(tmp_path, question_ruling, capsys):
                                 + " (Full explanation: "
                                 + "three-pillars-docs/escalations/demo.html)"
                                 + "\nruling: " + question_ruling)
+
+
+# --- Task 3.6 (seat-escalate-first): the light card path -------------------
+
+def test_card_without_html_is_light_path(tmp_path, question_ruling, capsys):
+    """`card --id` with no `--html` is a complete card: exit 0, no explainer link,
+    the trailing `ruling: <id>` line the hook accepts, and two to four options."""
+    assert ruling_cli.main(["card", "--id", question_ruling]) == 0
+    card = _json_out(capsys)
+    assert "Full explanation" not in card["question"]
+    assert card["question"].splitlines()[-1] == "ruling: " + question_ruling
+    assert 2 <= len(card["options"]) <= 4

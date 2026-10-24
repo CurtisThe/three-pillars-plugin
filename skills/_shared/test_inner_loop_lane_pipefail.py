@@ -74,7 +74,7 @@ def _run_fence(site: str, repo: Path, tmp_path: Path) -> "subprocess.CompletedPr
     env["TP_ROOT"] = str(_TP_ROOT)
     subprocess.run(["git", "init", "-q", str(repo)], env=env, check=True)
     # Keep the tee log inside tmp_path: rewrite only the mktemp template argument.
-    command, n = re.subn(r"mktemp [^)\"]+", f"mktemp {tmp_path}/lane.XXXXXX.log",
+    command, n = re.subn(r"mktemp (?:\"[^\"]*\"|[^)\"]+)", f"mktemp {tmp_path}/lane.XXXXXX.log",
                          _lane_command(site))
     assert n == 1, command
     return subprocess.run(["bash", "-c", command], cwd=str(repo), env=env,

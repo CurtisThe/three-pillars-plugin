@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -154,8 +155,15 @@ class NumberIssuesError(RuntimeError):
     """A git invocation needed by the CLI failed."""
 
 
+# An empty hooks dir, set only by docs_compile_publish for the machine-generated compile commits in a
+# scratch checkout of an unreviewed branch tip: no hook may run that tip's scripts (unset: git's hooks).
+HOOKS_OFF_ENV = "TP_GIT_HOOKS_OFF"
+
+
 def _run_git(repo: Path, args: list) -> str:
-    proc = subprocess.run(["git", "-C", str(repo), *args], env=_git_env(),
+    off = os.environ.get(HOOKS_OFF_ENV)
+    pre = ["-c", f"core.hooksPath={off}"] if off else []
+    proc = subprocess.run(["git", *pre, "-C", str(repo), *args], env=_git_env(),
                           capture_output=True, text=True)
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip().splitlines()

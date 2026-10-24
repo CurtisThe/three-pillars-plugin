@@ -85,9 +85,17 @@ def test_idle_after_threshold_once_per_stretch():
 
 
 def test_no_idle_while_background_agents_wait():
-    busy = "running\n2 background agents waiting"
+    busy = "running\n2 background agents running"
     _, out = run(obs(pane=busy, now=0), obs(pane=busy, now=500))
     assert out == [[], []]
+
+
+def test_idle_fires_for_a_parked_reply_that_quotes_a_background_count():
+    """The idle gate shares `pane_activity`'s count-line test: a parked run's own reply
+    naming background agents is idle (PR #381 r2), the harness count line is not."""
+    parked = "⏺ Waited for the 2 background agents to finish; handoff saved.\n│ > │"
+    _, out = run(obs(pane=parked, now=0), obs(pane=parked, now=500))
+    assert [kinds(e) for e in out] == [[], ["idle"]]
 
 
 def test_router_fallback_busy_and_non_busy():

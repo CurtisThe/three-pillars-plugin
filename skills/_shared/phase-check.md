@@ -35,10 +35,7 @@ or dispute is carried into the impl audit as *known* rather than re-found. `SH` 
    `model_policy.floor("phase-check")`) with `<scratch>/checker.prompt.md`, which adds the
    finder's reply and the security lens when surfaces are present. Its reply goes through
    `phase_check.py put --scratch <scratch> --slot checker`.
-4. **Worker once** — findings go back to the **SAME phase worker** once: `SendMessage` to the
-   Tier 3.5 `agent_meta.agentId`; if it cannot be resumed, one fresh `tp-worker` for that
-   phase with the findings as its task. Under `--local`, one fix task to the rung that ran
-   the phase's last task. One pass, then the reply (§Worker reply shape) — never a loop.
+4. **Worker once** — findings go back to the **SAME phase worker** once, in a fresh worktree (Tier 3.5 removed the phase's own): `git fetch -q origin candidate/{slug}/single`, `worker_root.py reap`, then `worker_root.py open --base-ref origin/candidate/{slug}/single` (`--phase` is the phase number, `1` for the jdi check), as `skills/tp-run-full-design/tier-2-4-build.md` Tier 3 (tip snapshot and `assert-unmoved` included): the fix worker must start from the candidate commits it fixes. `SendMessage` to the Tier 3.5 `agent_meta.agentId` carries the new `WORKTREE:` line; if it cannot be resumed, one fresh `tp-worker` for that phase with the findings as its task and that `WORKTREE:` line. Under `--local`, one fix task to the rung that ran the phase's last task. One pass, then the reply (§Worker reply shape) — never a loop.
 5. **Tier 3.5** — when the worker produced a follow-up commit, re-run `run_tier_3_5.py` on it
    (same phase, same base). A failure uses the existing retry table (`tier_ladder.py`), not a
    new one. A **disputed** finding never blocks the phase.

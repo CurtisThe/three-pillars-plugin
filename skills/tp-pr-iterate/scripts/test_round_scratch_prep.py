@@ -22,6 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import angles  # noqa: E402
+import angle_tree  # noqa: E402
 import agent_ref  # noqa: E402
 import round_plan  # noqa: E402
 import review_instructions  # noqa: E402
@@ -62,8 +63,9 @@ def _golden(round_dir: Path, root: Path) -> str:
     agent = angles.review_agent(round_no)
     ref = agent_ref.resolve(agent, None)
     entries = []
-    execs = {e["name"]: e["exec_dir"]  # random mkdtemp paths: read back, not rebuilt
-             for e in json.loads((round_dir / "angles.json").read_text(encoding="utf-8"))["angles"]}
+    written = json.loads((round_dir / "angles.json").read_text(encoding="utf-8"))["angles"]
+    execs = {e["name"]: e["exec_dir"] for e in written}  # random mkdtemp paths: read back
+    trees = {e["name"]: e["tree_dir"] for e in written}  # None here: HEAD is not a commit
     for a in ANGLES:
         reply = str(round_dir / a["name"] / rs.REPLY)
         entries.append({
@@ -71,12 +73,14 @@ def _golden(round_dir: Path, root: Path) -> str:
             "agent": agent, "agent_ref": ref,
             "dispatch_model": angles.model_policy.agent_alias(a["model"]),
             "tier": angles.tier(a), "reply_path": reply, "exec_dir": execs[a["name"]],
+            "tree_dir": trees[a["name"]],
             **({"skipped": a["skipped"]} if a.get("skipped") else {}),
             "prompt": angles.build_prompt(a, base=BASE, head=HEAD, effort=EFFORT,
                                           reply_path=reply, round_dir=str(round_dir),
                                           put_script=str(rs._HERE / "round_scratch.py"),
                                           instructions_present=instructions_present)
-            + rs._EXEC_NOTE.format(exec_dir=execs[a["name"]]),
+            + rs._EXEC_NOTE.format(exec_dir=execs[a["name"]])
+            + angle_tree.note(execs[a["name"]], trees[a["name"]]),
         })
     manifest = {
         "pr_url": PR, "round": round_no, "ordinal": ordinal, "base": BASE, "head": HEAD,
@@ -113,7 +117,8 @@ def test_golden_no_prep_dir(tmp_path):
         a = next(x for x in ANGLES if x["name"] == e["name"])
         assert e["prompt"] == angles.build_prompt(
             a, base=BASE, head=HEAD, effort=EFFORT, reply_path=e["reply_path"],
-            instructions_present=instr) + rs._EXEC_NOTE.format(exec_dir=e["exec_dir"])
+            instructions_present=instr) + rs._EXEC_NOTE.format(exec_dir=e["exec_dir"]
+            ) + angle_tree.note(e["exec_dir"], e["tree_dir"])
     # No prep dir was created anywhere under the round.
     assert not (r / "prep").exists()
     assert not (r2 / "prep").exists()
@@ -143,11 +148,12 @@ def _instr():
     return (review_instructions.status(".", load_repo_config(".").config) == "present")
 
 
-def _base_prompt(name, reply_path, exec_dir):
+def _base_prompt(name, reply_path, exec_dir, tree_dir=None):
     a = next(x for x in ANGLES if x["name"] == name)
     return angles.build_prompt(a, base=BASE, head=HEAD, effort=EFFORT,
                                reply_path=reply_path, instructions_present=_instr()
-                               ) + rs._EXEC_NOTE.format(exec_dir=exec_dir)
+                               ) + rs._EXEC_NOTE.format(exec_dir=exec_dir
+                                                        ) + angle_tree.note(exec_dir, tree_dir)
 
 
 def test_accepted_slice_adds_one_line(tmp_path):
@@ -164,10 +170,12 @@ def test_accepted_slice_adds_one_line(tmp_path):
     suffix = "\n\n" + review_prep.PREP_LINE.format(
         path=r / "prep" / "correctness-leak.md")
     cl = next(e for e in manifest["angles"] if e["name"] == "correctness-leak")
-    assert cl["prompt"] == _base_prompt("correctness-leak", cl["reply_path"], cl["exec_dir"]) + suffix
+    assert cl["prompt"] == _base_prompt("correctness-leak", cl["reply_path"], cl["exec_dir"],
+                                         cl["tree_dir"]) + suffix
     assert (r / "prep" / "correctness-leak.md").is_file()
     ec = next(e for e in manifest["angles"] if e["name"] == "edge-cases")
-    assert ec["prompt"] == _base_prompt("edge-cases", ec["reply_path"], ec["exec_dir"])
+    assert ec["prompt"] == _base_prompt("edge-cases", ec["reply_path"], ec["exec_dir"],
+                                        ec["tree_dir"])
 
 
 def test_empty_prep_dir_prompts_unchanged(tmp_path):
@@ -193,7 +201,8 @@ def test_skipped_angle_gets_no_line(tmp_path):
     cl = next(e for e in manifest["angles"] if e["name"] == "correctness-leak")
     assert cl["prompt"].endswith(suffix)
     ec = next(e for e in manifest["angles"] if e["name"] == "edge-cases")
-    assert ec["prompt"] == _base_prompt("edge-cases", ec["reply_path"], ec["exec_dir"])
+    assert ec["prompt"] == _base_prompt("edge-cases", ec["reply_path"], ec["exec_dir"],
+                                        ec["tree_dir"])
     assert not (r / "prep" / "edge-cases.md").exists()
 
 

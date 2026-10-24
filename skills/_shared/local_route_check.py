@@ -2,12 +2,14 @@
 
 design: hybrid-routing-hardening (detailed-design.md §local_route_check)
 
-`parse_health` maps a `GET /health` answer (status + body) to `(reason, ollama)`
+`parse_health` maps a `GET /health` answer (status + body) to `(reason, engine)`
 by the dd's total rules: 4xx → `not-tp-router`; other non-200 → `bad-status`;
 200 whose body is not a `tp-local-router` JSON object → `not-tp-router`;
 unsupported `schema` → `schema-unsupported`; else `ok` (extra fields ignored).
-`ollama` = `body["ollama"]["state"]` when in up/down/unknown, else `None` —
-information only, never read by state logic. `target(env)` resolves
+`engine` = `body["engine"]["state"]` when in up/down/unknown, else (an old
+router) `body["ollama"]["state"]` on the same terms, else `None` — information
+only, never read by state logic. The result carries `engine` plus `ollama`, its
+deprecated alias. `target(env)` resolves
 `ANTHROPIC_BASE_URL` to a loopback-only probe URL (or an `unrouted` reason);
 `redact_url(url)` redacts a URL safe in a single-quoted shell argument;
 `decide(env, probe_result, *, checked_at)` is total over the reason table and
@@ -43,30 +45,36 @@ if _SHARED not in sys.path:
     sys.path.insert(0, _SHARED)
 
 import children_route  # noqa: E402 — after the sys.path bootstrap
+import route_upstream  # noqa: E402
 
 SCHEMA = "tp-local-route/v1"
 STATES = ("unrouted", "router-down", "routed")
 REASONS = {"ok": "routed", "no-base-url": "unrouted", "non-loopback": "unrouted",
            "connect-refused": "router-down", "timeout": "router-down", "bad-status": "router-down",
-           "not-tp-router": "router-down", "schema-unsupported": "router-down", "error": "router-down"}
+           "not-tp-router": "router-down", "schema-unsupported": "router-down", "error": "router-down",
+           "upstream-down": "router-down"}
 HEALTH_PATH, SERVICE, SUPPORTED_SCHEMAS = "/health", "tp-local-router", frozenset({1})
 BUDGET_S, MAX_BODY = 2.0, 65536
 
 ROUTE_KEYS = ("schema", "state", "reason", "base_url", "checked_at")  # the contract = the ROUTE: line
 
-_OLLAMA_STATES = ("up", "down", "unknown")
+_ENGINE_STATES = ("up", "down", "unknown")
 
 
-def _ollama(body: dict) -> str | None:
-    """`body["ollama"]["state"]` iff it is up/down/unknown, else None (info only)."""
-    ollama = body.get("ollama")
-    if isinstance(ollama, dict) and ollama.get("state") in _OLLAMA_STATES:
-        return ollama["state"]
+def _state(value: object) -> str | None:
+    """`value["state"]` iff `value` is a dict whose state is up/down/unknown, else None."""
+    if isinstance(value, dict) and value.get("state") in _ENGINE_STATES:
+        return value["state"]
     return None
 
 
+def _engine(body: dict) -> str | None:
+    """`engine`'s state when valid, else `ollama`'s (an old router), else None (info only)."""
+    return _state(body.get("engine")) or _state(body.get("ollama"))
+
+
 def parse_health(status: int, body: bytes) -> tuple[str, str | None]:
-    """Map a `GET /health` answer to `(reason, ollama)`. Pure; never raises."""
+    """Map a `GET /health` answer to `(reason, engine)`. Pure; never raises."""
     if 400 <= status <= 499:
         return "not-tp-router", None
     if status != 200:
@@ -80,7 +88,7 @@ def parse_health(status: int, body: bytes) -> tuple[str, str | None]:
     schema = data.get("schema")
     if isinstance(schema, bool) or not isinstance(schema, int) or schema not in SUPPORTED_SCHEMAS:
         return "schema-unsupported", None
-    return "ok", _ollama(data)
+    return "ok", _engine(data)
 
 
 # The dd's host charset `[A-Za-z0-9.:\[\]-]`: a hostname outside it
@@ -164,11 +172,12 @@ def _detail(text: object) -> str:
 
 
 def _result(reason: str, checked_at: str, base_url: str | None,
-            ollama: str | None, detail: str) -> dict:
-    """The result v1: all seven keys, `state = REASONS[reason]`."""
+            engine: str | None, detail: str) -> dict:
+    """The result v1: all eight keys, `state = REASONS[reason]`."""
+    # `ollama` is the deprecated alias of `engine`, kept for one release.
     return {"schema": SCHEMA, "state": REASONS[reason], "reason": reason,
             "base_url": base_url, "checked_at": checked_at,
-            "ollama": ollama, "detail": detail}
+            "engine": engine, "ollama": engine, "detail": detail}
 
 
 def decide(env: Mapping[str, str], probe_result: dict | None, *,
@@ -201,9 +210,9 @@ def decide(env: Mapping[str, str], probe_result: dict | None, *,
                                _detail(f"malformed probe_result: "
                                        f"non-int status {status!r}"))
             body = probe_result.get("body")
-            reason, ollama = parse_health(status,
+            reason, engine = parse_health(status,
                                           body if isinstance(body, (bytes, bytearray)) else b"")
-            return _result(reason, checked_at, base_url, ollama,
+            return _result(reason, checked_at, base_url, engine,
                            _detail(probe_result.get("detail", "")))
         return _result("error", checked_at, base_url, None,
                        _detail(f"malformed probe_result: unknown kind {kind!r}"))
@@ -263,7 +272,23 @@ def check(env: Mapping[str, str] | None = None, *,
     url, fail = target(env)
     if fail is not None:
         return decide(env, None, checked_at=checked_at)
-    return decide(env, probe_fn(url), checked_at=checked_at)
+    probe_result = probe_fn(url)
+    result = decide(env, probe_result, checked_at=checked_at)
+    return result if result["reason"] != "ok" else _with_upstream(result, probe_result, env, probe_fn)
+
+
+def _with_upstream(result: dict, probe_result: dict, env: Mapping[str, str], probe_fn) -> dict:
+    """An `ok` router verdict, upgraded by `route_upstream.resolve`: `down` →
+    `upstream-down`; otherwise the verdict plus an additive `upstream` key
+    (`up` / `unknown`) the CLI reads. Never raises."""
+    try:
+        body = json.loads(probe_result.get("body") or b"")
+    except Exception:
+        body = None
+    state = route_upstream.resolve(body, env, probe_fn)
+    if state == "down":
+        return _result("upstream-down", result["checked_at"], result["base_url"], None, "upstream down")
+    return dict(result, upstream=state)
 
 
 def parse_result(obj: object) -> dict | None:
@@ -303,6 +328,7 @@ def parse_result(obj: object) -> dict | None:
 # ---------------------------------------------------------------------------
 
 _SCOPE_RE = re.compile(r"^(run-start|phase \d+)$")
+_SCOPE_FORMS = "run-start, phase <N>"  # the allowed `--scope` forms, for the error text
 
 
 def _transition_for(result: dict, decisions: Path, scope: str | None) -> dict:
@@ -311,7 +337,7 @@ def _transition_for(result: dict, decisions: Path, scope: str | None) -> dict:
     `local_route_log.transition(…)`; no valid `--scope` → an error dict. Reads
     only, never writes; `local_route_log` is imported INSIDE the handler (L3)."""
     if scope is None or not _SCOPE_RE.match(scope):
-        return {"error": "invalid or missing --scope"}
+        return {"error": f"invalid or missing --scope (allowed forms: {_SCOPE_FORMS})"}
     try:
         text = decisions.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -372,7 +398,9 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # the resolver domain, alone
             result = {"schema": SCHEMA, "state": "router-down", "reason": "error", "base_url": None,
                       "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                      "ollama": None, "detail": _detail(exc)}
+                      "engine": None, "ollama": None, "detail": _detail(exc)}
+        if result.get("upstream") == "unknown":
+            print("upstream unknown", file=sys.stderr)
         if args.decisions is not None:
             result["transition"] = _transition_for(result, args.decisions, args.scope)
     elif args.command == "summary":

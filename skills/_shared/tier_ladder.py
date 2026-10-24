@@ -18,6 +18,8 @@ A FAIL is classed by ``failure_class`` (``evidence``: failing ids, hook tail, ro
 | opus-*   | unavailable                      | block (no family above opus)              |
 | any      | FAIL hook-refused (Red refused)  | halt (env-error), stuck hook-refused      |
 | any      | FAIL deterministic:<c>           | ``jump(rung, target)``, stuck; top: block |
+| local-*  | FAIL runaway, 0 router requests  | ``ladder_outage``: wait, else same-effort |
+|          |                                  | sonnet (one attempt, no 2nd local clock)  |
 | local-*  | FAIL runaway                     | ``quality_next``, no same-rung retry      |
 | any      | FAIL, same fingerprint this rung | ``quality_next``, stuck repeated-failure  |
 | cheap    | FAIL quality, attempts < N / = N | retry / ``quality_next``                  |
@@ -52,7 +54,7 @@ import agent_ref as agent_refs  # noqa: E402 — in-repo, stdlib-only sibling (t
 import local_implement_config  # noqa: E402 — in-repo, stdlib-only sibling
 import children_route  # noqa: E402 — in-repo sibling
 import local_route_check, local_route_log  # noqa: E402,E401 — in-repo siblings (L3, one-way)
-import failure_class, ladder_busy, model_policy  # noqa: E402,E401 — in-repo stdlib-only siblings
+import failure_class, ladder_busy, ladder_outage, model_policy  # noqa: E402,E401 — in-repo siblings
 from ladder_entry import (  # noqa: E402,F401
     MISSING, bracket, build_evidence, dispatch_reason, now_stamp, served_verdict, to_decision_entry,
     to_telemetry)
@@ -192,11 +194,15 @@ def next_step(record: dict, outcome: str, cfg: dict, *, reason: str = "",
     klass = failure_class.classify("hook-failed" if outcome == "FAIL" and tail else outcome,
                                    reason, hook_tail=tail, row=ev.get("row"), flags=ev.get("flags"),
                                    first_commit=bool(ev.get("first_commit")))
+    if fam == "local" and outcome == "FAIL":  # zero router requests at the clock: a dead backend
+        klass = ladder_outage.reclass(klass, reason, ev)
     failing = list(ev.get("failing_tests") or ev.get("failing_targets") or [])
     fp = failure_class.fingerprint(outcome, reason, failing)
     prev = next((v for v in reversed(rec["verdicts"])
                  if v.get("rung") == rung and v.get("outcome") == "FAIL"), None)
     verdict = _verdict(rung, outcome, reason, ev, klass, fp)
+    if klass == ladder_outage.OUTAGE:
+        verdict["probe"] = ev.get("probe")
     rec["verdicts"].append(verdict)
     verdict["model"] = effective_model(rung, cfg, rec.get("route", MISSING))
     verdict["why"] = dispatch_reason(rec["verdicts"], len(rec["verdicts"]) - 1)
@@ -205,12 +211,13 @@ def next_step(record: dict, outcome: str, cfg: dict, *, reason: str = "",
     if outcome == "env-error":
         return _finish(rec, "halt", "env-error")
     no_oracle = klass == "deterministic:no-oracle" and fam != "opus"
-    if outcome != "unavailable" and not no_oracle:
+    if outcome != "unavailable" and not no_oracle and klass != ladder_outage.OUTAGE:
         rec["attempts"][rung] = rec["attempts"].get(rung, 0) + 1
     if outcome in _DONE:
         return _finish(rec, "done", _DONE[outcome])
     if outcome == "unavailable":
-        if ladder_busy.applies(busy_policy, rung, reason):
+        if ladder_busy.applies(busy_policy, rung, reason) or ladder_outage.waits(
+                busy_policy, rung, reason):
             return ladder_busy.step(rec, rung, waited_since, now)
         return _up(rec, cfg, unavailable_next(rung))
     if klass == failure_class.HOOK_REFUSED:  # the hook refuses the same Red on any rung: end the task
@@ -219,6 +226,9 @@ def next_step(record: dict, outcome: str, cfg: dict, *, reason: str = "",
     if klass.startswith("deterministic:"):
         verdict["stuck"] = "deterministic"
         return _up(rec, cfg, jump(rung, failure_class.target_for(klass)))
+    if klass == ladder_outage.OUTAGE:  # one attempt: wait/halt per policy, else the same-effort sonnet
+        return (ladder_outage.step(rec, rung, busy_policy, waited_since, now)
+                or _up(rec, cfg, unavailable_next(rung)))
     if klass == "runaway" and fam == "local":
         verdict["stuck"] = "runaway"
         return _up(rec, cfg, quality_next(rung))
@@ -308,7 +318,8 @@ def _cmd(args) -> str:
     cfg = local_implement_config.load(args.root) or dict(local_implement_config.DEFAULTS)
     record.setdefault("route", MISSING)  # a pre-hybrid record: floor its targets
     ev = bracket(build_evidence(record["task_id"], args.check_json, args.scan, args.reply_json,
-                                args.plan, args.phase, args.watch_json, args.root),
+                                args.plan, args.phase, args.watch_json, args.root,
+                                args.probe_json),
                  record.get("stepped_at"), now := now_stamp())  # H2: the attempt's span
     if args.lease_wait_s is not None:
         ev["lease_wait_s"] = args.lease_wait_s
@@ -340,7 +351,8 @@ def main(argv=None) -> int:
     sp.add_argument("--root", default=".", help="repo whose config is read (default: .)")
     sp.add_argument("--reason")
     sp.add_argument("--red-at-base")
-    for flag in ("--check-json", "--scan", "--reply-json", "--plan", "--watch-json"):
+    for flag in ("--check-json", "--scan", "--reply-json", "--plan", "--watch-json",
+                 "--probe-json"):
         sp.add_argument(flag)
     sp.add_argument("--phase", type=int)
     sp.add_argument("--lease-wait-s", type=float)

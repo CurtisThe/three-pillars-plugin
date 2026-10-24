@@ -1,5 +1,6 @@
 """Doc pins for the issue-id placeholder convention and the resolution boundary
 (design: basesync-autoresolve-coverage, task 3.2)."""
+# pin-source: skills/tp-implementation-audit/SKILL.md
 from pathlib import Path
 
 SKILLS = Path(__file__).resolve().parents[1]

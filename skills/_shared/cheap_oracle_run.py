@@ -22,6 +22,8 @@ oracle they recompute the result and never read the artifact own claims
   So does a text that is not resolved: a conflict-marker line (`<<<<<<<`,
   `|||||||`, `=======`, `>>>>>>>`) that neither side carries, or ours and theirs
   pasted together (either order) when they share a line, which repeats it.
+  So does a VERIFIED text with a non-blank line beyond the multiset of the
+  non-blank lines of ours + theirs + base ("overproduced: <n> line(s)").
 - observed_red: artifact {"source", "test_name"} written to
   scratch_dir/repro_scaffold.py and run once, as reproduce runs a test reproducer
   (pytest plus the junit report flags) in ctx["cwd"], which must be at ctx["head"].
@@ -42,6 +44,7 @@ imported inside the oracle bodies, never at module load.
 from __future__ import annotations
 
 import argparse
+import collections
 import importlib
 import json
 import re
@@ -146,7 +149,9 @@ def zero_drop(artifact: dict, ctx: dict) -> tuple[bool, str]:
         return False, why
     result = verify.verify(ours, theirs, artifact["resolved"], base=base, mechanical_applied=True)
     if result.verdict == verify.VERIFIED:
-        return True, ""
+        pool = collections.Counter(_lines(ours) + _lines(theirs) + _lines(base or ""))
+        extra = sum((collections.Counter(_lines(artifact["resolved"])) - pool).values())
+        return (False, f"overproduced: {extra} line(s)") if extra else (True, "")
     dropped = f" (dropped: {', '.join(map(str, result.dropped))})" if result.dropped else ""
     return False, f"{result.verdict}{dropped}"
 

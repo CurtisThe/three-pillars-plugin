@@ -18,6 +18,10 @@ The writeback runs only after a completion-PR create (`--base {default}`). On Ti
 legacy fallback (a candidate-to-`tp` PR) the design is not archived, so it does not run. If the create or
 the push fails, the number-free `Done (completion PR)` stays; that is the default, not an error state.
 
+## Fragment mode
+
+When `three-pillars-docs/changes/{name}.md` exists the docs compile owns the final shape (`skills/_shared/living-doc-fragments.md`): `close` and the PR-number writeback are no-ops, and `check` reports `pending-compile` (exit 0). With `--base` it also runs the living-doc guard and reports it as `guard`; a refusal exits 1: `python3 "$TP_ROOT"/skills/_shared/final_doc_state.py check --slug {name} --base origin/{base} --json`. A design with no fragment keeps the lifecycle above.
+
 ## `close`
 
 `python3 "$TP_ROOT"/skills/_shared/final_doc_state.py close --slug {name} --json` prints

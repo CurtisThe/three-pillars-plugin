@@ -141,10 +141,15 @@ def test_repo_seed_parses():
     if not seed.is_file():
         pytest.skip("repo seed is dev-repo only")
     entries = lessons.read(seed)
-    assert [e["id"] for e in entries] == ["L1", "L2", "L3", "L4"]
+    # The seed is L1-L4; the seat appends L5+ through lessons.py add, so the
+    # file grows and ids stay sequential.
+    assert [e["id"] for e in entries] == [f"L{i}" for i in range(1, len(entries) + 1)]
+    assert len(entries) >= 4
     for entry in entries:
         assert entry["applies_when"]
         assert entry["lesson"]
+        assert entry["sources"]
+    for entry in entries[:4]:
         assert entry["sources"] == ["seed"]
         assert entry["date"] == "2026-10-11"
 

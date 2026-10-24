@@ -51,7 +51,7 @@ def _make_repo(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def test_dry_run_worktree_path(tmp_path):
-    """Dry-run plan shows worktree at .claude/worktrees/hot-patch-<slug>."""
+    """Dry-run plan shows worktree under <repo>-wt/.tp-scratch/<slug>/hot-patch-<slug>."""
     repo = _make_repo(tmp_path)
     result = subprocess.run(
         ["python3", str(HOT_PATCH_PY),
@@ -63,10 +63,10 @@ def test_dry_run_worktree_path(tmp_path):
     )
     assert result.returncode == 0, f"dry-run must exit 0; stderr={result.stderr!r}"
     plan = result.stdout
-    # Worktree path must use .claude/worktrees/ prefix (NOT *-wt/ — inv #32)
-    assert ".claude/worktrees/hot-patch-teardown-order" in plan, (
-        f"Plan must name worktree at .claude/worktrees/hot-patch-<slug>; got:\n{plan}"
-    )
+    # Worktree path sits under the -wt root, never under .claude/
+    expected = f"{repo.name}-wt/.tp-scratch/teardown-order/hot-patch-teardown-order"
+    assert expected in plan, f"Plan must name worktree at {expected}; got:\n{plan}"
+    assert ".claude/" not in plan, f"Plan must not mention .claude/; got:\n{plan}"
     # Branch must be hot-patch/<slug> (NOT tp/* — inv #31/#32)
     assert "hot-patch/teardown-order" in plan, (
         f"Plan must name branch 'hot-patch/<slug>'; got:\n{plan}"
@@ -135,8 +135,8 @@ def test_dry_run_ledger_append_in_commit(tmp_path):
     assert result.returncode == 0, f"dry-run must exit 0; stderr={result.stderr!r}"
     # Assert the JOINED path: worktree segment + "/" + LEDGER_RELPATH must appear
     # in the plan as a contiguous substring (not just each part separately).
-    from skills._shared.hot_patch import WORKTREE_PREFIX, LEDGER_RELPATH  # noqa: PLC0415
-    worktree_segment = f"{WORKTREE_PREFIX}teardown-order"
+    from skills._shared.hot_patch import WORKTREE_NAME_PREFIX, LEDGER_RELPATH  # noqa: PLC0415
+    worktree_segment = f"{WORKTREE_NAME_PREFIX}teardown-order"
     joined_ledger_path = f"{worktree_segment}/{LEDGER_RELPATH}"
     assert joined_ledger_path in plan, (
         f"Plan must contain the joined worktree ledger path {joined_ledger_path!r}; "
@@ -356,7 +356,7 @@ def test_live_mode_preflight_before_provision(tmp_path):
     import os  # noqa: PLC0415
     # Create a real git repo so worktree add would succeed if called
     repo = _make_repo(tmp_path)
-    worktree_path = repo / ".claude" / "worktrees" / "hot-patch-gate-fix"
+    worktree_path = repo.parent / f"{repo.name}-wt" / ".tp-scratch" / "gate-fix" / "hot-patch-gate-fix"
 
     env = dict(os.environ)
     env.update(_GIT_IDENTITY_ENV)

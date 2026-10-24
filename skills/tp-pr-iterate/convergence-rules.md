@@ -159,8 +159,10 @@ python3 "$TP_ROOT"/skills/_shared/carry_check.py --repo . --pr-url <url>   # 0 c
 It runs **before the next round is prepared** and **before any `round_scratch.py flush` commit** —
 a log-flush commit is never stacked on the sync merge ahead of this check.
 
-- **Carried** (exit 0): no re-review. The loop goes straight to the converge oracle
-  (`converge.py --round-dir R`) on the synced head.
+- **Carried** (exit 0): no re-review. The loop first runs `scratch_leftovers.py provision --slug {slug}`
+  then `scratch_leftovers.py check --expect --slug {slug}` (exit 1: no converge, a stop), then goes to the
+  converge oracle (`converge.py --round-dir R`) on the synced head. A docs-only sync (every path the merge
+  hand-resolved is a living-doc `.md`) is carried by the proof-neutral carry (`merge_carry.py`).
 - **Not carried** (exit 1): the next round is a **delta round** from the pre-sync reviewed head
   (D3, `round_plan.prior_reviewed_head`) — never a full re-review of the synced diff.
 - Exit 2 is an error, not a verdict: the loop stops and reports it rather than re-reviewing.

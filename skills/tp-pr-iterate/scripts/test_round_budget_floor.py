@@ -104,8 +104,9 @@ def test_ratio_is_not_judged_below_the_floor():
 
 
 def test_ratio_fires_above_the_floor():
+    cfg = {"pdw": {"guards": {"growth_multiplier": 100}}}
     st = baseline(code=1000, test=0)
-    _, term, detail = run(st, "h2", rows(code=1010, test=120))
+    _, term, detail = run(st, "h2", rows(code=1010, test=3100), config=cfg)
     assert term == "budget-exhausted" and detail["signal"] == "test-code-ratio"
 
 

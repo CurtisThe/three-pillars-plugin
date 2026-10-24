@@ -33,7 +33,8 @@ def _rerun(repo, sha, base, **kw):
 def test_reserve_confirms_a_red_seen_before_the_cut(tmp_path):
     repo, base = make_repo(tmp_path)
     sha = commit(repo, {PLAN: plan({1: TASKS}), **FILES})
-    result = _rerun(repo, sha, base, budget=8, reserve=4)
+    # 12 s task stage still cuts the 30 s sleeper; 16 s holds confirm + control on a loaded box.
+    result = _rerun(repo, sha, base, budget=28, reserve=16)
     assert (result["status"], result["case"]) == ("failed", "f")
     assert [(n["task_id"], n["status"]) for n in result["nodes"]] == [("1.1", "failed")]
     assert result["control"]["rc"] in (0, 5)

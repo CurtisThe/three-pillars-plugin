@@ -106,14 +106,14 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
    1. `round_scratch.py prepare --effort <_codereview_effort(state)> --rulings <proof_root>/rounds/<pr>/rulings.md …` → round dir `R` and
       `R/angles.json`, the path authority (state, loop log, per-angle reply paths, `base`).
    2. Fan out every manifest angle as `Agent(subagent_type=<the entry's agent_ref>, model=<the
-      entry's dispatch_model>, prompt=<manifest prompt>)` (`agent_ref`: `-deep`/xhigh on round 1, high after; `angles.review_agent`) on the cheap engine: Sonnet in parallel, Strata one at a time. Dispatch the `opus-check` angle last, after every finder `reply.md` exists. Skipped angles are not dispatched. Each pipes its
+      entry's dispatch_model>, prompt=<manifest prompt>)` (`agent_ref`: `-deep`/xhigh on round 1, high after; `angles.review_agent`) on the cheap engine: Sonnet in parallel, Strata one at a time. Dispatch the `opus-check` angle last, after every finder `reply.md` exists. Skipped angles are not dispatched. Angles test and mutate only in their manifest `tree_dir` copy, never the shared worktree. Each pipes its
       reply into its prompt's `round_scratch.py put` command (never a direct write) and returns one line.
    3. Round tail: `reproduce.py --round-dir R --cwd . --head <head>` merges the replies
       (`review_merge.merge_codereview_angles`, fail-closed) and runs each blocking finding's
       reproducer; a non-reproducing finding becomes a non-blocking note.
-   4. Clean round: `converge.py --round-dir R`. Otherwise `proof_post.py` (MANDATORY, every
-      invocation, even on `[]`; posts as `github.pr_author_account` via the helper, never add a
-      `GH_TOKEN` prefix; a PR already carrying a human-authored digest must re-run `converge` or
+   4. Clean round: `scratch_leftovers.py provision --slug {slug}`, `check --expect --slug {slug}` (exit 1: no converge, a stop), then `converge.py --round-dir R`. Otherwise `proof_post.py` (MANDATORY, every
+      invocation, even on `[]`; posts as `github.pr_author_account` (else your own gh login, if `per_developer_author: "self"`) via the helper, never add a
+      `GH_TOKEN` prefix; a PR with a human-authored digest must re-run `converge` or
       `proof_post.py` to repost as the bot), then shell `run_round.py` with stdin `pr_url`, `round`, `ordinal`, `class_log_path` and
       `review_base` (the base-branch tip, re-fetched every round) from the manifest.
    5. On `action == "fix"`: the inline fix (step 9), `paths=` from `tree_scope.derive_fix_paths`.
@@ -137,10 +137,10 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
      convergence path.
    - **Posting the summary comment is mandatory on every invocation, including a clean
      (`[]`) result** — `review_merge.post_codereview_comment` renders a Copilot-style
-     body grouped by severity and posts it via REST as `github.pr_author_account` (the helper discovers the config). No silent reviews: each round
-     leaves a visible, auditable PR record (a parse failure shows as a structural
+     body grouped by severity and posts it via REST as `github.pr_author_account` (else your own gh login, if `per_developer_author: "self"`). Each round
+     leaves a visible PR record (a parse failure shows as a
      "could not be parsed" finding, not "no findings"). Fail-open (a failed post is
-     logged, never crashes the loop) but always attempted.
+     logged) but always attempted.
    - All angles + Copilot are driven by the shared `.github/review-instructions.md` (the
      local angles are handed it in the prompt; Copilot reads the synced
      `.github/copilot-instructions.md`) so "stable" means the same thing on each side
@@ -262,9 +262,9 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
     ground-truth assertion in step 10b now makes that impossible.
 10. **Round budget** — `run_round` calls `round_budget.tick` before two-stable. A terminal
     (`budget-exhausted` | `cap-exhausted` | `convergence-failure`) gets the F9 label — a newly fired one only after the finalizer escalates (`skills/_shared/finalizer-first.md`).
-10b. **Two-stable termination (the only success terminal).** The round decision step
-    (`run_round.py` / `loop_driver.run_round`) evaluates four conjuncts before converging.
-    Only when all hold in the same round do you transition to `awaiting-human-review`:
+10b. **Two-stable termination (the only success terminal).** `run_round.py` checks four conjuncts;
+    a `question` stop is the review-stop decision (`round-topology.md` §Review stop).
+    Only when all hold in one round do you go to `awaiting-human-review`:
 
     1. `last_verdict == "minor-only"` — the classifier-flip (step 8). Necessary but not
        sufficient: a flip on a snapshot taken before CI-settle or a late Copilot round
@@ -326,7 +326,7 @@ Pure helpers, all independently tested in `test_loop_driver.py`:
 
 ### Cold-resume contract — iterate-state.v1.json
 
-The state is written at **every round boundary**, but calling it a resume record overstates what the shipped callers do with it: it is closer to a **per-round scratchpad plus a converge-time handoff**. `converge.py::_seed_state` **re-seeds** the same path on every clean-round finish, keeping only the budget fields (`iteration`, `started_at`, `original_diff_lines`, `budget_*`), so `transitions`, `resolved_thread_ids` and `seen_thread_ids` are dropped rather than resumed. (**Not** `reviewed_head_shas`: nothing on the shipped `run_round` path writes it, so it is always empty and the re-seed drops nothing.) A resumed loop does read the file back, which is what makes a crash *between* rounds recoverable on the Tier-7 path — but do not assume history accumulates across a converge.
+The state is written at **every round boundary**, but it is a **per-round scratchpad plus a converge-time handoff**, not a resume record. `converge.py::_seed_state` **re-seeds** the same path on every clean-round finish, keeping only the budget fields (`iteration`, `started_at`, `original_diff_lines`, `budget_*`), so `transitions`, `resolved_thread_ids` and `seen_thread_ids` are dropped. (**Not** `reviewed_head_shas`: nothing on the `run_round` path writes it, so the re-seed drops nothing.) A resumed loop does read the file back, which is what makes a crash *between* rounds recoverable on the Tier-7 path — but do not assume history accumulates across a converge.
 **Round 0 bootstraps on absence** (`scripts/iterate_state.py::load_or_bootstrap`, called from `run_round.py`): an absent state file is the documented
 **start condition**, not an error — the round writes a schema-valid round-0 state, reports `state_bootstrapped: true`, and exits 0. So no round boundary is
 ever un-resumable and no operator hand-seeds a schema-valid file. The bootstrap **never overwrites** an existing file that has **content** it refuses — those
@@ -432,11 +432,11 @@ source of truth).
   living docs). **Do NOT hand-merge or hand-resolve** — run **`/tp-merge-from-main
   {design}`** to merge the base in, auto-resolve the mechanical living-doc
   conflict classes behind its zero-drop verifier, defer anything semantic for
-  you to finish, re-run tests, and re-push. `/tp-merge-from-main` is the dedicated
-  base-sync conflict-resolution skill for exactly this case; a free-hand `git merge` skips
-  its zero-drop verifier and risks a silent content-drop. Resume the loop once
-  `/tp-merge-from-main` reports the branch green and pushed. (Landing the PR to the base is the separate `/tp-merge` land gate, the human's call.)
-  An agent never resolves by hand what the driver defers; it reports and stops, per `/tp-merge-from-main`'s Resolution boundary. A new known issue takes a placeholder ID (see `skills/_shared/issue-id-placeholders.md`).
+  you to finish, re-run tests, and re-push. A free-hand `git merge` skips
+  that verifier and risks a silent content-drop. Resume the loop once
+  `/tp-merge-from-main` reports the branch green and pushed. (Landing the PR to the base is
+  the separate `/tp-merge` land gate, the human's call.)
+  An agent never resolves by hand what the driver defers; it reports and stops, per `/tp-merge-from-main`'s Resolution boundary (a `resolved` `base-sync-hunk` ruling applied from the VERIFIED proposal is that boundary's one exception). A new known issue takes a placeholder ID (see `skills/_shared/issue-id-placeholders.md`).
 
 ## Copilot review gotchas (observed)
 

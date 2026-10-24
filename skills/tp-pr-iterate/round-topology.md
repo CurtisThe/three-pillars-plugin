@@ -83,8 +83,9 @@ and refuses an unlisted or skipped slot, a symlink and any escape from `R`. A mi
 reply reads as an unparseable sentinel, so a clobbered sibling blocks (fail-closed) and never
 reads as clean.
 
-Each angle also gets a per-angle `exec_dir`, a temp dir outside the proof root that `tail-check`
-deletes.
+Each angle also gets a per-angle `exec_dir`, a temp dir outside the proof root and the checkout.
+`reproduce.py` deletes it once the replies are merged, before the clean-round scratch check;
+`tail-check` deletes any that is left.
 
 The round number `N` is derived from the dirs on disk (cold-resume safe), never from memory, and a
 dir is never reused. When the previous round's tail said `rerun-review`, `prepare` creates `r<N>.1`;
@@ -98,7 +99,7 @@ its owner), and only after `two-stable`: kept dirs let a re-run derive a fresh o
 0. **Context scout** (before round 1; re-run when `context_scout.py needs-refresh` exits 0): `strata-finders.md` §Context scout leaves `rulings.md` in `<proof_root>/rounds/<pr>/`.
 1. **Orchestrator.** Re-fetch the base every round (`git fetch origin <base-branch>`; `base` is the
    `origin/<base-branch>` tip, so a mid-loop `/tp-merge-from-main` moves the merge-base with it).
-   Run `round_scratch.py prepare --root <proof_root> --pr-url <url> --base <base> --head <head>
+   Run `round_scratch.py prepare --proof-root <proof_root> --pr-url <url> --base <base> --head <head>
    --review-weight <W> --state <state_path> --log <log_path> --rulings <proof_root>/rounds/<pr>/rulings.md`; it prints the round dir `R`. `<W>` is `weight_class.py review-weight <design_dir>` (`convergence-rules.md` §D5).
    `cheap-tier.md` §Pre-round runs first (then `prepare` takes `--prep-dir W`), §Scaffold runs after step 2, and §Tail lines adds its lines to the step 3 prompt.
 2. **Orchestrator: angle fan-out.** Dispatch every manifest angle as a top-level
@@ -108,13 +109,13 @@ its owner), and only after `two-stable`: kept dirs let a re-run derive a fresh o
    manifest `prompt`. A local finder angle dispatches that `agent_ref` directly, with no
    `dispatch_select.py floor` step: the review floor would swap the `-medium` agent back to the
    base at `high`. Skipped angles are
-   not dispatched. Each pipes exactly one `{"findings": [...]}` JSON object into its prompt's
+   not dispatched. Angles test and mutate only in their manifest `tree_dir` copy, never the shared worktree. Each pipes exactly one `{"findings": [...]}` JSON object into its prompt's
    `put` command (it lands at its
    `reply_path`; `strict_json_reply`: anything else reads as the unparseable sentinel) and
    returns one line; the orchestrator keeps only that line. The angle set comes from
    `finder_round.round_angles`. On the cheap engine the finders run Sonnet in parallel, Strata one at a time
    (`strata-finders.md`); dispatch the `opus-check` angle last, after every finder `reply.md` exists.
-3. **Round tail.** One sub-agent (Opus), run **without `isolation="worktree"`**, in the
+3. **Round tail.** One sub-agent (Opus), run **without worktree isolation**, in the
    orchestrator's own `tp/{slug}` checkout, while the orchestrator is idle. The round tail is the
    one working-tree writer of the loop. It never checks out another branch, and it commits only the
    derived fix paths. On the cheap engine the `opus-check` (Opus check) angle runs last,
@@ -129,7 +130,11 @@ its owner), and only after `two-stable`: kept dirs let a re-run derive a fresh o
       --config .three-pillars/config.json --class-log-path <log>`. That captures and posts the proof
       digest, then shells `run_round.py`. On exit 3 with reason `proof-author-untrusted` or
       `bot-auth-unavailable` no `run_round.py` runs: that reason becomes the terminal in the tail
-      envelope (a PR already carrying a human-authored digest must re-run `converge`). On `exit 4` (`"terminal": "evidence-complete"`,
+      envelope (a PR already carrying a human-authored digest must re-run `converge`).
+      `converge.py --round-dir` (`converge_rounddir.run`) exits 3, never 4, when its output carries a
+      `finalizer_stop`; an exit 4 never carries one. The tail copies that stop into the envelope
+      (the review stop: `terminal` null, `action: "rerun-review"`, so the fix gets `r<N>.1`; `noop`
+      when R is already `r<N>.1`). On `exit 4` (`"terminal": "evidence-complete"`,
       `convergence-rules.md` §D8) no `run_round.py` runs: the envelope is `action: "noop"`,
       `fix_commit: null`, `terminal: "evidence-complete"`, `converged: false`, `head_after` =
       `head_reviewed`, `budget` read from `iterate-state` (`state_path`; zeros, `signal: null`,
@@ -148,7 +153,9 @@ its owner), and only after `two-stable`: kept dirs let a re-run derive a fresh o
       and returns it, copying `finalizer_stop` verbatim from the `run_round` / `converge` output
       (`null` when absent).
 4. **Orchestrator.** `round_scratch.py tail-check --round-dir R`, which exits 2 with
-   `tail-failed` when the envelope is missing or invalid. On `rerun-review` it runs the round again
+   `tail-failed` when the envelope is missing or invalid. A **terminal-null** `finalizer_stop` with
+   `source: question` (the review stop) goes to §Review stop and never starts the next round.
+   On `rerun-review` it runs the round again
    (step 1 makes `r<N>.1`). A `round-cap` stop is first piped through
    `python3 <scripts>/round_mix.py attach --stop-file <stop> --rounds-dir <proof_root>/rounds/<pr>`
    (adds `mix` when the last two rounds share a regression/class-in-area signal), and the output stop
@@ -222,7 +229,8 @@ names a pre-migration root is repointed to the root it lives in before any reap.
   round-log paths: `decisions.md` and, when they changed, the archived design's
   `dispatch-telemetry.ndjson` and `escape-ledger.ndjson` (rows the dispatcher logged after the
   Tier 5.6 archive: `dispatch_log.py` follows `tp-designs/<slug>` to `completed-tp-designs/<slug>`) and the run's ruling files (`three-pillars-docs/escalations/rulings/`, `escalation.md` §Commit points).
-  The orchestrator pushes only when `python3 "$TP_ROOT"/skills/_shared/round_log_carry.py check
+  First run `python3 "$TP_ROOT"/skills/_shared/pr_push_check.py --repo . --pr-url <url>`; exit 1 leaves the commit local and the terminal report names its SHA for the seat.
+  The orchestrator pushes only when both checks exit 0, the second being `python3 "$TP_ROOT"/skills/_shared/round_log_carry.py check
   --repo .` (the `is_round_log_commit` verdict on `HEAD`) exits 0; 1 is rejected, 2 an error, and
   both leave the commit unpushed (fail-open: one line on a push failure). Otherwise it leaves the commit local and unpushed, as
   before, with one line saying so. The merge gate carries the review proof and the ci-local stamp
@@ -240,7 +248,8 @@ the loop runs `python3 "$TP_ROOT"/skills/_shared/carry_check.py --repo . --pr-ur
 log-flush commit is never stacked on the sync merge ahead of the check.
 
 - Exit 0 (**carried**): no re-review. The loop goes straight to the converge oracle on the synced
-  head.
+  head. A docs-only sync is carried (`merge_carry.py`); one that hand-resolves code or skill text
+  is not.
 - Exit 1 (**not carried**): the next round is a delta round from the pre-sync reviewed head
   (`convergence-rules.md` §D3), never a full re-review.
 - Exit 2 is an error, not a verdict: the loop stops and reports it.
@@ -267,3 +276,24 @@ one pass. The Tier-7 outcome is `pr-iterate-budget-exhausted`.
   is the next counted head), remove the failed dir with `round_scratch.py remove`, and re-run.
 - **`fix-paths-mismatch`.** Nothing was committed. Inspect the working tree, `git restore` the
   stray edits, and re-run.
+
+## Review stop
+
+design: seat-escalate-first. A two-stable converge with non-blocking notes left returns one terminal-null
+`question`/`decision` `finalizer_stop` ("stop here, or fix these notes first?") before any label. The
+decision is per PR and per set of notes: there is no blanket policy (no config key, no brief line).
+At top level, route it through `skills/_shared/escalation.md` §Run with `--scope <slug>`:
+`finalizer_cli prepare/apply --scope <slug> --entry run`. Then settle the ruling it wrote (`<rid>` is its id):
+
+```bash
+python3 "$TP_ROOT"/skills/tp-pr-iterate/scripts/review_stop.py settle --id <rid> --state <state_path> \
+  --decisions <decisions.md> --config .three-pillars/config.json
+```
+
+- **`label`**: re-run `converge.py` on the same head and ordinal (a re-shell, no round spent). Its second proof digest is accepted: `post_proof_checked` has no dedupe.
+- **`fix`**: `round_scratch.py prepare` (step 1, with its `--rulings`) makes the fix's own sub-round `r<N>.1` (dirs are never reused; `r<N+1>` when R is already one). Its tail runs only the inline-fix contract with `classified=<settle notes>` (structural-tagged: committed whatever `frozen` reads) and `fix_round` iteration = `review_stop.iteration` (the `[tp-pr-fix iter-N]` tag), envelope in its own tail slot. The delta round follows within the cap, and its leftover notes go through `review_stop.due()` again.
+- **`card`**: `AskUserQuestion` with settle's `question`/`options` (its `ruling: <id>` line passes the hook), then `ruling_cli.py answer --id <rid> --choice <label>`, then `settle` again. A `TP_DESIGN_RUN=1` run opens no card: it takes the `escalation.md` §3 wait path (`ruling_cli.py wait`), then runs `settle` again with the waited label (for `answer-in-text`, with the text on the second line).
+- **`escalate`**: `finalizer_cli.py escalate --reason unmappable-choice --scope <slug>`, then `settle --id <the `ruling_id` it printed>` (a NEW ruling; it returns the `card`).
+- **`halt`**: flush the log, label `tp:needs-human-attention`, stop.
+
+`prepare` refused `already-finalized` (the same notes recurring): `finalizer_cli.py escalate --reason already-finalized --scope <slug>`, then `settle --id <the `ruling_id` it printed>`.

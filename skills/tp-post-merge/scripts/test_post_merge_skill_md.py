@@ -44,3 +44,11 @@ def test_step4_names_ancestor_and_refusal_checks() -> None:
     step = _step4()
     for word in ("ancestor", "checks", "remedy"):
         assert word in step
+
+
+def test_step_4b_scratch_check_wired() -> None:
+    text = SKILL_MD.read_text(encoding="utf-8")
+    assert text.count("\n4b. ") == 1
+    i = text.index("\n4b. ")
+    assert text.index("\n4. **Verify merge**") < i < text.index("\n5. **Teardown**")
+    assert "scratch_leftovers.py check --slug {name}" in text[i:text.index("\n5. **Teardown**")]

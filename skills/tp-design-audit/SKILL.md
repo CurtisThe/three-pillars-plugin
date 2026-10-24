@@ -122,11 +122,11 @@ if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TO
 CERT="$(python3 "$RS" certify.py)" || exit 1
 ```
 The findings (saved to a scratch file) are always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <findings.md>` prints the `verdict` to report with them; with claims, steps 1–3:
-1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S`, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S`, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data. Open its checkout first and pass `WORKTREE:` per certification-protocol.md §Certifier contract (`wt_root.py open --role cert` … `reap`).
 2. Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/design-audit.json`. Exit ≠ 0: step 3 uses `--unverified records-handoff` in place of `--records`. Stage both files with the audit's commit.
 3. Run the caller's certification over the findings and report the printed `verdict` with them:
 ```bash
-python3 "$CERT" run --claims <claims> --records <records> --repo . --ref <S> --name design-audit --artifact <findings.md>
+python3 "$CERT" run --claims <claims.json> --records <records.json> --repo . --ref <S> --name design-audit --artifact <findings.md>
 ```
 Running as a subagent (no Agent tool), or `--auto` without a certifier result: every claim is `unverified` (`certifier-unavailable`) → BLOCKED, `Cause: certification-unverified`.
 

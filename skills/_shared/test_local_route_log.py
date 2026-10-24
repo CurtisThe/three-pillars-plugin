@@ -59,7 +59,7 @@ def test_render_entry_body_fields():
     lines = entry.splitlines()
     assert lines[1] == (
         "**Checked**: 2026-09-27T21:04:11Z · **Base URL**: http://127.0.0.1:8787 · "
-        "**Ollama**: up (info only)"
+        "**Local engine**: up (info only)"
     )
 
 
@@ -68,7 +68,7 @@ def test_render_entry_no_base_url_or_ollama_renders_none_and_na():
     entry = local_route_log.render_entry(result, "run-start", "none")
     lines = entry.splitlines()
     assert "**Base URL**: none ·" in lines[1]
-    assert "**Ollama**: n/a (info only)" in lines[1]
+    assert "**Local engine**: n/a (info only)" in lines[1]
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ def test_open_window_is_text_after_the_last_end_line():
         "### [routing] end: routing: routed/ok\n"
         "post-end prose\n"
         "### [routing] phase 1: none -> unrouted/no-base-url\n"
-        "**Checked**: t · **Base URL**: none · **Ollama**: n/a (info only)\n"
+        "**Checked**: t · **Base URL**: none · **Local engine**: n/a (info only)\n"
         "**Effect**: floor only\n"
     )
     window = local_route_log.open_window(text)
@@ -171,7 +171,7 @@ def test_open_window_uses_the_last_of_multiple_end_lines():
 def test_entries_parses_base_url_field_none_to_none():
     text = (
         "### [routing] run-start: none -> unrouted/no-base-url\n"
-        "**Checked**: t · **Base URL**: none · **Ollama**: n/a (info only)\n"
+        "**Checked**: t · **Base URL**: none · **Local engine**: n/a (info only)\n"
         "**Effect**: floor only\n"
     )
     result = local_route_log.entries(text)
@@ -181,7 +181,7 @@ def test_entries_parses_base_url_field_none_to_none():
 def test_entries_parses_a_real_base_url():
     text = (
         "### [routing] phase 3: routed -> router-down/connect-refused\n"
-        "**Checked**: t · **Base URL**: http://127.0.0.1:8787 · **Ollama**: n/a (info only)\n"
+        "**Checked**: t · **Base URL**: http://127.0.0.1:8787 · **Local engine**: n/a (info only)\n"
         "**Effect**: floored\n"
     )
     result = local_route_log.entries(text)
@@ -191,10 +191,10 @@ def test_entries_parses_a_real_base_url():
 def test_entries_multiple_in_order():
     text = (
         "### [routing] run-start: none -> unrouted/no-base-url\n"
-        "**Checked**: t1 · **Base URL**: none · **Ollama**: n/a (info only)\n"
+        "**Checked**: t1 · **Base URL**: none · **Local engine**: n/a (info only)\n"
         "**Effect**: floor only\n\n"
         "### [routing] phase 2: unrouted -> routed/ok\n"
-        "**Checked**: t2 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: up (info only)\n"
+        "**Checked**: t2 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: up (info only)\n"
         "**Effect**: unchanged (the router decides each request)\n"
     )
     result = local_route_log.entries(text)
@@ -206,10 +206,10 @@ def test_entries_multiple_in_order():
 def test_current_route_is_the_last_entry_in_the_open_window():
     text = (
         "### [routing] run-start: none -> unrouted/no-base-url\n"
-        "**Checked**: t1 · **Base URL**: none · **Ollama**: n/a (info only)\n"
+        "**Checked**: t1 · **Base URL**: none · **Local engine**: n/a (info only)\n"
         "**Effect**: floor only\n\n"
         "### [routing] phase 2: unrouted -> routed/ok\n"
-        "**Checked**: t2 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: up (info only)\n"
+        "**Checked**: t2 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: up (info only)\n"
         "**Effect**: unchanged (the router decides each request)\n"
     )
     assert local_route_log.current_route(text) == {
@@ -224,7 +224,7 @@ def test_current_route_is_none_with_no_entries():
 def test_current_route_is_none_right_after_an_end_line():
     text = (
         "### [routing] run-start: none -> routed/ok\n"
-        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: up (info only)\n"
+        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: up (info only)\n"
         "**Effect**: unchanged (the router decides each request)\n\n"
         "### [routing] end: routing: routed/ok\n"
     )
@@ -246,7 +246,7 @@ def test_transition_run_start_always_yields_an_entry_from_none_on_empty_window()
 def test_transition_run_start_always_yields_an_entry_from_the_current_state():
     text = (
         "### [routing] run-start: none -> routed/ok\n"
-        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: up (info only)\n"
+        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: up (info only)\n"
         "**Effect**: unchanged (the router decides each request)\n"
     )
     result = _result("router-down", "connect-refused", base_url="http://127.0.0.1:8787")
@@ -266,7 +266,7 @@ def test_transition_phase_n_yields_an_entry_when_current_route_is_none():
 def test_transition_phase_n_yields_none_on_same_state_reason_only_change():
     text = (
         "### [routing] run-start: none -> router-down/connect-refused\n"
-        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: n/a (info only)\n"
+        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: n/a (info only)\n"
         "**Effect**: floored\n"
     )
     # Same state (router-down), different reason (timeout): no entry.
@@ -277,7 +277,7 @@ def test_transition_phase_n_yields_none_on_same_state_reason_only_change():
 def test_transition_phase_n_yields_an_entry_when_state_changes():
     text = (
         "### [routing] run-start: none -> router-down/connect-refused\n"
-        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Ollama**: n/a (info only)\n"
+        "**Checked**: t1 · **Base URL**: http://127.0.0.1:8787 · **Local engine**: n/a (info only)\n"
         "**Effect**: floored\n"
     )
     result = _result("routed", "ok", base_url="http://127.0.0.1:8787")

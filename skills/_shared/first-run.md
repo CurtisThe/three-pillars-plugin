@@ -2,7 +2,7 @@
 
 Every `tp-*` SKILL.md invokes this protocol as its **first step**. It is the single place where the framework decides whether the current repo needs migration, branch protection, or release configuration before the skill can do its real work.
 
-The protocol is **idempotent and fail-fast on the cheap path**: in the steady state where everything is configured and the user has already answered the aider-install offer, it costs two file reads (per-repo `config.json` + per-user `aider-install.json`) plus one PATH probe + one constant-time `git rev-parse` (seat probe) + one env-only `main_thread_backend.py check` (no file read, no network), and zero prompts. Cost only grows when the repo or the user is in a state that demands attention.
+The protocol is **idempotent and fail-fast on the cheap path**: in the steady state where everything is configured and the user has already answered the aider-install offer, it costs two file reads (per-repo `config.json` + per-user `aider-install.json`) plus one PATH probe + one constant-time `git rev-parse` (seat probe) + one env-only `main_thread_backend.py check` (no file read, no network), and zero prompts. Cost only grows when the repo or the user is in a state that demands attention. Every offer below that is asked as a card puts a line `seat-allow: first-run-preflight` of its own in the card text.
 
 ## Cheap-path early-exit
 

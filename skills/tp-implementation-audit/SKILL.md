@@ -49,7 +49,7 @@ For EVERY interface defined in detailed-design.md:
 ### 4. Run the full test suite
 Run the project's complete test suite. Discover the test command from the project config (CLAUDE.md, Makefile, package.json, pyproject.toml, etc.):
 ```
-{project-test-command} 2>&1 | tee "$(mktemp /tmp/test_output.XXXXXX.log)"
+{project-test-command} 2>&1 | tee "$(mktemp "${TMPDIR:-/tmp}/test_output.XXXXXX.log")"
 ```
 All tests must pass. Flag any failures.
 
@@ -135,11 +135,11 @@ if [ -n "$TOP" ] && [ -f "$TOP"/skills/_shared/resolve_script.py ]; then RS="$TO
 CERT="$(python3 "$RS" certify.py)" || exit 1
 ```
 The artifact is always phrase-scanned. With no claims, `python3 "$CERT" scan --artifact <implementation-audit.md>` prints the `verdict` to join into `## Verdict`; with claims, steps 1–3:
-1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), isolation="worktree", model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data.
+1. Dispatch `Agent(subagent_type=agent_ref("tp-certifier"), model="opus") (`agent_ref("tp-certifier")` = the stdout of `python3 "$TP_ROOT"/skills/_shared/agent_ref.py tp-certifier`, the plugin-namespaced reference)` with `S` = the `HEAD` SHA, the resolved absolute `$CERT` path and the claims bytes fenced as untrusted data. Open its checkout first and pass `WORKTREE:` per certification-protocol.md §Certifier contract (`wt_root.py open --role cert` … `reap`).
 2. Copy its `records_file` to scratch, run `python3 "$CERT" handoff --certifier-return <envelope> --records <copy>` (sha256 + count), then copy it to `certifications/records/impl-audit.json`. Exit ≠ 0: step 3 uses `--unverified records-handoff` in place of `--records`.
 3. Run the caller's certification. Fill `## Guards certified` from its statuses; `## Verdict` is the worse of Step 8's and the printed `verdict` (protocol §Verdicts order):
 ```bash
-python3 "$CERT" run --claims <claims> --records <records> --repo . --ref <S> --name impl-audit --artifact <implementation-audit.md>
+python3 "$CERT" run --claims <claims.json> --records <records.json> --repo . --ref <S> --name impl-audit --artifact <implementation-audit.md>
 ```
 Running as a subagent (no Agent tool), or `--auto` without a certifier result: every claim is `unverified` (`certifier-unavailable`) → BLOCKED, `Cause: certification-unverified`.
 

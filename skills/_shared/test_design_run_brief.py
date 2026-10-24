@@ -64,7 +64,7 @@ def test_source_precedence(rig):
 def test_shipped_template_carries_the_standing_rulings():
     text = open(drb.TEMPLATE, encoding="utf-8").read().lower()
     for needle in ("never merge", "work only in this worktree", "never write to the main checkout",
-                   "seed's recommended answers", "ask in this window only what cannot be decided",
+                   "seed's recommended answers", "skills/_shared/escalation.md",
                    "--local", "opus judges", "{busy_line}", "non-busy fallback"):
         assert needle in text, needle
     assert "/home/" not in text

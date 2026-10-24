@@ -6,6 +6,7 @@ Read the project docs if they exist — do not require them. **Read vision first
 2. `three-pillars-docs/architecture.md` — the how. System structure and key decisions.
 3. `three-pillars-docs/product_roadmap.md` — the what next. Current state, inventory, sequence.
 4. `three-pillars-docs/known_issues.md` — the what's broken (**open issues only**).
+5. `python3 "$TP_ROOT"/skills/_shared/pending_changes.py summary` — designs merged whose fragment is not yet compiled into the docs above; count each listed slug as done (fail-open: no output means none pending).
 
 **Cold files**: read these four live docs only. Never read `*_archive.md`, `known_issues_resolved.md` or `known_issues_low.md` by default. Open one only for a closed issue's history, a lookup on a miss in a live doc, or a writer or ID-resolution reader that must.
 

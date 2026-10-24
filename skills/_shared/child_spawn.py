@@ -49,7 +49,7 @@ import permission_refusal  # noqa: E402 — `wait` carries a refused call into t
 import wait_budget  # noqa: E402 — `wait`'s default budget
 from child_spawn_cli import CMDS, _parser  # noqa: E402 — the argparse surface `main` reads
 from child_spawn_ops import (  # noqa: E402,F401 — re-exported: the public spellings live here
-    CHILD_MAX_S_DEFAULT, CLAUDE_SESSION_ENV, HOST_AGENT, KILL_GRACE_S, PROMPT_SUBDIR, RESOLVE_POLL_S,
+    CHILD_MAX_S_DEFAULT, CHILD_SESSION_ENV, CLAUDE_SESSION_ENV, HOST_AGENT, KILL_GRACE_S, PROMPT_SUBDIR, RESOLVE_POLL_S,
     RESOLVE_S, _common_dir, _copy_prompt, _env_s, _fail, _is_stale, _probe_checks, _resolve_inner,
     child_env, child_max_s, claude_bin, cmd_stop, cmd_sweep, host_argv, host_instruction)
 
@@ -159,6 +159,7 @@ def cmd_start(site: str, agent_ref_: str, model: str, prompt_file: str, cwd: str
         # it from a parent env that may no longer say what the run decided (task 5.1).
         launch_env = child_env(os.environ)
         launch_env["TP_LOCAL_MODE"] = child_slot.resolved_policy(busy_policy)
+        launch_env[CHILD_SESSION_ENV] = "1"  # the Stop hook never gates a `claude -p` child
         rec = child_proc.launch(host_argv(agent_ref_, model, str(prompt_copy), child,
                                           cwd=str(wd), mode=mode),
                                 str(wd), out_path=str(out_path), env=launch_env)

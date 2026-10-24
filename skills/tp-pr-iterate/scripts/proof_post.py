@@ -6,7 +6,7 @@ design: review-proof-ambient-gh-identity
 runs the write as the configured automation account, so the identity is picked by the helper
 and never by a `GH_TOKEN` prefix in the calling shell), then reads the PR comments with the
 gate's own reader and checks the digest's author against the trust set the gate will compute
-(`review_proof._trusted_digest_authors`). An author outside that set yields
+(`automation_identity.trusted_digest_authors_for_pr`). An author outside that set yields
 `proof-author-untrusted`, so the round learns about it now and not when `/tp-merge` refuses.
 
 Digest detection reuses `review_proof._DIGEST_HEAD_RE` / `_DEGRADED_RE`: no second parser.
@@ -36,6 +36,7 @@ for _p in (_HERE, _SHARED):
 
 import review_merge  # noqa: E402
 import review_proof  # noqa: E402
+import automation_identity  # noqa: E402
 from automation_identity import BotAuthUnavailable  # noqa: E402
 
 # The identity stops: a terminal of their own, never read as §D8 evidence-complete.
@@ -77,7 +78,7 @@ def _read_back_author(pr_url, head, comments_fn) -> "str | None":
 
 
 def post_proof_checked(pr_url, findings, *, head, digest, config, post_fn=None,
-                       comments_fn=None, self_login_fn=None) -> dict:
+                       comments_fn=None, self_login_fn=None, head_fn=None) -> dict:
     """Post the proof digest as the configured automation account, then verify its author.
 
     Returns `{"status": ..., "author": <login or None>, ...}` (module docstring).
@@ -93,7 +94,8 @@ def post_proof_checked(pr_url, findings, *, head, digest, config, post_fn=None,
     if author is None:
         return {"status": "ok", "author": None}
     try:
-        trusted = review_proof._trusted_digest_authors(config, self_login_fn)
+        trusted = automation_identity.trusted_digest_authors_for_pr(
+            config, pr_url, self_login_fn or review_proof._default_self_login_fn, head_fn)
     except BotAuthUnavailable as exc:
         return {"status": "bot-auth-unavailable", "author": author, "detail": str(exc)}
     if author.lower() in trusted:
@@ -122,7 +124,7 @@ def _finish(result: dict) -> int:
 
 
 def main(argv=None, *, seams=None) -> int:
-    """CLI entry. `seams` (tests) may carry `post_fn`, `comments_fn`, `self_login_fn`."""
+    """CLI entry. `seams` (tests) may carry `post_fn`, `comments_fn`, `self_login_fn`, `head_fn`."""
     args = _parse_args(argv)
     try:
         config = json.loads(Path(args.config).read_text(encoding="utf-8"))

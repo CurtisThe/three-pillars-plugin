@@ -137,15 +137,15 @@ fixes that cannot wait for a full branch + design cycle.
 **Lane shape:** seat-exempt single-commit PR on a throwaway worktree.
 
 ```
-git worktree add -b hot-patch/<slug> .claude/worktrees/hot-patch-<slug>
-# stage fix + ledger append in the worktree
-git -C .claude/worktrees/hot-patch-<slug> commit \
+git worktree add -b hot-patch/<slug> <P>
+# <P> = the path `hot_patch.py <slug> --dry-run` prints; stage fix + ledger there
+git -C <P> commit \
     --trailer "hot-patch: <trigger>" \
     -m "Hotfix: <summary>"
 gh pr create --base "$(python3 $TP_ROOT/skills/_shared/default_branch.py)" --head hot-patch/<slug>
 # operator merges:
 gh pr merge --merge <PR-NUMBER>
-git worktree remove .claude/worktrees/hot-patch-<slug> && git branch -d hot-patch/<slug>
+git worktree remove <P> && git branch -d hot-patch/<slug>
 ```
 
 **Commit message row** (message-template table):

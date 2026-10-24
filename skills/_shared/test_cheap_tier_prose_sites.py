@@ -161,3 +161,11 @@ def test_learn_forward():
     assert "**Depth 2.**" in tier5 and "`tp-generator` → `tp-drafter`" in tier5
     assert "spawns nothing" in tier5
     assert "## Tier 5" in _text(CHEAP_MD).split("\n\n", 2)[1]  # the header lists it
+
+
+def test_scratch_names_the_cheap_draft_output_file():
+    # a drafter that writes one scratch file writes it under the repo, never /tmp
+    scratch = _text(SKILLS / "_shared" / "cheap-dispatch.md").split("- **Scratch.**", 1)[1]
+    scratch = scratch.split("\n", 1)[0]
+    assert ".tp-scratch/cheap-draft/<slot>-<n>.md" in scratch
+    assert "never `/tmp`" in scratch

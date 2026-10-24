@@ -57,44 +57,51 @@ it, zero clean).
 ### Step 3 — Provision workspace
 
 ```bash
-git worktree add .claude/worktrees/revert-{slug} -b revert/{slug} origin/{base}
+python3 "$TP_ROOT"/skills/_shared/wt_root.py open --role revert --slug {slug} --base-ref origin/{base}
+```
+
+This prints `{"path": P}`; `P` is the revert workspace. Then create the branch in it:
+
+```bash
+git -C <P> switch -c revert/{slug}
 ```
 
 **Slug derivation**: `{slug}` is taken from the probe JSON `slug` field. When `slug` is null (--sha path, or a re-land where the head is `revert/{slug}`), derive it from the original landing PR's `headRefName` via `gh pr view` on the commit's associated PR (strip `tp/`); for a re-land, strip `revert/` from the reverted PR's head to recover the original slug. If the slug remains underivable, ask the operator.
 
-Placement under `.claude/worktrees/` and non-`tp/` branch keep the isolation guards
-green (they run only when the commit guard, `commit_guard.py`, is installed): not
+The `.tp-scratch` path under the `-wt` root and the non-`tp/` branch keep the isolation
+guards green (they run only when the commit guard, `commit_guard.py`, is installed): not
 the seat, not a tp/* worktree.
 
 ### Step 4 — Revert
 
+Every command from here to Step 8 runs in `<P>` (never the operator's own checkout): `git -C <P> …`, or `cd <P> && …` for scripts; edit doc files by absolute path under `<P>`.
+
 ```bash
-cd .claude/worktrees/revert-{slug}
-git revert -m 1 --no-commit {merge_sha}
+git -C <P> revert -m 1 --no-commit {merge_sha}
 ```
 
 Step 2 verified forecast clean. If a conflict occurs anyway: abort + refuse loudly.
 
 ```bash
-git revert --abort   # on conflict
+git -C <P> revert --abort   # on conflict
 ```
 
 ### Step 5 — Living-doc carve-out (amendment-only constraint)
 
-Run the following three commands in order, checking exit status after each (stop loudly on failure):
+Run the following three commands in order (all in `<P>`), checking exit status after each (stop loudly on failure):
 
 ```bash
 # 1. Unstage ALL doc-tree changes (including re-added in-flight files like
 #    tp-designs/{slug}/lock.json, candidates/, telemetry.json)
-git reset -q HEAD -- three-pillars-docs/
+git -C <P> reset -q HEAD -- three-pillars-docs/
 
 # 2. Restore tracked doc files to HEAD — living docs are never textually unwound;
 #    the archive is kept so cites remain live and the amendment has a home
-git restore --worktree --source=HEAD -- three-pillars-docs/
+git -C <P> restore --worktree --source=HEAD -- three-pillars-docs/
 
 # 3. Delete resurrected now-untracked in-flight files — the lock is NOT resurrected;
 #    the in-flight registry stays clean
-git clean -fdq three-pillars-docs/
+git -C <P> clean -fdq three-pillars-docs/
 ```
 
 **Rationale**: `git revert -m 1` re-creates tp-designs/{slug}/lock.json, telemetry.json, and
@@ -106,7 +113,7 @@ removes the resurrected untracked in-flight files. The carve-out covers the enti
 
 ### Step 6 — Regenerate doc state
 
-- **Roll the doc to its cap in the same commit**: for each living doc you wrote, run `python3 "$TP_ROOT"/skills/_shared/doc_rollover.py --doc <repo-relative doc>` and keep the condensed form per `skills/_shared/living-doc-format.md` §Condensed shape and caps (one bullet or row per item, history to the archive); stage the doc's archive in the same commit.
+- **Roll the doc to its cap in the same commit**: for each living doc you wrote, run `cd <P> && python3 "$TP_ROOT"/skills/_shared/doc_rollover.py --doc <repo-relative doc>` and keep the condensed form per `skills/_shared/living-doc-format.md` §Condensed shape and caps (one bullet or row per item, history to the archive); stage the doc's archive in the same commit.
 
 Append the dated amendment to `three-pillars-docs/completed-tp-designs/{slug}/decisions.md`
 per `skills/_shared/reconcile-protocol.md`. Use the template verbatim:
@@ -136,15 +143,15 @@ pass assigns it at landing (`skills/_shared/issue-id-placeholders.md`).
 **6d.** Verify with the reporter (never `--apply` in the revert path):
 
 ```bash
-python3 "$TP_ROOT"/skills/_shared/reconcile_docs.py --slug {slug} --json
+cd <P> && python3 "$TP_ROOT"/skills/_shared/reconcile_docs.py --slug {slug} --json
 ```
 
 ### Step 7 — Commit
 
 Single commit scoped to the revert + doc amendments:
 
-```
-Revert: {slug} (PR #NN)
+```bash
+git -C <P> add -A -- . && git -C <P> commit -m "Revert: {slug} (PR #NN)"
 ```
 
 Never edit `deterministic_gate.py` — gate code is untouched.
@@ -162,6 +169,7 @@ self-approval trap the chokepoint exists to prevent, on the one operation you re
 when something is already broken. [plugin-mode-parity H3]
 
 ```bash
+cd <P> || exit 1
 git push -u origin revert/{slug}
 # Resolve the FREE chokepoint git-toplevel-first (see first-run.md §Resolve a FREE _shared script)
 TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -221,11 +229,15 @@ branch. While it is the newest landing (probe depth 0), `/tp-revert <revert-pr#>
 re-lands the original work through the same machinery (revert-of-a-revert).
 
 Before re-entering Step 3 for a revert-of-a-revert, remove the leftover `revert/{slug}`
-worktree and branch from the original revert (fail-open if absent):
+worktree and branch from the original revert (fail-open if absent). The old `<P>` has a
+random suffix a later session cannot know, so find it by branch:
 
 ```bash
-git worktree remove .claude/worktrees/revert-{slug} --force  # fail-open
-git branch -D revert/{slug}                                    # fail-open
+python3 "$TP_ROOT"/skills/_shared/wt_root.py reap --role revert --slug {slug}  # fail-open
+# fallback if the branch is still checked out: the entry whose branch is refs/heads/revert/{slug}
+git worktree list --porcelain
+git worktree remove <that path> --force  # fail-open
+git branch -D revert/{slug}              # fail-open
 ```
 
 Alternatively, use the distinct branch name `revert/{slug}-reland` for the re-land

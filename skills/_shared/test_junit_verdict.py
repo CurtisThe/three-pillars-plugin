@@ -184,6 +184,25 @@ def test_run_judged_failed_out_skips_foreign_failures(tmp_path):
     assert failed == []
 
 
+def test_run_judged_skipped_out_carries_message_and_body(tmp_path):
+    """Both junit skip shapes: a skip raised in a test (reason in ``message``) and a
+    collection-time skip (``collection skipped`` plus the reason in the body)."""
+    _tree(tmp_path, "t/test_a.py")
+    body = "".join([
+        _case("t.test_a", "test_x", outcome='<skipped message="opt-in: STAGE unset">r</skipped>'),
+        _case("", "t.test_a", outcome='<skipped message="collection skipped">'
+              "('t/test_a.py', 3, \"Skipped: could not import 'sdk': No module named 'sdk'\")"
+              "</skipped>")])
+    skips = []
+    _result, (kind, why) = jv.run_judged(_fake_run(body, rc=0), "t/test_a.py", tmp_path,
+                                         skipped_out=skips)
+    assert (kind, why) == ("unverified", "skipped")
+    assert skips == ["opt-in: STAGE unset\nr",
+                     "collection skipped\n('t/test_a.py', 3, \"Skipped: could not import "
+                     "'sdk': No module named 'sdk'\")"]
+    assert jv.skip_reasons(tmp_path / "absent.xml") == []
+
+
 def test_run_judged_without_failed_out_is_unaffected(tmp_path):
     """Omitting ``failed_out`` leaves the return value exactly as before (module
     docstring): existing callers never observe a change."""

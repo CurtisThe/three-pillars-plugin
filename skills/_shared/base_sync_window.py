@@ -9,7 +9,7 @@ the `base_sync_window` cheap row in `cheap_classes`).
 Pure builder: `window_command(slug, worktree, *, local, which)` returns
 `(command, notes)`. `which` is an injected PATH probe (`shutil.which`-shaped) so
 callers and tests decide whether the Strata launcher exists. No subprocess, no
-side effect; the pre-trust it emits is a shell line the caller runs.
+side effect (the launcher makes the run dir first); the pre-trust it emits is a shell line the caller runs.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import shlex
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import design_run_command as drc
+import run_scratch
 
 # The default Strata-session launcher name; `TP_STRATA_LAUNCHER` overrides it.
 STRATA_LAUNCHER = "claude-strata"
@@ -58,13 +59,15 @@ def window_command(
     notes: List[str] = []
     name = strata_launcher()
     session = None
+    scratch = run_scratch.env_pairs(worktree)
     if local and which(name):
-        session = f"{shlex.quote(name)} {shlex.quote(slash)}"
+        session = (f"{drc.env_prefix(None, scratch=scratch)}"
+                   f"{shlex.quote(name)} {shlex.quote(slash)}")
     elif local:
         notes.append(f"note: no Strata session launcher ({name}) on PATH; "
                      f"the base-sync window opens on sonnet instead")
     if session is None:
-        session = (f"{drc.env_prefix(config_dir)}claude --model sonnet "
+        session = (f"{drc.env_prefix(config_dir, scratch=scratch)}claude --model sonnet "
                    f"{shlex.quote(slash)}")
     cmd = (f"cd {shlex.quote(worktree)} && "
            f"{drc.pretrust_shell_line(worktree, config_dir)} && {session}; exec bash")

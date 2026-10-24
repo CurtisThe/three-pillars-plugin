@@ -43,7 +43,9 @@ on top of it; it never restates the rules, only the commands.
    ```
 
    A run's own finalizer stop JSON goes in with `--stop <f>` instead. A fleet `trouble` verdict
-   enters as `--question-file` (the verdict summary) with `--kind decision`.
+   enters as `--question-file` (the verdict summary) with `--kind decision`. A deferred
+   base-sync hunk uses `--kind base-sync-hunk` and a code conflict `--kind scope-growth`
+   (`scope-growth` operator-only; `base-sync-hunk` Fable-first; a pillar-doc hunk skips Fable: `finalizer_cli.py escalate --reason pillar-doc`), never `decision`.
 
 5. **Ask Fable** — per `skills/_shared/escalation.md` §Run, with the seat's ledger and decisions:
 
@@ -53,8 +55,10 @@ on top of it; it never restates the rules, only the commands.
      --decisions three-pillars-docs/escalations/seat-decisions.md --entry seat
    ```
 
-   Spawn `tp-finalizer` from the returned `agent_ref` with `model=fable` (fallback per the
-   output), save the reply verbatim to a file, then:
+   Spawn `tp-finalizer` from the returned `agent_ref` with `model=fable`. On a Fable error or
+   no Fable access, re-spawn once with the returned `fallback` (Opus, xhigh) and add
+   `--model-used opus --fallback-reason <why>` to `apply`. Save the reply verbatim to a file,
+   then:
 
    ```bash
    python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop stop.json \

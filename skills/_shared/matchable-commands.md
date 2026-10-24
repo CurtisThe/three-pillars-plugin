@@ -7,7 +7,7 @@ classifier blocks it. Write every Bash call in one of the forms below.
 | Instead of | Write |
 |---|---|
 | `bash -c "…"`, `sh -c "…"`, `nohup bash -c …` | One script call: `python3 "$TP_ROOT"/skills/_shared/child_spawn.py …`. To run something in the background, start a child with `python3 "$TP_ROOT"/skills/_shared/child_spawn.py start …` (see [`child-spawn.md`](child-spawn.md)), or set `run_in_background` on the Bash tool call. Never wrap the command in a shell. |
-| `cd <dir> && git …` | `git -C <dir> …` |
+| `cd <dir> && git …` | Plain `git <verb> …` when `<dir>` is this run's own worktree (the cwd); `git -C <dir> …` only for a different tree. |
 | `cd <dir> && pytest …` | From the repo root: `python3 -m pytest <paths> -q -n 4`. |
 | `WT=…; git worktree add $WT …; git worktree remove --force $WT` | `python3 "$TP_ROOT"/skills/_shared/scratch_worktree.py add <name> [<ref>]`, then `… run <name> -- <cmd…>`, then `… remove <name>`. |
 | `S=skills/_shared; python3 $S/resolve_script.py` | The literal path: `python3 "$TP_ROOT"/skills/_shared/resolve_script.py`. The one sanctioned prefix is the quoted `"$TP_ROOT"` (it resolves to the framework root in this repo and in a consumer repo). |

@@ -49,30 +49,38 @@ tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.m
    > `three-pillars-docs/tp-designs/<slug>/seed.md` (a rich seed with a
    > `## Open questions` section) before promoting.
 
-4b. **Read the weight class from the seed**: parse `seed.md`'s leading
-   frontmatter block for `weight-class` (via
-   `python3 "$TP_ROOT"/skills/_shared/weight_class.py`; protocol:
-   `skills/_shared/weight-class.md`). If present and valid, carry it to
-   Step 7's draft. If absent, fold **one** class question into Step 5's
-   batched confirm — rubric-assisted: present the four axes (risk, blast
-   radius, reversibility, novelty) with the `weight_class.py recommend`
-   output as the inferred default the operator can accept or override.
+4b. **Settle the weight class, lean**: parse `seed.md`'s leading
+   frontmatter block for `weight-class` and the four axis keys (protocol:
+   `skills/_shared/weight-class.md`). A seed class is a default, not a floor:
+   run `python3 "$TP_ROOT"/skills/_shared/weight_class.py lighten three-pillars-docs/tp-designs/<slug> --risk … --blast-radius … --reversibility … --novelty …`
+   even when the seed carries a class. A seed without the four axis keys is
+   scored here (risk, blast radius, reversibility, novelty from the seed's
+   `## Problem` and `## Sketch`, passed as the flags). It prints `keep {class}`
+   or `suggest {class} because {axis}`. Run
+   `python3 "$TP_ROOT"/skills/_shared/weight_class.py cost` and fold **one**
+   class question into Step 5's batched confirm that shows the cost beside
+   each class and offers the class `lighten` printed as the default answer
+   (`weight_class.py recommend` output when `lighten` has no suggestion), for
+   the operator to accept or override. Stamp the settled class (the
+   suggestion, the kept class or the operator's override) onto `seed.md` too
+   via `write_class` (a function of `python3 "$TP_ROOT"/skills/_shared/weight_class.py`)
+   when the seed lacks a class or carries a different one, before Step 7
+   writes `design.md`.
 
 5. **Derive the batched confirm**: parse `seed.md` for `## Open questions` (and
    any explicit judgment calls in `## Sketch` or `## Problem`) as *inputs* to
    the map below, not as the questions themselves. Each numbered confirm line is
    a map-derived question; a seed question no answer can flip becomes a default.
    Where the seed already states a preference or answer, present the drafter's
-   inferred default so the operator can accept it wholesale. Include the Step 4b weight-class question when the
-   seed lacks a class. Produce a single numbered prompt block — the entire
+   inferred default so the operator can accept it wholesale. Include the Step 4b weight-class question. Produce a single numbered prompt block — the entire
    set of questions at once, not one at a time.
 
    **Derive it from the state-space map** (above just-do-it): build the map per
    the Build mode of `skills/_shared/state-space-protocol.md` first — flip test,
    goal/locus questions first, one plain-language problem paragraph per
    question. The HTML briefing (step 6) renders the same question format.
-   If Step 4b's class is still unanswered, build against its `recommend`
-   default and re-trim at step 7.
+   If Step 4b's class is still unanswered, build against its printed
+   default (`lighten`, else `recommend`) and re-trim at step 7.
 
    Example layout (adapt to the actual questions):
    ```
@@ -86,7 +94,7 @@ tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.m
 
 6. **Present the whole block at once and STOP** (one human touch / single
    batched confirm). Wait for the operator's answers before proceeding. Do NOT
-   ask individual follow-up questions — collect the full block in one round.
+   ask individual follow-up questions — collect the full block in one round. The block, prose or card, carries a line `seat-allow: promote-confirm` of its own.
 
    **HTML briefing (when a display is available):** the confirm block is
    rendered as a self-contained HTML page (no CDN / no external resources)
@@ -122,7 +130,11 @@ tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.m
    to the promoted design. The `floor: 3` stamp makes
    `## Consumer-repo behaviour` a required section (per
    `skills/_shared/consumer-repo-rule.md`), and `## Forge behaviour` too when
-   the design names a forge surface and its class is above just-do-it. Populate every section that
+   the design names a forge surface and its class is above just-do-it. Whenever the settled
+   class is `just-do-it`, also stamp `estimated-lines: <n>` there: copy the seed's
+   `estimated-lines` when it carries one, else estimate the rough lines the change adds, as
+   `/tp-design` step 7 does (a light-by-default or retro-filed seed has no value, and without
+   it `inline_fit` prices each task at 50 lines). Populate every section that
    `validate_design_floor.py` marks REQUIRED:
    - `## Problem` — what the design solves (from seed `## Problem` + answers)
    - `## Vision alignment` — how it fits the project vision
@@ -190,7 +202,8 @@ tmux session `<slug>`, linked into this one (`skills/_shared/design-run-launch.m
     python3 "$TP_ROOT"/skills/_shared/launch_design_run.py <slug> --skip-design
     ```
 
-    - **Exit 0**: report the printed window target (the run has its own tmux session,
+    - **Exit 0**: the launcher registers the run on the fleet roster (a `roster: … not
+      registered` line means it did not); report the printed window target (the run has its own tmux session,
       linked into this one). The run is Mode B — it skips the design step. This session is done.
     - **Exit 2, "already live"** (a run is going in session `<slug>`): relay the printed
       attach line (`tmux attach -t <slug>`) — there is no manual command; never start a second run.

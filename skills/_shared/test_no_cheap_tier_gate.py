@@ -201,7 +201,7 @@ STUBS = [
     ("tp-docs-update", "docs_draft", "never for `vision.md`"),
     ("tp-docs-update", "history_line", "never for `vision.md`"),
     ("tp-session-save", "handoff", "never with `--stage-boundary`"),
-    ("tp-merge-from-main", "base_sync_splice", "never applied"),
+    ("tp-merge-from-main", "base_sync_splice", "applied only by a `resolved` `apply-proposal` ruling"),
     ("tp-post-merge", "runbook", "deletes nothing unless it verifies"),
 ]
 

@@ -27,6 +27,7 @@ import design_run_command as drc  # noqa: E402
 import design_run_role  # noqa: E402
 import design_run_window_env as dwe  # noqa: E402
 import launcher_which  # noqa: E402
+import run_scratch  # noqa: E402
 
 __all__ = ["LaunchPlan", "build"]
 
@@ -42,13 +43,17 @@ class LaunchPlan:
     pretrust: bool = True  # False: a launcher run whose route profile is unknown
 
 
-def build(env, cfg, direct, local_mode, worktree, home=None, which=launcher_which.which
-          ) -> LaunchPlan:
-    """The plan for one launch. `direct` is the CLI flag; `home` is the HOME directory."""
+def build(env, cfg, direct, local_mode, worktree, home=None, which=launcher_which.which,
+          scratch=False) -> LaunchPlan:
+    """The plan for one launch. `direct` is the CLI flag; `home` is the HOME directory.
+    A true `scratch` adds the run's TMPDIR and cache pairs (`run_scratch.env_pairs` of the
+    worktree) after the other pairs; `main` passes it once the worktree is provisioned."""
     launcher = launcher_which.launcher_home(env)
     is_direct = design_run_backend.resolve(cfg, direct) == "direct"
     plan = LaunchPlan()
-    plan.extra_env, plan.unset, plan.notes = dwe.plan(env, local_mode, launcher=launcher is not None)
+    pairs = run_scratch.env_pairs(worktree, env) if scratch else None
+    plan.extra_env, plan.unset, plan.notes = dwe.plan(
+        env, local_mode, launcher=launcher is not None, scratch=pairs)
     if is_direct or launcher is None:
         plan.backend_env, note = design_run_role.assignment(is_direct, launcher)
         if note:
