@@ -100,7 +100,9 @@ def _reason(summary, kind, text):
     head = ('stop-question: your turn ended on a question for the operator ("%s") — '
             "never ask it as prose;" % summary)
     if kind == "run":
-        route = " route it through %s §Run (a ruling, then a tagged card)." % DOC
+        route = (" route it through %s §Run, the Design run paragraph: open no card; write the "
+                 "ruling with `ruling_cli.py ask` (skip it for a ruling you already hold), then "
+                 "run `ruling_cli.py wait --id <id>`." % DOC)
     else:
         route = (' from the base checkout, run `/tp-escalate <slug|seat> --question '
                  '"<question>"`.')

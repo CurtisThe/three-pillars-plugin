@@ -29,11 +29,24 @@ BUSY_LINES = {
 }
 
 
+_BASE = {"wait": "wait", "exclusive": "wait", "fallback": "fallback"}
+_NEVER = ("never set, export or prefix `TP_LOCAL_MODE` in this run "
+          "(a different mode is a relaunch with `--local-mode`).")
+
+
 def busy_line(policy: Optional[str] = None) -> str:
-    """The routing line for `policy`, resolved from config/env when `None`."""
+    """The routing line for `policy`, resolved from config/env when `None`.
+
+    An explicit policy is the launcher's pin and is named; `None` claims no pin
+    (followups-1024 item 8)."""
+    pinned = policy is not None
     if policy is None:
         policy = strata_spawn.busy_policy(strata_spawn._raw_config(None), None, os.environ)
-    return BUSY_LINES.get(policy, BUSY_LINES["fallback"])
+    base = BUSY_LINES[_BASE.get(policy, "fallback")]
+    if pinned:
+        return f"{base} The launcher pinned this mode (`TP_LOCAL_MODE={policy}`); {_NEVER}"
+    return f"{base} The launch set no mode flag, so the window's launcher config decides it; {_NEVER}"
+
 
 GitRunner = Callable[[Sequence[str], str], "tuple[int, str]"]
 

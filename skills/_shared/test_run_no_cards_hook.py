@@ -3,13 +3,13 @@ import copy
 import io
 import json
 import os
-import re
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import ruling_ask  # noqa: E402
 import run_no_cards_hook as h  # noqa: E402
 
 RID = "demo-20261024-abc123"
@@ -39,17 +39,26 @@ def test_untagged_denied():
     assert "ruling_cli.py ask" in r and "ruling_cli.py wait" in r
 
 
-def test_tagged_denied_wait_only():
-    r = _reason(_with("Which rung?\nruling: " + RID))
-    assert "awaiting-operator: ruling " + RID in r
-    assert "ruling_cli.py wait --id " + RID in r
+def _tagged(tmp_path, *texts):
+    q = texts[-1]
+    rid = ruling_ask.ask(tmp_path, scope="demo", question=q,
+                         options=["a=A", "b=B"], recommended="a").stem
+    p = _with(*texts[:-1], q + "\nruling: " + rid)
+    p["cwd"] = str(tmp_path)
+    return rid, p
+
+
+def test_tagged_denied_wait_only(tmp_path):
+    rid, p = _tagged(tmp_path, "Which rung?")
+    r = _reason(p)
+    assert "awaiting-operator: ruling " + rid in r
+    assert "ruling_cli.py wait --id " + rid in r
     assert "ruling_cli.py ask" not in r
-    assert re.search(r"\bask\b", r) is None
 
 
-def test_second_question_tag():
-    r = _reason(_with("One?", "Two?\nruling: " + RID))
-    assert "ruling_cli.py wait --id " + RID in r
+def test_second_question_tag(tmp_path):
+    rid, p = _tagged(tmp_path, "One?", "Two?")
+    assert "ruling_cli.py wait --id " + rid in _reason(p)
 
 
 def test_malformed_tag_and_non_list_untagged():

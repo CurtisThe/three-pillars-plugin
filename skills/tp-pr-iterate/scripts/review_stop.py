@@ -146,6 +146,11 @@ def _technicality_stop(parsed) -> bool:
     return bool(pick) and _map(pick.get("id"), pick.get("label")) == "stop"
 
 
+def technicality_result(result) -> bool:
+    """`_technicality_stop` on a bare `finalizer_outcome` result (problems + ruling.options)."""
+    return _technicality_stop({"ruling": result})
+
+
 def _retag(note: dict) -> dict:
     """A note re-tagged for the inline-fix contract: passes `partition` frozen or not."""
     return {**note, "verdict": "structural", "source": "code-review",

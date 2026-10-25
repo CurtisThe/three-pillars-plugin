@@ -19,6 +19,8 @@ runs ``apply`` with the agent's reply. Every subcommand prints one JSON line.
       decisions entry -> resolution note, or diagnosis then label -> clear the marker.
       Prints ``{"outcome": "resolved", "extension": ...}`` or ``{"outcome": "escalate", ...}``.
       A second ``apply`` for the same key is a no-op. ``apply`` never writes ``phase``.
+      A missing, empty or unreadable ``--reply`` exits 2 with nothing written;
+      ``escalate --reason no-reply`` covers a finalizer that returned nothing.
   escalate --stop S --reason already-finalized|nested|... --decisions D [--pr-url U]
       escalate with no reply and no dispatch (the caller got a ``prepare`` refusal).
   clear    --ledger L --decisions D
@@ -66,6 +68,7 @@ _REASONS = {
     "agent-unresolved": "The tp-finalizer agent reference could not be resolved.",
     "unmappable-choice": "The ruling's choice maps to no option of the stop, so it goes to the operator.",
     "pillar-doc": "A deferred hunk in a pillar doc (vision.md or architecture.md) is the operator's, so no Fable dispatch.",
+    "no-reply": "The finalizer returned no reply (Fable, then the Opus fallback), so it goes to the operator.",
     "no-proposal": "No zero-drop VERIFIED splice proposal, or the re-verify failed, so the hunk waits for the human.",
 }
 # The reply contract is strict and fails closed (PR #188 round-4 ruling "Strict fix"): the
@@ -175,6 +178,18 @@ def _read_reply(path):
         return None
 
 
+def _require_reply(path) -> None:
+    try:
+        why = "is empty" if not Path(path).read_text(encoding="utf-8-sig").strip() else None
+    except OSError:
+        why = "is missing or unreadable"
+    except UnicodeDecodeError:
+        why = "is not UTF-8"
+    if why:
+        raise CliError(f"reply file {path} {why}; save the finalizer's hand-back reply to it first "
+                       "(nothing was written)")
+
+
 def _config(path) -> dict:
     if path:
         try:
@@ -269,6 +284,16 @@ def _need_scope(args, stop) -> None:
         raise CliError("question stop needs --scope")
 
 
+def _settles_as_stop(stop, result) -> bool:
+    """A review stop whose escalate `review_stop.settle` labels as `stop`: no ping."""
+    try:
+        import review_stop
+        return (stop.get("source") == "question" and "://" in str(stop.get("target", ""))
+                and review_stop.technicality_result(result))
+    except Exception:  # the ping is the fail-safe
+        return False
+
+
 def _finish(stop, key, result, extension, args, s) -> int:
     model = getattr(args, "model_used", "fable")
     scope, ruling = fcr._ruling_scope(args, stop), None
@@ -292,9 +317,11 @@ def _finish(stop, key, result, extension, args, s) -> int:
            else {"outcome": "escalate", "problems": result["problems"], "extension": None})
     if ruling:
         out["ruling_id"], out["ruling_path"] = ruling
-    if result["outcome"] == "escalate" and s.ping:
+    if result["outcome"] == "escalate" and s.ping and not _settles_as_stop(stop, result):
         # the marked ping line goes to stderr, so the JSON stays last on stdout
         _safe(lambda: s.ping(stop, decisions=args.decisions))
+    elif result["outcome"] == "escalate" and s.ping:
+        print("finalizer-cli: pillar-technicality stop, no ping (review_stop settle labels it)")
     _emit(out)
     return 0
 
@@ -321,6 +348,7 @@ def cmd_apply(args, s) -> int:
     if key in seen:
         _emit({"status": "noop", "reason": "already-applied", "outcome": seen[key]})
         return 0
+    _require_reply(args.reply)
     root = project_root.find_project_root() or Path.cwd()
     result = fo.validate(
         _read_reply(args.reply), fr.load_pillars(root),
@@ -346,7 +374,8 @@ def cmd_escalate(args, s) -> int:
     diagnosis = " ".join(filter(None, [_REASONS[args.reason], args.detail]))
     result = {"outcome": "escalate", "problems": [args.reason], "diagnosis": diagnosis,
               "reasoning": f"no finalizer dispatched: {args.reason}", "demoted": []}
-    args.model_used, args.fallback_reason, args.ledger = "none", None, None
+    args.model_used, args.fallback_reason = "none", None
+    args.ledger = getattr(args, "ledger", None)
     return _finish(stop, fin.stop_key(stop), result, None, args, s)
 
 
@@ -382,7 +411,8 @@ def _parser() -> argparse.ArgumentParser:
     ap = add("apply", ("--stop", True), ("--ledger", True), ("--reply", True), ("--decisions", True),
              ("--state", False), ("--pr-url", False), ("--config", False), ("--fallback-reason", False))
     ap.add_argument("--model-used", choices=("fable", "opus"), default="fable")
-    es = add("escalate", ("--stop", True), ("--decisions", True), ("--pr-url", False), ("--detail", False))
+    es = add("escalate", ("--stop", True), ("--decisions", True), ("--pr-url", False), ("--detail", False),
+             ("--ledger", False))
     es.add_argument("--reason", required=True, choices=sorted(_REASONS))
     for p in (ap, es):  # the ruling scope and its entry point (design 4.3)
         p.add_argument("--scope", default=None)

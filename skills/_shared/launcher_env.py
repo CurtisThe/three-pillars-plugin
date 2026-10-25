@@ -13,12 +13,15 @@ sets it. Stdlib only.
 """
 from __future__ import annotations
 
-__all__ = ["LAUNCHER_KEYS", "FORCE_BACKEND_ENV", "OWNED_ENV", "STRATA", "owned_keys",
-           "strip_launcher_keys"]
+__all__ = ["LAUNCHER_KEYS", "FORCE_BACKEND_ENV", "OWNED_ENV", "STRATA", "TEST_LEAK_ENV",
+           "owned_keys", "strip_launcher_keys"]
 
 LAUNCHER_KEYS = ("CLAUDE_LAUNCHER_FORCE_BACKEND", "CLAUDE_LAUNCHER_ROLE", "CLAUDE_LAUNCHER_OWNED")
 FORCE_BACKEND_ENV = "CLAUDE_LAUNCHER_FORCE_BACKEND"
 OWNED_ENV = "CLAUDE_LAUNCHER_OWNED"
+# The launcher-session vars a test run must not inherit: the one list the dev conftest
+# and the release F8 smoke both unset (a consumer shell is not a launcher session).
+TEST_LEAK_ENV = (OWNED_ENV, "CLAUDE_LAUNCHER_BACKEND", "TP_LOCAL", "TP_LOCAL_MODE")
 STRATA = "strata"
 _SEPARATORS = ",: \t\n\r"  # the launcher writes the list, so any of these may divide it
 

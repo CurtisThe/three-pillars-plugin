@@ -204,7 +204,8 @@ def _write_brief(args, wt: str, root: str) -> Optional[tuple]:
     try:
         path, _, source = design_run_brief.write_brief(
             wt, args.slug, args.brief, repo_root=root,
-            warn=lambda msg: print(msg, file=sys.stderr))
+            warn=lambda msg: print(msg, file=sys.stderr),
+            busy_policy=getattr(args, "local_mode", None))
     except OSError as exc:
         print(f"warning: seat brief not written: {exc}", file=sys.stderr)
         return None

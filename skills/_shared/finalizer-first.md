@@ -37,9 +37,13 @@ python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py prepare --stop <json|file> --
   run `escalate` with that reason, no dispatch (an audit-gate `already-finalized` goes to
   `escalation.md` "Second budget stop" first).
 
-Save the finalizer's final reply, verbatim, to a file R. The contract is strict: the reply must be exactly
+Save the finalizer's final reply, verbatim, to a file R. Check R before `apply` in the same command
+(`test -s R && … apply …`, never `;`). The contract is strict: the reply must be exactly
 one JSON object, bare or inside one fence. Prose around it, a second object, a malformed or partial
-object or a repeated key escalates as unparseable, never `resolved`. Then:
+object or a repeated key escalates as unparseable, never `resolved`. A missing, empty or unreadable R is
+refused (exit 2, nothing written, the in-flight marker kept), so a failed extraction is loud and `apply`
+runs again once R holds the reply; a finalizer that returned nothing (Fable, then the Opus fallback) goes
+to `escalate --reason no-reply --ledger L` (clears its marker). Then:
 
 ```
 python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop S --ledger L --reply R --decisions D \

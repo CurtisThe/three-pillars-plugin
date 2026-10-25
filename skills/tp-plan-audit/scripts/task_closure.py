@@ -53,7 +53,9 @@ def _toml_value(path: Path):
         d = tomllib.loads(path.read_text(encoding="utf-8"))
     except (ImportError, OSError, ValueError):
         return None
-    return d.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("python_files")
+    for key in ("tool", "pytest", "ini_options"):
+        d = d.get(key) if isinstance(d, dict) else None
+    return d.get("python_files") if isinstance(d, dict) else None
 
 
 def discovery_globs(root) -> tuple[str, ...]:

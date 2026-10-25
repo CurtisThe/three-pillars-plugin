@@ -145,9 +145,9 @@ def test_old_head_dirs_are_pruned(tmp_path):
         seeded.append(d)
     assert ci_gate_run.main(["--repo", str(repo), "--command", WRITE]) == 0
     remaining = [p for p in parent.iterdir() if p.is_dir()]
-    assert len(remaining) == 20
-    assert not seeded[0].exists()
-    assert not seeded[1].exists()
+    assert len(remaining) == 20, f"the newest 20 head dirs must stay, found {len(remaining)}"
+    assert not seeded[0].exists(), "the oldest head dir must be pruned"
+    assert not seeded[1].exists(), "the second-oldest head dir must be pruned"
     assert (_default_dir(repo, head) / "pytest-main.xml").exists()
 
 
@@ -164,7 +164,25 @@ def test_rerun_at_the_same_head_drops_stale_junit(tmp_path):
     assert (d / "pytest-main.xml").read_text(encoding="utf-8") == "<new/>"
 
 
-@pytest.mark.parametrize("failure", ["rev-parse", "mkdir"])
+@pytest.mark.parametrize(
+    "out",
+    ["--path-format=absolute\n.git\n", "rel/.git\n"],
+)
+def test_junit_dir_refuses_anything_but_one_absolute_path(tmp_path, monkeypatch, out):
+    """An old git echoing the flag, or printing a relative dir, is a refusal — not a path.
+
+    Joining the two lines (or a relative dir) would send the junit somewhere
+    meaningless; the caller catches the refusal and runs the gate with no junit.
+    """
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(ci_gate_run.subprocess, "run", fake_run)
+    with pytest.raises(ValueError):
+        ci_gate_run.junit_dir(tmp_path, "abc")
+
+
+@pytest.mark.parametrize("failure", ["rev-parse", "mkdir", "echoed-flag"])
 def test_junit_setup_failure_skips_the_side_channel(tmp_path, monkeypatch, failure):
     """Junit is best effort: a failing git or mkdir must not stop the gate command."""
     repo = _make_repo(tmp_path)
@@ -174,6 +192,8 @@ def test_junit_setup_failure_skips_the_side_channel(tmp_path, monkeypatch, failu
     def broken(_repo, _head):
         if failure == "rev-parse":
             raise subprocess.CalledProcessError(129, ["git", "rev-parse"])
+        if failure == "echoed-flag":
+            raise ValueError("two lines")  # `--path-format` echoed by an old git
         return blocker / "sub"  # mkdir under a regular file raises OSError
 
     monkeypatch.setattr(ci_gate_run, "junit_dir", broken)

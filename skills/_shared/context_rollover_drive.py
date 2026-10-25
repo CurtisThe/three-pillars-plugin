@@ -38,7 +38,7 @@ ledger path, output) is an injectable seam, wired to the real ones only in
 capture-pane reads `design_run_send` / `design_run_observe` already do — never a kill.
 
 CLI: context_rollover_drive.py <slug> [--worktree DIR] [--threshold 300000]
-                                  [--idle 30] [--save-timeout 600] [--dry-run]
+                                  [--idle 5] [--save-timeout 600] [--dry-run]
 Without `--worktree` the run's worktree is the one `git worktree list` shows on
 `tp/<slug>` (the seat calls this from its base checkout); none prints one
 `context rollover unavailable: no tp/<slug> worktree` line and exits 0.
@@ -72,7 +72,7 @@ __all__ = ["RESUME_LINE", "CLEAR_LINE", "HandoffUnreadable", "rollover", "real_s
            "resolve_worktree", "resume_line", "main"]
 
 CLEAR_LINE = "/clear"
-DEFAULT_IDLE_S = 30.0
+DEFAULT_IDLE_S = 5.0  # end_turn is the boundary proof; this only lets the pane settle (followups-1024 item 7)
 DEFAULT_SAVE_TIMEOUT_S = 600.0
 DEFAULT_BOUNDARY_TIMEOUT_S = 120.0
 LEDGER_RELPATH = (".three-pillars", "run", "context-rollover.json")
@@ -106,8 +106,8 @@ def _ask_once(slug: str, sid: str, size: int, target: plan.Target, send, ledger,
         out("context rollover held: background agents in the pane")
         return 0
     outcome = send(slug, plan.ask_line(target, size))
-    state.finish(ledger, f"ask:{sid}", "done" if outcome == drs.DELIVERED else "aborted")
-    if outcome == drs.DELIVERED:
+    state.finish(ledger, f"ask:{sid}", "done" if outcome in (drs.DELIVERED, drs.QUEUED) else "aborted")
+    if outcome in (drs.DELIVERED, drs.QUEUED):
         out(f"context rollover deferred: asked {slug} to save once its background "
             f"agents finish")
     else:
@@ -169,7 +169,8 @@ def rollover(slug: str, worktree: str, *, threshold: int = cr.DEFAULT_THRESHOLD,
         state.finish(ledger, sid, "aborted")
         return 1
     outcome = send(slug, target.save_line)
-    if outcome != drs.DELIVERED:
+    # A queued save runs when the busy turn ends; the handoff wait below is the safety.
+    if outcome not in (drs.DELIVERED, drs.QUEUED):
         out(f"rollover aborted: handoff save not delivered ({outcome}); no /clear sent")
         state.finish(ledger, sid, "aborted")
         return 1
@@ -317,7 +318,7 @@ def main(argv: Optional[Sequence[str]] = None, *,
     parser.add_argument("--threshold", type=int, default=cr.DEFAULT_THRESHOLD,
                         help="roll over at this many tokens (default 300000)")
     parser.add_argument("--idle", type=float, default=DEFAULT_IDLE_S,
-                        help="idle seconds required at a turn boundary (default 30)")
+                        help="idle seconds required at a turn boundary (default 5)")
     parser.add_argument("--save-timeout", type=float, default=DEFAULT_SAVE_TIMEOUT_S,
                         help="seconds to wait for the handoff save to land (default 600)")
     parser.add_argument("--dry-run", action="store_true",

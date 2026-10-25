@@ -246,10 +246,12 @@ def test_second_apply_for_the_same_key_is_a_noop(capsys, tmp_path, monkeypatch):
     assert entries(tmp_path) == 1 and rec.calls == calls and state.read_bytes() == after_first
 
 
-def test_unparseable_or_missing_reply_escalates(capsys, tmp_path):
+def test_unparseable_reply_escalates(capsys, tmp_path):
     stop, rec = stop_of(), Rec()
     prep(capsys, rec, tmp_path, stop)
-    _, out = run(capsys, rec, *apply_args(tmp_path, stop, reply=tmp_path / "absent.txt"))
+    bad = tmp_path / "bad.txt"
+    bad.write_text("not json", encoding="utf-8")
+    _, out = run(capsys, rec, *apply_args(tmp_path, stop, reply=bad))
     assert out["outcome"] == "escalate" and "finalizer-errored" in out["problems"][0]
 
 

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-25
+
+A Windows workstation bootstrap, a faster and quieter local gate, and fixes to the run-question and rollover paths.
+
+### Added
+
+- **Windows workstation bootstrap** — `install/windows/bootstrap.ps1` (Stage 0, admin PowerShell) checks the machine, turns on WSL2, installs Ubuntu 24.04 and Claude Code in WSL, and resumes after the reboot; `install/windows/README.md` walks through Stage 1 for a `desktop` or `terminal` profile; `install/windows/doctor.sh` prints a report to paste when something fails. BIOS and policy blocks are reported, never bypassed. (#398)
+
+### Changed
+
+- **Faster local gate** — the local gate starts the slowest tests first (from the stored junit timings), a machine-wide lock stops two gates on one machine from halving each other's cores (it waits, then runs with a warning, never fails on contention), and the consumer-repo F8 stage runs at release instead of on every PR gate. (#399)
+
+### Fixed
+
+- **`test_run_supervisor` flake** — fixed at the cause, with no retries or longer sleeps. (#399)
+- **Run tooling** — `finalizer_cli.py apply` refuses a missing finalizer reply instead of escalating on an empty one; `commit_guard.py` passes staged paths after `--`, so a file named like a flag can no longer end the hook early; the context rollover waits for a settled idle and keeps a queued save; `run_no_cards_hook.py` checks every ruling tag a card carries. (#396)
+
 ## [2.7.0] - 2026-10-24
 
 Faster, quieter `/tp-pr-iterate` review loops, lighter default weight classes with a new `/tp-seed`, living-doc fragments that end the shared-doc merge conflicts, a classifier allow list, a run retro at design close, and design-run scratch kept inside the run's own worktree.

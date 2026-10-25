@@ -60,7 +60,8 @@ python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py prepare --stop <json|file> \
   operator card still gets its ruling file.
 
 Save the reply verbatim to a file R (one JSON object, bare or in one fence; anything else is
-unparseable and escalates, never `resolved`). Then:
+unparseable and escalates, never `resolved`). `apply` refuses a missing or empty R (exit 2, nothing
+written; `finalizer-first.md`). Then:
 
 ```bash
 python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop <json|file> \

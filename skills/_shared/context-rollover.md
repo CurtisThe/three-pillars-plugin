@@ -8,7 +8,7 @@ over — `/tp-session-save` → `/clear` → `/tp-session-restore` — instead o
 
 ```bash
 python3 "$TP_ROOT"/skills/_shared/context_rollover_drive.py <slug> [--worktree DIR] [--threshold 300000]
-                                     [--idle 30] [--save-timeout 600] [--dry-run]
+                                     [--idle 5] [--save-timeout 600] [--dry-run]
 ```
 
 The seat runs it on each `idle` event its watcher prints (`design-run-launch.md` step 5); below the
@@ -31,7 +31,7 @@ streamed and final records of one message id count once). Due means size >= `--t
 
 Nothing is sent until the session is at a **turn boundary**: the last main-chain turn stopped on
 `end_turn`, no `user` record follows it, the pane shows no background agents, and it has been
-unchanged for `--idle` seconds. A running tool or subagent is never interrupted; if no boundary
+unchanged for `--idle` seconds (default 5: the transcript is the proof, the stretch only lets the pane settle). A running tool or subagent is never interrupted; if no boundary
 appears the driver prints `context rollover held: <why>` and does nothing.
 
 ## The sequence, and the one rule that makes it safe

@@ -106,7 +106,7 @@ A machine restart kills every run's `claude`; putting a run back on its own conv
 | Condition | Action |
 |---|---|
 | Gate exits 0 (marker set, not a `claude -p` child) | Proceed. |
-| Gate exits 1 **and** this session was started by a parent agent's task prompt (a subagent dispatch, or any `claude -p` child) | **Refuse** before pickup; print the launcher call above for the parent to run instead. |
+| Gate exits 1 **and** `TP_CHILD_SESSION` is set (a `claude -p` child), or this session was started by a parent agent's task prompt (a subagent dispatch) | **Refuse** before pickup; print the launcher call above for the parent to run instead. |
 | Gate exits 1 and the operator typed the command in a top-level session, or unsure | **Warn once** (suggest the launcher next time) and continue. |
 
-Run the gate with `python3 "$TP_ROOT"/skills/_shared/autonomous_gate.py` (exit 0 skip, 1 ask). The self-check has no harness signal to lean on; it is an honest self-assessment of how this session was started.
+Run the gate with `python3 "$TP_ROOT"/skills/_shared/autonomous_gate.py` (exit 0 skip, 1 ask; any other exit, or a gate that cannot run, counts as 1). `printenv TP_CHILD_SESSION` printing a value is the harness signal for a child; for a subagent dispatch the check stays an honest self-assessment of how this session was started.

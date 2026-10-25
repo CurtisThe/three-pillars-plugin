@@ -75,7 +75,7 @@ def test_gate_env_drops_launcher_and_run_names():
         "PATH": "p",
         "HOME": "h",
         "CI_LOCAL_MANIFEST_DIR": "m",
-    }
+    }, "gate_env must drop every launcher and run name and keep only the floor and the worker cap"
 
 
 def test_gate_env_never_strips_the_floor():

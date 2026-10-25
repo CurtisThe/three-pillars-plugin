@@ -69,7 +69,7 @@ Propose targeted updates to one or more of the four project docs based on recent
 - `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py check <ledgers…>` exits 0 and `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py coverage <ledgers…>` passes before anything is swapped.
 - The old text goes to the doc's archive **verbatim**: `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py snapshot --source <doc> --archive <archive> --title "Pre-diet snapshot History — <name> (<date>)"`.
 - Write the condensed doc: `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py assemble <ledgers…> --out <doc>`, then `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py seal <ledgers…>`, and only then `python3 "$TP_ROOT"/skills/_shared/rule_ledger_cli.py check --final-only --live <ledgers…>` is clean (an unsealed ledger fails that check).
-- After the edit, run `python3 "$TP_ROOT"/skills/_shared/pending_changes.py check`; re-anchor every fragment it lists (`conflict: <slug>: …`) in the same commit.
+- After the edit, run `python3 "$TP_ROOT"/skills/_shared/pending_changes.py check`; re-anchor every fragment it lists (`conflict: <slug>: …`) in the same commit. Then run `python3 "$TP_ROOT"/skills/_shared/branch_fragments.py check`: each `stale-anchor: <slug> (<ref>): …` line is an open design branch whose fragment this diet breaks; name each in the commit message and the report, never edit that branch (its run re-anchors after its next base-sync).
 - The doc ends **under its soft cap** (`skills/_shared/file_size_guard.py` is the cap source, per `skills/_shared/living-doc-format.md` §Condensed shape and caps). Show the operator the plan first; stage the doc and its archive in the same commit.
 
 ## Rules

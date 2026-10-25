@@ -52,7 +52,7 @@ Every run (Mode A, B and C, whatever its env; Mode C before it advances to Tier 
 
 ### Confirmation prompt (blocking)
 
-- When `python3 "$TP_ROOT"/skills/_shared/autonomous_gate.py` exits 0 (the launcher's `TP_DESIGN_RUN=1` marker is set and this is not a `claude -p` child: no `TP_CHILD_SESSION`), ask nothing: append `[tp-run-full-design/tier-1] autonomous-continue (seat launch)` and advance to Tier 2. Exit 1 (no marker, or a child) gets the prompt below.
+- When `python3 "$TP_ROOT"/skills/_shared/autonomous_gate.py` exits 0 (the launcher's `TP_DESIGN_RUN=1` marker is set and this is not a `claude -p` child: no `TP_CHILD_SESSION`), ask nothing: append `[tp-run-full-design/tier-1] autonomous-continue (seat launch)` and advance to Tier 2. Exit 1 (no marker, or a child), any other exit, or a gate that cannot run gets the prompt below.
 - Ask `Go autonomous from here?` `[y/n]`; no countdown auto-proceed — a human must answer; block on stdin until `y`/`yes` or `n`/`no`, else re-prompt.
 
 ### Outcomes

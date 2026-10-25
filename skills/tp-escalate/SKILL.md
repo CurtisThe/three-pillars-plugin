@@ -57,8 +57,8 @@ on top of it; it never restates the rules, only the commands.
 
    Spawn `tp-finalizer` from the returned `agent_ref` with `model=fable`. On a Fable error or
    no Fable access, re-spawn once with the returned `fallback` (Opus, xhigh) and add
-   `--model-used opus --fallback-reason <why>` to `apply`. Save the reply verbatim to a file,
-   then:
+   `--model-used opus --fallback-reason <why>` to `apply`. Save the reply verbatim to a file and check it is non-empty (`test -s`); `apply`
+   refuses a missing or empty file (exit 2, nothing written). Then:
 
    ```bash
    python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop stop.json \

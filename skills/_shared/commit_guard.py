@@ -280,9 +280,14 @@ def _file_size_enabled(repo) -> bool:
 def _guarded(name: str, func) -> int:
     """Run one guard's CLI `main` in-process inside its own try block (part E
     §run): an unexpected exception blocks with `commit-guard: internal error
-    in <guard>: <exc>` rather than propagating out of the hook."""
+    in <guard>: <exc>` rather than propagating out of the hook; a guard's
+    `SystemExit` (argparse help or a usage error) blocks too."""
     try:
         return func()
+    except SystemExit as exc:
+        print(f"commit-guard: internal error in {name}: SystemExit({exc.code})",
+              file=sys.stderr)
+        return 1
     except Exception as exc:  # noqa: BLE001
         print(f"commit-guard: internal error in {name}: {exc}", file=sys.stderr)
         return 1
@@ -330,7 +335,7 @@ def run(repo, hook: str, msg_file: str | None = None) -> int:
     def _fragment_check() -> int:
         from fragment_commit_check import main as fragment_check_main  # noqa: PLC0415
         return fragment_check_main(
-            ["--repo-root", repo, "--staged", *_staged_paths(repo)])
+            ["--repo-root", repo, "--staged", "--", *_staged_paths(repo)])
 
     if _guarded("fragment_commit_check", _fragment_check) != 0:
         blocked = True
@@ -338,7 +343,7 @@ def run(repo, hook: str, msg_file: str | None = None) -> int:
     if _file_size_enabled(repo):
         from file_size_guard import main as file_size_guard_main  # noqa: PLC0415
         if _guarded("file_size_guard", lambda: file_size_guard_main(
-                ["--repo-root", repo, *_staged_paths(repo)])) != 0:
+                ["--repo-root", repo, "--", *_staged_paths(repo)])) != 0:
             blocked = True
 
     return 1 if blocked else 0

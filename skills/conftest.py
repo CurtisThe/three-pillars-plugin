@@ -155,6 +155,26 @@ def _no_live_slot_release(_contain_tempfiles, monkeypatch):
     monkeypatch.setenv("TP_LOCAL_STOPPED", str(sandbox / "stopped-agents.jsonl"))
 
 
+@pytest.fixture(autouse=True)
+def _no_machine_gate_lock(_contain_tempfiles, monkeypatch, request):
+    """A test's gate never contends with a real gate, or with another test.
+
+    design: ci-local-speed-part2 (task 1.9, Behavior 5). `ci_gate_run.main` takes a
+    machine-wide advisory lock (`ci_gate_lock`), so a test that runs the gate would sit
+    behind — or block — the real `ci-local` gate. `CI_GATE_LOCK` goes to a per-test file in
+    this test's own scratch dir; the holder marker is cleared so the test's gate exercises
+    the lock. A suite run BY a gate still tests it: the gate exports `CI_GATE_LOCK_HELD` to
+    its command. It lives here, not in `_shared/conftest.py`, so the ship copy gets it too.
+    `test_ci_gate_lock.py` is exempt: it tests path resolution through an explicit env dict.
+    """
+    monkeypatch.delenv("CI_GATE_LOCK_HELD", raising=False)
+    node_path = getattr(request.node, "path", None) or getattr(request.node, "fspath", None)
+    if node_path is not None and Path(str(node_path)).name == "test_ci_gate_lock.py":
+        monkeypatch.delenv("CI_GATE_LOCK", raising=False)
+        return
+    monkeypatch.setenv("CI_GATE_LOCK", str(Path(tempfile.tempdir) / "tp-ci-gate.lock"))
+
+
 def _identity_core():
     """The `automation_identity` module under its plain name, or None when the tree lacks it."""
     if "automation_identity" not in sys.modules:
