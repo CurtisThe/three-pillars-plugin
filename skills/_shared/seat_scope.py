@@ -20,6 +20,10 @@ card through with no ruling.
 `worktree_of(cwd, slug, run_git=None)` — the linked worktree on `tp/<slug>`, else None
 (design: fleet-seat-drive-gaps 1.7: the seat reads a run's ruling from there).
 
+`run_named(cwd, text, run_git=None)` — the slug of a live run (B2) that `text` names as a
+whole token, case-insensitive (B3), else None (design: seat-scope-interactive-questions 1.1:
+the classifier that keeps a run-bound seat question on the `/tp-escalate` route).
+
 `run_git` is an injectable `(args, cwd) -> (returncode, stdout)` like `default_branch`'s.
 """
 from __future__ import annotations
@@ -144,4 +148,18 @@ def worktree_of(cwd, slug, run_git=None):
     for path, branch in _design_worktrees(git, cwd):
         if branch == slug:
             return path
+    return None
+
+
+def run_named(cwd, text, run_git=None):
+    """The slug of a live run that `text` names as a whole token, else None."""
+    if not isinstance(text, str):
+        return None
+    git = run_git or _default_run_git
+    for path, slug in _design_worktrees(git, cwd):
+        if not os.path.isdir(path) or run_lock(path, slug) is None:
+            continue
+        if re.search(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % re.escape(slug),
+                     text, re.IGNORECASE):
+            return slug
     return None

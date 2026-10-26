@@ -30,6 +30,7 @@ HOOK = _SHARED / "stop_question_hook.py"
 SEAT = {"CLAUDE_LAUNCHER_ROLE": "seat"}
 RUN = {"TP_DESIGN_RUN": "1"}
 Q = "Two ways forward.\nWhich option?\n1. Rebase\n2. Merge\n"
+Q_DEMO = "Two ways forward.\nWhich option?\n1. Rebase demo\n2. Merge\n"
 DOC = "skills/_shared/escalation.md"
 
 
@@ -97,7 +98,7 @@ def _assistant(*texts):
 def test_a_seat_prose_question_is_blocked_naming_tp_escalate(tmp_path, where):
     base = _base(tmp_path)
     wt = _worktree(tmp_path, base)
-    out, rc = _stop(base if where == "base" else wt, SEAT)
+    out, rc = _stop(base if where == "base" else wt, SEAT, Q_DEMO)
     assert rc == 0
     reason = _reason(out)
     for part in ("/tp-escalate", "<slug|seat>", "--question", "base checkout"):
@@ -109,7 +110,7 @@ def test_a_seat_prose_question_is_blocked_naming_tp_escalate(tmp_path, where):
 def test_a_seat_in_the_base_with_a_live_run_is_gated_without_the_role(tmp_path):
     base = _base(tmp_path)
     _worktree(tmp_path, base)
-    out, rc = _stop(base, {})
+    out, rc = _stop(base, {}, Q_DEMO)
     assert rc == 0
     assert "/tp-escalate" in _reason(out)
 
@@ -189,7 +190,7 @@ def test_the_transcript_is_read_when_the_field_is_absent(tmp_path):
     del payload["last_assistant_message"]
     out, rc = hook.run(payload, env=SEAT)
     assert rc == 0
-    assert "/tp-escalate" in _reason(out)
+    assert _reason(out)  # the block route depends on the live run, not on the transcript
 
 
 def test_the_transcript_text_blocks_are_joined(tmp_path):
@@ -255,7 +256,7 @@ def test_main_prints_the_block_and_exits_zero(tmp_path):
     base = _base(tmp_path)
     proc = _main(json.dumps(_payload(base)), SEAT)
     assert proc.returncode == 0
-    assert "/tp-escalate" in _reason(proc.stdout)
+    assert "AskUserQuestion" in _reason(proc.stdout)  # its base has no live run (B5)
 
 
 def test_main_on_bad_json_exits_zero_silently():

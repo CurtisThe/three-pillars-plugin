@@ -93,6 +93,20 @@ def test_digest_counts_each_angles_findings(tmp_path, monkeypatch):
     assert [c for _, c in fake.kwargs["label_counts"]] == [2, 0, 0]
 
 
+def test_unsegmented_round_posts_the_not_segmented_coverage_line(tmp_path, monkeypatch):
+    """Behavior 6: the finish posts the round's coverage line on the check label."""
+    angs = [{"name": "edge", "prompt": "p", "role": "finder", "model": "local",
+             "advisory": True},
+            {"name": "opus-check", "prompt": "p", "role": "confirmer", "model": "opus"}]
+    r, _m = _round(tmp_path, angle_set=angs, findings=[NOTE])
+    rc, _out, _err, fake = _main(["--round-dir", str(r)], monkeypatch, tmp_path)
+    assert rc == 0
+    assert [lbl for lbl, _ in fake.kwargs["label_counts"]] == [
+        "edge[local/finder]",
+        "opus-check[opus/confirmer] [coverage n/a (not segmented)]",
+    ]
+
+
 def test_stdin_carries_round_ordinal_class_log(tmp_path, monkeypatch):
     r, _m = _round(tmp_path)
     log = tmp_path / "class.log"

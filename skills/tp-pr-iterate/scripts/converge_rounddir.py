@@ -42,6 +42,7 @@ import angles  # noqa: E402
 import closeout_gate  # noqa: E402
 import converge  # noqa: E402
 import evidence_complete  # noqa: E402
+import finder_coverage  # noqa: E402
 import finder_round  # noqa: E402
 import finding_class  # noqa: E402
 import proof_post  # noqa: E402
@@ -169,7 +170,8 @@ def run(round_dir, *, config, state_arg=None, class_log_path=None, seams=None) -
     rc = converge._finish_clean(
         base=manifest["base"], head=manifest["head"], pr_url=manifest["pr_url"],
         config=config, texts=texts, findings=findings,
-        label_counts=angles.digest_labels(manifest, counts),
+        label_counts=angles.digest_labels(
+            manifest, counts, coverage=finder_coverage.coverage_line(round_dir)),
         state_path=Path(manifest["paths"]["state_path"]),
         review_base=manifest.get("pr_base", manifest["base"]),
         proof_root=Path(manifest["paths"]["proof_root"]), run_round_fn=run_round_fn,

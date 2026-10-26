@@ -5,7 +5,13 @@ the hook takes the turn's last assistant text and asks `prose_question.question_
 it ends in a question for the operator. If it does and the session is gated — a design run
 past `design` (`escalate_first_hook._scope`) or the seat (`seat_scope.is_seat`), both on the
 project root — it returns ONE `{"decision": "block", "reason": …}` naming the route: a run
-→ `skills/_shared/escalation.md` §Run, the seat → `/tp-escalate` from the base checkout.
+→ `skills/_shared/escalation.md` §Run.
+
+design: seat-scope-interactive-questions 1.4 (B5) — a seat question is classified over its
+span: **run-bound** when the last 16 non-blank lines carry a `ruling:` line or the question
+block (`prose_question.question_block`) names a live run (`seat_scope.run_named`) — routed to
+`/tp-escalate` from the base checkout — and **operator-direct** otherwise, which is told to
+ask the question in an `AskUserQuestion` card instead. Nothing else of the window is read.
 
 Nothing is returned (the turn ends) under `stop_hook_active` (never block twice in a row),
 for a `claude -p` child (`TP_CHILD_SESSION=1`, set by `child_spawn.cmd_start`), for a
@@ -96,16 +102,27 @@ def _kind(root, env):
     return "seat" if seat_scope.is_seat(root, env) else None
 
 
-def _reason(summary, kind, text):
+def _run_bound(root, stripped) -> bool:
+    """True when the seat question is run-bound (B3): the detector's 16-line window carries
+    a `ruling:` line, or the question block names a live run. Nothing else is read."""
+    window = "\n".join(text for _, text in prose_question._lines(stripped, 16))
+    if escalate_first_hook._TAG.search(window):
+        return True
+    return seat_scope.run_named(root, prose_question.question_block(stripped)) is not None
+
+
+def _reason(summary, kind, text, bound=True):
     head = ('stop-question: your turn ended on a question for the operator ("%s") — '
             "never ask it as prose;" % summary)
     if kind == "run":
         route = (" route it through %s §Run, the Design run paragraph: open no card; write the "
                  "ruling with `ruling_cli.py ask` (skip it for a ruling you already hold), then "
                  "run `ruling_cli.py wait --id <id>`." % DOC)
-    else:
+    elif bound:
         route = (' from the base checkout, run `/tp-escalate <slug|seat> --question '
                  '"<question>"`.')
+    else:
+        route = " ask it in an `AskUserQuestion` card (recommended option first) instead."
     tagged = _TAGGED.search(text)
     unknown = " `%s` is not an allowed kind." % tagged.group(1)[:_KIND_MAX] if tagged else ""
     return head + route + unknown
@@ -121,7 +138,8 @@ def run(payload, env=None):
         if text is None or seat_scope.allowed(text):
             return "", 0
         # A `seat-allow:` line of an unknown kind is a tag, not prose: the question above it counts.
-        summary = prose_question.question_text(_TAGGED.sub("", text))
+        stripped = _TAGGED.sub("", text)
+        summary = prose_question.question_text(stripped)
         if summary is None:
             return "", 0
         cwd = payload.get("cwd") or os.getcwd()
@@ -129,7 +147,9 @@ def run(payload, env=None):
         kind = _kind(root, env)
         if kind is None:
             return "", 0
-        return json.dumps({"decision": "block", "reason": _reason(summary, kind, text)}), 0
+        bound = kind == "run" or _run_bound(root, stripped)
+        reason = _reason(summary, kind, text, bound)
+        return json.dumps({"decision": "block", "reason": reason}), 0
     except Exception as exc:
         return _fail(exc)
 

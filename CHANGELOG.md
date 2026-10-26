@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-10-26
+
+Review finders that hit their time cap no longer drop coverage silently, seat-scoped interactive questions, and release fixes.
+
+### Changed
+
+- **Capped review finders keep their work** — a finder stopped at its cap leaves its partial findings, a capped segment gets its half-size retry, and no segment is skipped without saying so. One place decides whether a segment is left for the final Opus check. (#410)
+- **Interactive questions are scoped to the seat** — design runs never open a question card; only the seat and interactive sessions do. (#408)
+
+### Fixed
+
+- **Windows bootstrap ships in pro only** — `install/windows/` is now pro-only, and Stage 0 signs in and fetches from the pro repo. (#407)
+- **The F8 release stage passes from the shipped copy** — the launcher environment is scrubbed, and four tests that read dev-only files were reclassified. (#406)
+
 ## [2.8.0] - 2026-10-25
 
 A Windows workstation bootstrap, a faster and quieter local gate, and fixes to the run-question and rollover paths.

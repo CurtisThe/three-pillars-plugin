@@ -100,7 +100,9 @@ def test_tail_check_cli_exits_2_on_a_missing_or_invalid_envelope(tmp_path, capsy
 
 def test_tail_check_cli_exits_0_on_a_valid_envelope(tmp_path, capsys):
     assert rs.main(["tail-check", "--round-dir", str(_round(tmp_path, _good()))]) == 0
-    assert json.loads(capsys.readouterr().out) == {"ok": True}
+    # The round has no `angles.json` at all, so its coverage line is the unknown form.
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": True, "coverage": "coverage unknown (merge not run)"}
 
 
 # --- PR #188 r5: a newly fired budget terminal's finalizer_stop rides the envelope ---

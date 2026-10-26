@@ -176,6 +176,29 @@ convergence gate and the merge gate consume:
 The CLI (`run_round.py`) and the in-process loop block **identically** on an
 un-proofed convergence — parity is asserted by the test suite.
 
+## Digest angle labels (finder-cap-coverage)
+
+`angles.digest_labels(manifest, counts, coverage)` builds the `angles [...]` list of the digest above, one
+label per manifest angle — coverage never adds one. A segment round's labels carry what actually happened
+to each finder, and the `opus-check` label carries the round's coverage line
+(`finder_coverage.coverage_line`, the same line `round_scratch.py tail-check` prints):
+
+```
+correctness-s2[local/finder] [retried: split into correctness-s2a, correctness-s2b]
+correctness-s3[local/finder] [capped: re-covered by opus-check]
+correctness-s4[local/finder] [partial: 1 of 3 files]
+correctness-s5[local/finder] [skipped: segment budget, 9 files]
+opus-check[opus/confirmer] [coverage 70%: 3 files reviewed only by the Opus check]
+```
+
+The suffix forms are fixed: `[coverage <n>%]` on the check label (under 80% it gains
+`: <k> files reviewed only by the Opus check`), `[capped: re-covered by opus-check]`,
+`[partial: <k> of <m> files]`, `[retried: split into <A>a, <A>b]` and
+`[skipped: segment budget, <m> files]`. A round that never segmented says
+`[coverage n/a (not segmented)]`, and a segmented round whose `finder_segments.py merge` did not run says
+`[coverage unknown (merge not run)]` — never a percent. Coverage never blocks: it is what the operator
+reads to judge the round, and the Opus check's scope is what covers the gap.
+
 ## Notes
 
 - Transcripts may contain PII (code snippets, author names). Only the PII-light

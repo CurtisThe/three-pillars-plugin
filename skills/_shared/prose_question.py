@@ -2,8 +2,11 @@
 
 design: seat-escalate-first 3.1. The Stop hook hands over a session's last assistant
 message; `question_text` says whether it ends in a question for the operator and, when it
-does, returns a one-line summary of it. Pure and stdlib-only: a string in, a string or
-None out; no I/O, no environment, no pane chrome.
+does, returns a one-line summary of it. `question_block` (design:
+seat-scope-interactive-questions 1.4 B3) returns the same question as its own contiguous
+lines — the question line plus its option lines — the span the seat's prose classifier
+reads. Pure and stdlib-only: a string in, a string or None out; no I/O, no environment, no
+pane chrome.
 
 A message ends in a question for the operator when, over its last `tail` non-blank lines
 (bold `**` stripped, indentation measured and then stripped):
@@ -91,8 +94,8 @@ def _asks(text: str, bullets: bool) -> bool:
     return _marker(text) if bullets else text.endswith("?") or _marker(text)
 
 
-def _from_options(lines: list[_Line]) -> str | None:
-    """The question line of an options run that ends the message, if it has one."""
+def _from_options(lines: list[_Line]) -> tuple[int, int, int] | None:
+    """(question line, run start, run end) for an options run that ends the message."""
     i = 0
     while i < len(lines):
         end = _run_end(lines, i)
@@ -102,11 +105,33 @@ def _from_options(lines: list[_Line]) -> str | None:
         bullets = _family(lines[i][1]) == _BULLET
         if end == len(lines):  # the run ends the message: question directly above
             if i > 0 and _asks(lines[i - 1][1], bullets):
-                return lines[i - 1][1]
+                return i - 1, i, end
         elif not bullets and end == len(lines) - 1 and lines[-1][1].endswith("?"):
-            return lines[-1][1]  # the run, then one final question line
+            return len(lines) - 1, i, end  # the run, then one final question line
         i = end
     return None
+
+
+def _span(lines: list[_Line]) -> tuple[int, int, int] | None:
+    """(question line, block start, block end) for the question the message ends in."""
+    found = _from_options(lines)
+    if found is not None:
+        return found
+    last = lines[-1][1]
+    if _marker(last) and last.endswith("?"):
+        return len(lines) - 1, len(lines) - 1, len(lines)  # the marker line alone
+    return None
+
+
+def _span_of(message: str | None, tail: int):
+    """(lines, span) for a message, or None when it ends in no question for the operator."""
+    if not isinstance(message, str) or not message.strip():
+        return None
+    lines = _lines(message, tail)
+    if not lines:
+        return None
+    span = _span(lines)
+    return None if span is None else (lines, span)
 
 
 def _summarise(text: str) -> str:
@@ -116,16 +141,32 @@ def _summarise(text: str) -> str:
     return text
 
 
+def _block(lines: list[_Line], q: int, start: int, end: int) -> str:
+    """The question block in message order: the question line directly above the run plus
+    the run, or the run plus the one final question line, or the marker line alone."""
+    if q == start - 1:
+        part = lines[start - 1:end]
+    elif q >= end:
+        part = lines[start:]
+    else:
+        part = lines[start:end]
+    return "\n".join(text for _, text in part)
+
+
+def question_block(message: str | None, tail: int = 16) -> str | None:
+    """The question the message ends in as contiguous lines, else None (design B3): the
+    seat's prose classifier reads this and nothing else of the message."""
+    found = _span_of(message, tail)
+    if found is None:
+        return None
+    lines, (q, start, end) = found
+    return _block(lines, q, start, end)
+
+
 def question_text(message: str | None, tail: int = 16) -> str | None:
     """One-line summary of the question the message leaves for the operator, else None."""
-    if not isinstance(message, str) or not message.strip():
-        return None
-    lines = _lines(message, tail)
-    if not lines:
-        return None
-    found = _from_options(lines)
+    found = _span_of(message, tail)
     if found is None:
-        last = lines[-1][1]
-        if _marker(last) and last.endswith("?"):
-            found = last
-    return _summarise(found) if found else None
+        return None
+    lines, (q, _, _) = found
+    return _summarise(lines[q][1])

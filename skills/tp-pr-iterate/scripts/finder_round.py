@@ -70,7 +70,15 @@ def check_angle(rulings_path) -> dict:
         "inside your own scratch dir when it exists. A segment entry that is `skipped` "
         "(`segment-budget`) or `unparseable` was seen by no Strata finder: review, by "
         "yourself, every file in its `segment.files` (and the manifest's "
-        "`uncovered_files` in `segments-merged.json`)."
+        "`uncovered_files` in `segments-merged.json`). A segment entry whose "
+        "`skipped` is `retried` was split in two: its halves are `<name>a` and "
+        "`<name>b`, so judge those instead of the parent. A segment whose "
+        "telemetry outcome is "
+        "`partial` covers only the files its progress lines named, so its other "
+        "files are still yours to review. A segment whose telemetry outcome is "
+        "`capped` left nothing: re-cover it exactly like an `unparseable` one. "
+        "Whenever the round left any file uncovered, your own prompt lists every "
+        "one of those paths between the `uncovered-files` markers."
     )
     return {"name": CHECK_NAME, "prompt": prompt, "role": "confirmer", "model": "opus"}
 

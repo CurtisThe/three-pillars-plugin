@@ -179,3 +179,36 @@ def test_options_of_two_marker_families_are_not_one_run():
 def test_question_far_above_the_options_is_not_directly_above():
     msg = "Which option?\nHere is some context first.\n1. Rebase\n2. Merge\n"
     assert pq.question_text(msg) is None
+
+
+# -- the question block: the lines the seat classifier reads (design 1.4 B3) -------------
+
+
+def test_block_is_the_question_line_and_its_options_in_message_order():
+    assert pq.question_block(OPTIONS_UNDER_QUESTION) == (
+        "Which option?\n1. Rebase\n2. Merge\n3. Stop")
+
+
+def test_block_is_the_run_then_the_final_question_line():
+    assert pq.question_block(OPTIONS_THEN_QUESTION) == (
+        "1. Rebase\n2. Merge\nWhich do you want?")
+
+
+def test_block_keeps_an_option_continuation_line():
+    msg = "Which option?\n1. Rebase\n   keeps history\n2. Merge\n"
+    assert pq.question_block(msg) == "Which option?\n1. Rebase\nkeeps history\n2. Merge"
+
+
+def test_block_strips_bold_markup_like_the_summary():
+    assert pq.question_block(INCIDENT) == (
+        "Needs your decision: which base?\n1. main\n2. release")
+
+
+def test_block_bounds_by_the_same_tail_as_the_summary():
+    assert pq.question_block(OPTIONS_UNDER_QUESTION, tail=2) is None
+    assert pq.question_block(OPTIONS_UNDER_QUESTION, tail=16) is not None
+
+
+@pytest.mark.parametrize("message", [None, "", "\n\n  \n"])
+def test_block_of_empty_input_is_none(message):
+    assert pq.question_block(message) is None

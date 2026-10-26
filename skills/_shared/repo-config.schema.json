@@ -122,6 +122,11 @@
             "max_segments": {"type": "integer", "minimum": 1}
           }
         },
+        "strata_finder_lines_per_cap": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional cap on the size of a FIRST-ATTEMPT segment (design finder-cap-coverage). Set below `strata_finder_segment.max_lines`, no planned segment is larger than it unless it is one hunk, and a segment's deadline `fraction` is its lines over this figure. The engage threshold is unchanged (`max_lines`/`max_files`), so a diff under the limits is still not segmented. There is NO default: absent, invalid or at or above `max_lines`, sizing is unchanged. Set it from the segment telemetry in `segments-merged.json`, never by a skill."
+        },
         "living_doc_handres_preserves_approval": {
           "type": "boolean",
           "description": "Whether the living-doc hand-resolution carry (living_doc_carry.certify_link_carry) may certify a base-sync link without byte-exact reproduction. Default (absent) is true — default-ON, and only consulted when approval_survives_safe_base_sync is true. False ONLY on the literal boolean `false` (living_doc_carry.carry_livingdoc_handres_enabled): the operator's opt-out back to the strict byte-exact carry. Read from the COMMITTED HEAD via the gate's _load_repo_config, so it must be declared here or the schema prune drops it and the opt-out is silently ignored."

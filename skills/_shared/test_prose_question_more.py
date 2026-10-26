@@ -1,6 +1,8 @@
 """test_prose_question_more.py — bullet options under a marker; negated markers (check C2, C3).
 
-design: seat-escalate-first Phase 3 check. Pure strings; no I/O.
+design: seat-escalate-first Phase 3 check. Pure strings; no I/O. The `question_block` cases
+are the seat classifier's span (seat-scope-interactive-questions 1.4 B3): the same question
+line and option lines, as contiguous lines.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from prose_question import question_text  # noqa: E402
+from prose_question import question_block, question_text  # noqa: E402
 
 
 @pytest.mark.parametrize("message", [
@@ -37,12 +39,16 @@ def test_bullets_without_a_marker_line_are_not_a_question(message):
     assert question_text(message) is None
 
 
-@pytest.mark.parametrize("message", [
+NEGATED = [
     "None of these needs your decision:\n1. fixed X\n2. fixed Y\n",
     "Nothing here needs your decision:\n- fixed X\n- fixed Y\n",
     "This never needs your decision:\n1. a\n2. b\n",
     "No item needs your decision: which base?\n",
-], ids=["none-of", "nothing-here", "never", "no-item-last-line"])
+]
+
+
+@pytest.mark.parametrize("message", NEGATED,
+                         ids=["none-of", "nothing-here", "never", "no-item-last-line"])
 def test_a_negated_marker_is_not_a_question(message):
     assert question_text(message) is None
 
@@ -50,3 +56,24 @@ def test_a_negated_marker_is_not_a_question(message):
 def test_a_far_earlier_negation_does_not_hide_the_marker():
     message = "No fix worked after three tries, so this one needs your decision: which base?\n"
     assert question_text(message) is not None
+
+
+# -- the block of the same messages (seat-scope-interactive-questions 1.4 B3) -----------
+
+@pytest.mark.parametrize("message,block", [
+    ("Rebase failed on #337.\n\n**Needs your decision:** which base?\n- main\n- release\n",
+     "Needs your decision: which base?\n- main\n- release"),
+    ("Needs your decision:\n- Rebase\n- Merge", "Needs your decision:\n- Rebase\n- Merge"),
+], ids=["bold-marker-dash", "marker-line-dash"])
+def test_the_marker_bullet_block_is_the_marker_line_and_its_bullets(message, block):
+    assert question_block(message) == block
+
+
+@pytest.mark.parametrize("message", NEGATED,
+                         ids=["none-of", "nothing-here", "never", "no-item-last-line"])
+def test_a_negated_marker_has_no_block(message):
+    assert question_block(message) is None
+
+
+def test_a_bullet_block_under_a_plain_question_line_is_none():
+    assert question_block("Which option?\n- main\n- release\n") is None

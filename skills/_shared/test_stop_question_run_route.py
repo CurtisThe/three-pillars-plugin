@@ -14,7 +14,8 @@ _SHARED = Path(__file__).resolve().parent
 if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
-from test_stop_question_hook import DOC, RUN, SEAT, _base, _reason, _stop, _worktree  # noqa: E402
+from test_stop_question_hook import (  # noqa: E402
+    DOC, Q_DEMO, RUN, SEAT, _base, _reason, _stop, _worktree)
 
 
 def test_a_run_reason_names_the_ruling_cli_route_without_a_card(tmp_path):
@@ -28,7 +29,8 @@ def test_a_run_reason_names_the_ruling_cli_route_without_a_card(tmp_path):
 
 def test_the_seat_reason_still_names_tp_escalate_and_no_ruling_cli(tmp_path):
     base = _base(tmp_path)
-    out, rc = _stop(base, SEAT)
+    _worktree(tmp_path, base)  # run-bound: the question names the live run
+    out, rc = _stop(base, SEAT, Q_DEMO)
     assert rc == 0
     reason = _reason(out)
     assert "/tp-escalate" in reason

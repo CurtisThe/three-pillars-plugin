@@ -98,7 +98,7 @@ def test_reproduce_removes_every_exec_dir_of_the_round(tmp_path, made, capsys):
     assert (rd / "tail" / "findings.json").is_file()
     _write_env(rd)  # tail-check after the reap: an idempotent backstop
     assert rs.main(["tail-check", "--round-dir", str(rd)]) == 0
-    assert capsys.readouterr().out.strip() == json.dumps({"ok": True})
+    assert json.loads(capsys.readouterr().out.strip())["ok"] is True
 
 
 def test_launched_run_clean_round_scratch_check_passes(fx, made, monkeypatch, capsys):

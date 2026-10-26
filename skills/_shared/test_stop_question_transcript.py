@@ -29,7 +29,7 @@ def _run(tmp_path, *lines):
 
 def test_a_trailing_tool_use_line_does_not_hide_the_question_text(tmp_path):
     out, rc = _run(tmp_path, USER, _assistant(Q), TOOL_USE)
-    assert rc == 0 and "/tp-escalate" in out
+    assert rc == 0 and '"block"' in out
 
 
 def test_the_text_blocks_of_trailing_assistant_lines_are_joined(tmp_path):

@@ -117,10 +117,14 @@ def _cmd_remove(a) -> int:
 
 def _cmd_tail_check(a) -> int:
     failed = rs.tail_check(a.round_dir)
+    # Read the coverage line BEFORE the cleanup: a closing round's strip can remove
+    # the merged file the line reads (design finder-cap-coverage Task 1.13).
+    import finder_coverage  # noqa: PLC0415 — lazy: only `tail-check` prints the line
+    cov = None if failed else finder_coverage.coverage_line(a.round_dir)
     rs.cleanup_round(a.round_dir, strip=not failed and rs._closing(a.round_dir))
     if failed:
         return rs._refuse(failed)
-    print(json.dumps({"ok": True}))
+    print(json.dumps({"ok": True, "coverage": cov}))
     return 0
 
 

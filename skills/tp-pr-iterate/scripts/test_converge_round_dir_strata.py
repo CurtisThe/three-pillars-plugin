@@ -99,6 +99,22 @@ def test_marked_unparseable_finder_signs_and_digest_says_so(tmp_path, monkeypatc
     assert "prose only" in seen["texts"]  # every text reaches the proof unchanged
 
 
+def test_segmented_round_posts_its_coverage_figure(tmp_path, monkeypatch):
+    """The finish reads the merged file's coverage and posts it on the check label."""
+    r, m = _round(tmp_path, ["a", "b"])
+    _mutate(r, "a", segment={"angle": "a", "id": "s1", "files": ["a.py"], "lines": 100,
+                             "fraction": 0.5})
+    dest = r / "opus-check"
+    dest.mkdir(exist_ok=True)
+    (dest / "segments-merged.json").write_text(
+        json.dumps({"coverage": {"percent": 85}, "uncovered_files": []}), encoding="utf-8")
+    rc, _out, seen = _run(r, monkeypatch)
+    assert rc == 0
+    labels = dict(seen["label_counts"])
+    assert labels["opus-check[opus/confirmer] [coverage 85%]"] == 0
+    assert len(labels) == len(m["angles"])
+
+
 def test_skipped_entry_between_finders_keeps_counts_on_own_name(tmp_path, monkeypatch):
     r, _ = _round(tmp_path, ["a", "mid", "c"])
     _mutate(r, "mid", skipped="out-of-scope")

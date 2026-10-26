@@ -122,7 +122,11 @@ Per-agent caps are the loop's, not each agent's (D7, operator ruling 23: soft 15
 - Run **one** background watcher for the round:
   `agent_caps.py watch --slot-root <R>` — it prints `wrap-up` once at the soft cap (send the
   `wrap-up-message` text to that agent only) and `stop` at the hard cap (`TaskStop` that agent,
-  then `put-capped` keeping its partial).
+  then the cap step below).
+- **A segment finder's hard stop is followed by `finder_retry.py settle --round-dir <R> --angle <entry>
+  --capped`** (`strata-finders.md` §Large diffs). The `agent_caps.py put-capped` placeholder alone is never
+  a delivered reply, and a non-segment finder keeps `agent_caps.py put-capped`. Skip the cap step and the
+  segment merge settles that entry anyway.
 - A slot dispatched without a spawn record prints a loud `caps:` line — never silent
   non-enforcement.
 - **A capped reply is not evidence**: `evidence_complete.check` refuses completion when a required

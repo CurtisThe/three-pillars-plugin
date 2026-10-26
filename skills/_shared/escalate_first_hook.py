@@ -10,6 +10,11 @@ design: seat-escalate-first 2.2 — the seat (`seat_scope.is_seat`) is gated too
 needs a `seat-allow: <kind>` line, or a `ruling: <id>` naming an UNANSWERED `escalate`
 ruling of any slug whose question the card restates. A run's ruling is read from its
 `tp/<slug>` worktree when the seat root has none (fleet-seat-drive-gaps 1.7).
+
+design: seat-scope-interactive-questions 1.3 (B4) — a seat card is run-bound when its span
+(the question text, the header, every option label and description) carries a `ruling:` line
+or names a live run's slug (`seat_scope.run_named`); a run-bound card without a ruling is
+denied naming that run. Any other seat question is operator-direct and its card passes.
 """
 
 from __future__ import annotations
@@ -90,11 +95,23 @@ def _slug_of(rid) -> str:
     return rid[:-16]
 
 
+def _span(q) -> str:
+    """The card's span (B3): the question text, the header and every option's
+    label and description that are strings, joined with newlines."""
+    parts = [q.get("question"), q.get("header")]
+    for opt in q.get("options") or []:
+        if isinstance(opt, dict):
+            parts += [opt.get("label"), opt.get("description")]
+    return "\n".join(p for p in parts if isinstance(p, str))
+
+
 def _why(questions, root, slug) -> str:
     """Reason to deny, or "" when every question carries an escalate ruling.
 
     `slug=None` is the seat: an allow-listed card passes, any slug's ruling is accepted,
-    and the ruling must be unanswered and restated by the card (`_seat_why`).
+    and the ruling must be unanswered and restated by the card (`_seat_why`). A seat
+    question with no `ruling:` line is run-bound when its span (`_span`) names a live
+    run — denied — and operator-direct otherwise — it passes (B4).
     """
     for q in questions:
         text = q.get("question") if isinstance(q, dict) else None
@@ -104,6 +121,12 @@ def _why(questions, root, slug) -> str:
             continue
         m = _TAG.search(text)
         if not m:
+            if slug is None:
+                named = seat_scope.run_named(root, _span(q))
+                if not named:
+                    continue
+                return ("a question about live run " + named
+                        + " carries no `ruling: <id>` line")
             return "a question carries no `ruling: <id>` line"
         rid = m.group(1)
         path = ruling_file.find(root, rid)

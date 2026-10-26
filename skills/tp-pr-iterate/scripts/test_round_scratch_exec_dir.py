@@ -67,7 +67,9 @@ def test_tail_check_deletes_exec_dirs(tmp_path, made, capsys):
     rd = _prep(tmp_path / "proof", made)
     _write_env(rd)
     assert rs.main(["tail-check", "--round-dir", str(rd)]) == 0
-    assert capsys.readouterr().out.strip() == json.dumps({"ok": True})
+    # A prepared round runs the default (unsegmented) angles, so its line is the n/a form.
+    assert capsys.readouterr().out.strip() == json.dumps(
+        {"ok": True, "coverage": "coverage n/a (not segmented)"})
     assert not any(Path(d).exists() for d in made)
 
 
@@ -84,7 +86,8 @@ def test_deletion_failure_is_reported_and_round_does_not_fail(tmp_path, made, mo
         patched.setattr(rs.shutil, "rmtree", boom)
         assert rs.main(["tail-check", "--round-dir", str(rd)]) == 0
         cap = capsys.readouterr()
-        assert cap.out.strip() == json.dumps({"ok": True})
+        assert cap.out.strip() == json.dumps(
+            {"ok": True, "coverage": "coverage n/a (not segmented)"})
         assert "tp-angle-" in cap.err
         assert rs.cleanup_round(rd, strip=False)["exec_failed"]
 

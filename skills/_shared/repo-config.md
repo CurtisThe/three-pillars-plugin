@@ -43,6 +43,8 @@ The shape and constraints are defined by [`repo-config.schema.json`](repo-config
 
 Segments a large diff for Strata review finders (`skills/tp-pr-iterate/scripts/finder_segments.py`; `skills/tp-pr-iterate/strata-finders.md` §Large diffs). An object `{max_lines, max_files, max_segments}` (integers ≥ 1; defaults `600`, `10`, `4`) or the literal `false` to turn it off. A diff over `max_lines` changed lines or `max_files` files runs one Strata finder per segment; under the limits, or on Claude finders, behaviour is unchanged.
 
+**`review.strata_finder_lines_per_cap`** (integer ≥ 1, **no default**) caps the size of a *first-attempt* segment: set below `max_lines`, no planned segment is larger than the figure unless it is one hunk, and each segment's deadline `fraction` is its lines over the figure. The engage threshold stays `max_lines`/`max_files`, so a diff under the limits is still not segmented at any figure. Absent, invalid, or at or above `max_lines`, sizing is exactly today's. The key is **set from the telemetry** — the per-segment `lines`/`outcome` rows the round writes to `segments-merged.json` (`finder_segments.py merge`) — never defaulted by the framework, because a sizing change follows the data (design finder-cap-coverage).
+
 ### `review.approval_survives_safe_base_sync` + `review.base_sync_carry_max_chain`
 
 The **base-sync approval carry** (`approval-survives-safe-base-sync` design): whether an approval or proof-of-review digest anchored on a head *before* one or more mechanical base-sync merges is still trusted after the head has moved.

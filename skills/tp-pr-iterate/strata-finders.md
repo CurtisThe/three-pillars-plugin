@@ -53,19 +53,53 @@ The check angle is always in scope.
 
 A round-1 diff over `review.strata_finder_segment` (default 600 changed lines or 10 files) makes
 the round preparation (`finder_segments.apply_to_round`) replace each Strata finder with one finder per segment, `finder_segments.py`: entries
-`<angle>-s<k>` in `angles.json`, each with a `segment` block `{angle, id, of, files, fraction}`. A source
+`<angle>-s<k>` in `angles.json`, each with a `segment` block `{angle, id, of, files, fraction, lines, ranges, max_segments}`. A source
 file stays with its tests and the docs that cite it; one file over the limit is split at hunk
 boundaries. Each prompt names its segment's files (and new-side line range when split) plus a
 manifest of the whole change. At most 4 segments run per angle; the rest are `skipped: "segment-budget"`.
-Under the limits, on Sonnet finders, or with the key `false`, nothing changes.
+An optional `review.strata_finder_lines_per_cap` (beside the segment key) caps a first-attempt segment's
+lines below `max_lines`, and a segment's deadline `fraction` is its lines over that figure; absent or
+invalid, sizing is unchanged. Under the limits, on Sonnet finders, or with the key `false`, nothing changes.
 
 Run the segment entries through the serial loop below like any finder, one at a time. Poll each with
 `agent_caps.py check ... --scale <segment.fraction>`: the span axis shrinks with the segment's size (the
-role's cap stays the ceiling). A segment that gets no parseable reply goes through `mark-unparseable`
-for that segment only. Before dispatching the Opus check run
-`python3 <TP>/skills/tp-pr-iterate/scripts/finder_segments.py merge --round-dir <R>`: it writes
-`segments-merged.json` in the check's round subdir (findings deduped by file:line, plus `uncovered_files`), which the
-check reads, then re-reads every file of a skipped or unparseable segment itself.
+role's cap stays the ceiling). A segment prompt asks the finder to deliver partials as it goes: one
+`FINDING {json}` line per confirmed finding and one `FINDING {"progress": "<path>"}` line per finished
+file, in its own message text, plus any `agent_caps.py put-partial` sidecar it wrote. Both are untrusted:
+a line that is not a JSON object is skipped and counted, never fatal, and a path outside the segment never
+counts as covered.
+
+Settle each segment finder as it finishes — mechanically, never by hand:
+`python3 <TP>/skills/tp-pr-iterate/scripts/finder_retry.py settle --round-dir <R> --angle <entry> [--capped] [--elapsed <s>]`
+(pass `--capped` when the caps watch stopped that slot). It records one outcome — `delivered`,
+`partial`, `capped` or `unparseable` — with the files it covered and its elapsed time, and prints
+`{"outcome", "next", "covered_files"}`. Settle writes no new entry; act on its `next`:
+
+- `retry` (a capped first attempt, budget free): run
+  `python3 <TP>/skills/tp-pr-iterate/scripts/finder_retry.py retry --round-dir <R> --angle <entry>`. It
+  re-plans the segment once as two halves, `<entry>a` and `<entry>b`, under the parent's deadline and
+  marks the parent `skipped: "retried"` (telemetry `retried`). Run both halves through the serial loop
+  below like any segment finder (`agent_caps.py spawned` for each), then settle each. `retry` exits 2 on
+  anything but a capped, unmarked first attempt on Strata, so never run it on a delivered or partial
+  entry. A segment it cannot halve (one file, one hunk) prints `{"next": "sonnet"}`: take that as below.
+- `sonnet` (a capped half, or `retry`'s answer for an unsplittable segment): re-run that entry once on
+  Sonnet, logged with `--rung sonnet-xhigh --reason capped` and recorded with `agent_caps.py spawned`,
+  then settle it again. A cap there ends the entry `capped`; there is no third attempt.
+- `uncovered` or `none`: nothing more. An `uncovered` entry is already marked for the Opus check.
+
+The per-angle retry budget is the `max_segments` every segment block carries; past it settle and
+`retry` answer `uncovered` and the entry ends `capped`.
+
+Before dispatching the Opus check run
+`python3 <TP>/skills/tp-pr-iterate/scripts/finder_segments.py merge --round-dir <R>`: it runs the cap step
+itself (`settle --final`) for every segment entry the loop left unsettled, so an outcome never depends on
+what the driver did or skipped. A missing, empty or placeholder-only reply ends `partial` or `capped`; a
+non-empty reply that does not parse, from a finder the caps watch did not stop, ends `unparseable`
+(marked for the check, never retried). It then writes `segments-merged.json` in the check's round subdir — the merged
+findings deduped by file:line, `uncovered_files`, the round's `coverage` figure and the per-segment
+telemetry. The check reads that file and re-reads every file of a capped, partial or skipped segment
+itself. Segment entries are never marked by hand: the recovery from an `unparseable-review-angle` refusal
+on one is to run the merge.
 
 ## Serial finders
 
@@ -83,6 +117,11 @@ never the `-medium` ref — the same rule as `strata-members.md`, so Sonnet keep
 `decide <attempt> <served> review_finder`.
 Deliver each reply with `round_scratch.py put --round-dir <R> --slot <angle>`.
 
+Record every spawn so the caps watch can see it: `python3 <TP>/skills/_shared/agent_caps.py spawned
+--slot-root <R> --slot <entry> --agent-id <id> --started <iso>` for every segment finder, every half of a
+retried segment and every Sonnet re-run — the harvest reads a capped finder's transcript through that
+record's agent id, so a slot without one loses its partials.
+
 Act on `decide`. A finder reply that fails `parse_codereview_result` (prose, missing, or truncated)
 counts as fallback while respawns remain (at most 2).
 
@@ -92,9 +131,10 @@ counts as fallback while respawns remain (at most 2).
   reply stands and drives no respawn. Run
   `python3 <TP>/skills/tp-pr-iterate/scripts/finder_round.py mark-busy --round-dir <R> --angle <A>`
   so the escape ledger tags that finder's rows `served: "sonnet-busy"`.
-- **Unparseable at exhaustion**: not re-run on Opus. Run
+- **Unparseable at exhaustion** (a non-segment angle): not re-run on Opus. Run
   `python3 <TP>/skills/tp-pr-iterate/scripts/finder_round.py mark-unparseable --round-dir <R> --angle <A>`
-  before dispatching the check; that angle is re-covered by the Opus check. The per-angle Opus re-run applies
+  before dispatching the check; that angle is re-covered by the Opus check. A segment entry is never
+  marked by hand: settle it, and the merge settles any you left (§Large diffs). The per-angle Opus re-run applies
   only to a served-by fallback that `decide` does not accept.
 - `halt` (unhealthy slot) goes to the finalizer.
 
@@ -120,8 +160,10 @@ Each poll, run `python3 <TP>/skills/_shared/agent_caps.py check --role review_fi
 - **Soft cap** (`wrap-up`, with a `soft-cap: <role> <id>` line): log that one `soft-cap` note and shorten
   the next poll. Where the harness can message the running agent (`SendMessage`), send it one wrap-up line;
   otherwise the note alone.
-- **Hard cap** (`stop`): `child_spawn.py stop --state <state_path>` for a child spawn, else `TaskStop(<agent id>)`, then `agent_caps.py put-capped --reply-path <reply> --partial <file>`
-  (the partial reply, every finding marked `capped`), then `strata_spawn.py release <agent_id>` for an in-process spawn (`child_spawn.py stop` already released a child).
+- **Hard cap** (`stop`): `child_spawn.py stop --state <state_path>` for a child spawn, else `TaskStop(<agent id>)`, then for a segment entry `finder_retry.py settle --round-dir <R> --angle <entry> --capped`
+  (§Large diffs), then `strata_spawn.py release <agent_id>` for an in-process spawn (`child_spawn.py stop` already released a child). A non-segment finder keeps `agent_caps.py put-capped --reply-path <reply> --partial <file>`
+  (the partial reply, every finding marked `capped`).
+- **A `put-capped` placeholder alone is never a delivered reply** — settle reads it as a capped reply and harvests the partials. Skip the cap step and the merge settles that entry anyway (§Large diffs).
 - **Ledger row**: a capped agent's row has `kept: null`; the Opus check step back-fills it through `escape_ledger`.
 
 ## Tail

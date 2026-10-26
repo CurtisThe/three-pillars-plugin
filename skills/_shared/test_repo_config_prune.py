@@ -156,6 +156,16 @@ def test_integral_float_is_an_integer():
     assert got["review"]["base_sync_carry_max_chain"] == 6.0 and warns == []
 
 
+def test_real_schema_keeps_strata_finder_lines_per_cap():
+    """design: finder-cap-coverage 1.11 — the figure is a valid int, so prune keeps it."""
+    cfg = {"schema_version": 1, "review": {"strata_finder_lines_per_cap": 300}}
+    assert rcl.prune_invalid(dict(cfg), SCHEMA) == (cfg, [])
+    for bad in (0, True, "x"):
+        got, warns = rcl.prune_invalid(
+            {"schema_version": 1, "review": {"strata_finder_lines_per_cap": bad}}, SCHEMA)
+        assert got == {"schema_version": 1, "review": {}} and len(warns) == 1, bad
+
+
 def test_enum_and_const_compare_bool_to_bool_only():
     schema = {"type": "object", "properties": {"e": {"enum": [True]}, "c": {"const": False}}}
     got, warns = rcl.prune_invalid({"e": 1, "c": 0}, schema)

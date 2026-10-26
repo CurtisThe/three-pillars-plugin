@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import finder_round  # noqa: E402
+import finder_retry  # noqa: E402
 import finder_segments as fs  # noqa: E402
 
 CFG = {"max_lines": 600, "max_files": 10, "max_segments": 4}
@@ -191,6 +192,21 @@ def test_apply_to_round_expands_over_threshold_and_not_off_strata(monkeypatch):
     assert fs.apply_to_round(_angles(), {}, repo=".", base="B", head="H") == _angles()
 
 
+def test_apply_to_round_honours_the_lines_per_cap_figure(monkeypatch):
+    """design: finder-cap-coverage 1.11 — the figure caps every first-attempt segment."""
+    big = _diff(*[_file(f"m{i}.py", 100) for i in range(12)])
+    monkeypatch.setattr(fs, "whole_diff", lambda *a: big)
+    monkeypatch.setattr(fs, "_intent", lambda *a: "")
+    fig = {"review": {"strata_finder_lines_per_cap": 300}}
+    segs = [a for a in fs.apply_to_round(_angles(), fig, repo=".", base="B", head="H")
+            if a.get("segment")]
+    assert [a["name"] for a in segs] == [f"edge-s{k}" for k in range(1, 5)]
+    assert all(a["segment"]["fraction"] == 1.0 for a in segs)
+    plain = [a for a in fs.apply_to_round(_angles(), {}, repo=".", base="B", head="H")
+             if a.get("segment")]
+    assert [a["name"] for a in plain] == ["edge-s1", "edge-s2"]
+
+
 def test_parse_diff_counts_lines_that_look_like_headers():
     text = ("diff --git a/a.md b/a.md\n--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,2 @@\n"
             "----\n++x\n+new\ndiff --git a/b.py b/b.py\n--- a/b.py\n+++ b/b.py\n@@ -1 +1 @@\n-old\n")
@@ -226,6 +242,16 @@ def test_prompt_quotes_paths_and_split_file_counts_as_uncovered():
         {"name": "e-s2", "segment": {"angle": "e", "id": "s2", "files": ["big.py"]},
          "skipped": "segment-budget"}]}
     assert fs.uncovered_files(manifest) == ["big.py"]
+
+
+def test_settle_refuses_a_non_segment_angle(tmp_path):
+    """A settle call is only ever for a segment entry (design: finder-cap-coverage 1.3)."""
+    entry = {"name": "edge", "role": "finder", "model": "local", "advisory": True,
+             "reply_path": str(tmp_path / "edge" / "reply.md")}
+    (tmp_path / "edge").mkdir()
+    (tmp_path / "angles.json").write_text(json.dumps({"angles": [entry]}), encoding="utf-8")
+    assert finder_retry.main(["settle", "--round-dir", str(tmp_path), "--angle", "edge"]) == 2
+    assert json.loads((tmp_path / "angles.json").read_text(encoding="utf-8"))["angles"] == [entry]
 
 
 def test_header_tab_and_mixed_quoted_paths_decode_cleanly():

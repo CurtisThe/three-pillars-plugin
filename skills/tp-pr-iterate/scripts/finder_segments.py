@@ -175,7 +175,8 @@ def plan_segments(diff_text: str, cfg: dict) -> dict:
     """
     files = parse_diff(diff_text)
     total = sum(f["lines"] for f in files)
-    out = {"engaged": False, "lines": total, "files": len(files), "segments": []}
+    out = {"engaged": False, "lines": total, "files": len(files), "segments": [],
+           "max_segments": cfg["max_segments"]}
     if total <= cfg["max_lines"] and len(files) <= cfg["max_files"]:
         return out
     units = []
@@ -238,8 +239,12 @@ def expand_angles(entries: list, seg_plan: dict, *, base: str, head: str, whole:
             out.append(a)
             continue
         for seg in segs:
+            # `lines` feeds the telemetry rows; `ranges` bounds a retry's split of a
+            # hunk-range segment to its own hunks (finder_split.split_segment).
             meta = {"angle": a["name"], "id": seg["id"], "of": len(segs), "files": seg["files"],
-                    "fraction": seg["fraction"]}
+                    "fraction": seg["fraction"], "lines": seg.get("lines"),
+                    "ranges": list(seg["ranges"]) if seg.get("ranges") else None,
+                    "max_segments": seg_plan.get("max_segments", DEFAULTS["max_segments"])}
             e = {**a, "name": f"{a['name']}-{seg['id']}", "segment": meta}
             if seg["status"] == "run":
                 e["prompt"] = segment_prompt(a["prompt"], seg, n=len(segs), base=base, head=head,
@@ -310,8 +315,10 @@ def apply_to_round(entries, config, *, repo, base, head) -> list:
     cfg = settings(config)
     if cfg is None or not any(_is_strata_finder(a) for a in entries):
         return entries
+    import finder_coverage  # noqa: PLC0415 — lazy: the two modules import each other
+
     diff = whole_diff(repo, base, head)
-    seg_plan = plan_segments(diff, cfg)
+    seg_plan = finder_coverage.plan_for_round(diff, cfg, config)
     if not seg_plan["engaged"]:
         return entries
     return expand_angles(entries, seg_plan, base=base, head=head,
@@ -319,29 +326,8 @@ def apply_to_round(entries, config, *, repo, base, head) -> list:
 
 
 def _cmd_merge(args) -> int:
-    from review_merge import parse_codereview_result  # noqa: PLC0415 — lazy, CLI only
-    rd = Path(args.round_dir)
-    try:
-        manifest = json.loads((rd / "angles.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        print(f"finder_segments: cannot read manifest: {exc}", file=sys.stderr)
-        return 2
-    replies = {}
-    for e in manifest.get("angles") or ():
-        if e.get("segment") and not e.get("skipped"):
-            try:
-                text = (rd / e["name"] / "reply.md").read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            findings = parse_codereview_result(text)[0]
-            replies[e["name"]] = findings if isinstance(findings, list) else []
-    out = {"merged": merge_segment_replies(manifest, replies),
-           "uncovered_files": uncovered_files(manifest)}
-    dest = rd / "opus-check"
-    dest.mkdir(exist_ok=True)
-    (dest / MERGED).write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"wrote": str(dest / MERGED), "uncovered": len(out["uncovered_files"])}))
-    return 0
+    import finder_coverage  # noqa: PLC0415 — lazy: the two modules import each other
+    return finder_coverage.cmd_merge(args)
 
 
 def main(argv=None) -> int:

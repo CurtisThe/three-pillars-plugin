@@ -27,6 +27,7 @@ import seat_scope  # noqa: E402
 ROLE = {"CLAUDE_LAUNCHER_ROLE": "seat"}
 RUN_ROLE = {"CLAUDE_LAUNCHER_ROLE": "seat", "TP_DESIGN_RUN": "1"}
 QUESTION = "Which rung owns the retry?"
+Q_DEMO = "Which rung owns the retry for demo?"  # names the live `tp/demo` run (B3)
 ANSWER = ["answer", "--choice", "Option a (Recommended)", "--text", "why"]
 
 
@@ -98,11 +99,9 @@ def _cli(monkeypatch, base, *argv):
 
 def test_untagged_seat_card_is_denied_naming_tp_escalate(tmp_path):
     base = _base(tmp_path)
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    # The role alone makes a seat: base checkout, linked worktree, or non-repo dir.
-    for cwd in (base, _worktree(tmp_path, base), outside):
-        out, rc = _run(cwd, ROLE, QUESTION)
+    # A seat card is denied only when its span names a live run (B4): base and worktree.
+    for cwd in (base, _worktree(tmp_path, base)):
+        out, rc = _run(cwd, ROLE, Q_DEMO)
         assert rc == 0
         assert out, "seat-role card must be denied through /tp-escalate in %s" % cwd
         reason = _reason(out)
@@ -189,8 +188,9 @@ def test_a_ruling_with_no_file_is_denied(tmp_path):
 
 def test_a_second_untagged_question_denies_the_whole_card(tmp_path):
     base = _base(tmp_path)
+    _worktree(tmp_path, base)
     rid = _ruling(base)
-    out, rc = _run(base, ROLE, _card(rid), "And the second?")
+    out, rc = _run(base, ROLE, _card(rid), Q_DEMO)
     assert rc == 0
     assert "/tp-escalate" in _reason(out)
 
@@ -204,7 +204,8 @@ def test_an_allow_listed_card_passes_without_a_ruling(tmp_path):
 
 def test_an_unknown_allow_kind_is_not_a_pass(tmp_path):
     base = _base(tmp_path)
-    out, rc = _run(base, ROLE, "Restore which?\nseat-allow: bogus")
+    _worktree(tmp_path, base)
+    out, rc = _run(base, ROLE, "Restore which for demo?\nseat-allow: bogus")
     assert rc == 0
     assert "/tp-escalate" in _reason(out)
 
@@ -220,7 +221,7 @@ def test_every_audited_kind_passes(tmp_path, kind):
 def test_base_checkout_with_a_live_orchestrator_run_is_gated_without_the_role(tmp_path):
     base = _base(tmp_path)
     _worktree(tmp_path, base)
-    out, rc = _run(base, {}, QUESTION)
+    out, rc = _run(base, {}, Q_DEMO)  # still denied through fallback rule 3
     assert rc == 0
     assert "/tp-escalate" in _reason(out)
 

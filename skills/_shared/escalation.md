@@ -198,7 +198,9 @@ python3 "$TP_ROOT"/skills/_shared/finalizer_cli.py apply --stop stop.json \
 
 A conflicted merge is never a `decision`: `--kind base-sync-hunk` for a deferred living-doc hunk,
 `--kind scope-growth` for a code conflict (`scope-growth` operator-only; `base-sync-hunk` Fable-first).
-`--scope seat` is for a question with no design of its own. `seat_brief.py build` adds the fleet
+`--scope seat` is for a question with no design of its own. A seat question that names no live
+run and carries no `ruling:` line is operator-direct (§Hook): ask it with a card; `--scope seat`
+stays available when a Fable opinion helps. `seat_brief.py build` adds the fleet
 context to the stop — the in-flight registry, the orchestration handoff, and the run's newest
 ruling, read from the run's worktree or from `tp/<slug>`, never from this checkout.
 
@@ -267,8 +269,11 @@ on a launcher without the `run` role carries `CLAUDE_LAUNCHER_ROLE=seat` and kee
 Otherwise a session is a seat when `CLAUDE_LAUNCHER_ROLE=seat`, or when its cwd is the base checkout
 on the default branch and a `tp/*` design worktree holds a **live** run (its `lock.json`, in
 `tp-designs/` or `completed-tp-designs/`, has an `owner` starting `orchestrator:`; a human-owned or
-released design is not). A seat card is denied unless it carries a `seat-allow: <kind>` line
-or a `ruling: <id>` line naming an existing `escalate` ruling that is **unanswered** and whose
+released design is not). A seat question is **run-bound** when it carries a `ruling: <id>` line
+or names a live run's slug (whole token, any case) in its question, header or options (prose:
+the question line and its options); any other seat question is **operator-direct** and its card
+passes. A run-bound card is denied unless it carries a `seat-allow: <kind>` line or a
+`ruling: <id>` line naming an existing `escalate` ruling that is **unanswered** and whose
 question the card restates. "Answered" is `ruling_file.answer_of`: the label of the last
 `- YYYY-MM-DD: answer: <label>` feedback line, so a spent ruling clears no second card. The
 denial names `/tp-escalate`: run it from the base checkout, and ask with its card.
@@ -290,8 +295,8 @@ gate). Put the tag on a line of its own:
 These prompts are **deliberately not tagged**: the interactive design skills (`/tp-design`,
 `/tp-spike`, `/tp-spike-auto` Phase 1, `/tp-task-cycle`), `read-project-docs.md`'s vision-conflict
 ask, and the "stop and ask" lines of `/tp-design-release`, `/tp-revert` and `/tp-design-complete`.
-In a seat-role session they are decisions: go through `/tp-escalate`, or run them from a
-non-seat session.
+In a seat session they pass as operator-direct cards unless they name a live run; then they go
+through `/tp-escalate`.
 
 **A question asked as prose.** `skills/_shared/stop_question_hook.py` is a `Stop` entry (no
 matcher) in the same manifest: a card gate cannot see prose. When a turn ends it reads
@@ -299,8 +304,9 @@ matcher) in the same manifest: a card gate cannot see prose. When a turn ends it
 `skills/_shared/prose_question.py` whether the message ends in a question for the operator: a
 "Needs your decision" line, or a numbered or lettered options run beside a question line. If it
 does and the session is gated (a run past `design`, or the seat, by the rules above) the hook
-returns one `{"decision": "block", "reason": ...}`: a run is pointed at §Run, the seat at
-`/tp-escalate` from the base checkout. It returns nothing when `stop_hook_active` is true (one
+returns one `{"decision": "block", "reason": ...}`: a run is pointed at §Run; a seat's
+run-bound question at `/tp-escalate` from the base checkout; a seat's operator-direct question
+at an `AskUserQuestion` card. It returns nothing when `stop_hook_active` is true (one
 block per turn), for a message carrying an allowed `seat-allow: <kind>` line, in an ungated
 session, in a `claude -p` child (`TP_CHILD_SESSION=1`) and on any error (fail-open, exit 0). It
 nudges once; it is not a hard wall. Check the registration with:

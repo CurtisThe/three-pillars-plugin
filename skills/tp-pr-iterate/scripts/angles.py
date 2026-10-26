@@ -27,6 +27,7 @@ if str(_SHARED) not in sys.path:
     sys.path.insert(0, str(_SHARED))
 
 import agent_caps  # noqa: E402
+import finder_coverage  # noqa: E402
 import finding_fields  # noqa: E402
 import local_backend  # noqa: E402
 import model_policy  # noqa: E402
@@ -228,24 +229,19 @@ def confirmer_ran(manifest: dict, round_dir=None) -> bool:
     return False
 
 
-def digest_labels(manifest: dict, counts: dict) -> list[tuple[str, int]]:
+def digest_labels(manifest: dict, counts: dict, coverage=None) -> list[tuple[str, int]]:
     """`[("name[model/role]", count), ...]` so the proof digest records each tier.
 
-    A skipped local finder renders its label with a `[skipped: no local backend]`
-    suffix so the digest shows it was not dispatched.
+    Each label gains its `finder_coverage.label_suffix` (a skip or a capped, partial or
+    unparseable segment says so). `coverage` is the round's coverage line
+    (`finder_coverage.coverage_line`), appended to the `opus-check` label: never a label of
+    its own, so the count is the manifest's angle count. `None` posts today's labels.
     """
     out = []
     for e in manifest.get("angles") or ():
-        label = f"{e['name']}[{e['model']}/{e['role']}]"
-        skipped = e.get("skipped")
-        if skipped == "out-of-scope":
-            label += " [not run: out of scope]"
-        elif skipped == "segment-budget":
-            label += " [skipped: segment budget]"
-        elif skipped:
-            label += " [skipped: no local backend]"
-        if e.get("unparseable") == "re-covered-by-opus-check":
-            label += " [unparseable: re-covered by opus-check]"
+        label = f"{e['name']}[{e['model']}/{e['role']}]" + finder_coverage.label_suffix(e)
+        if coverage and e["name"] == "opus-check":
+            label += f" [{coverage}]"
         out.append((label, int(counts.get(e["name"], 0))))
     return out
 
@@ -310,6 +306,9 @@ def build_prompt(angle: dict, *, base: str, head: str, effort: str, reply_path: 
         '{"angle","findings","blocking","reply_path"} as JSON '
         f'(angle="{angle["name"]}", reply_path="{reply_path}", findings and blocking are '
         "counts).")
+    note = finder_coverage.partial_note(angle)
+    if note:
+        prompt += "\n\n" + note
     if angle.get("role") == "finder":
         prompt += "\n\n" + agent_caps.BUDGET_LINE
     return prompt

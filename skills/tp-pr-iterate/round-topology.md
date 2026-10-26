@@ -153,7 +153,9 @@ its owner), and only after `two-stable`: kept dirs let a re-run derive a fresh o
       and returns it, copying `finalizer_stop` verbatim from the `run_round` / `converge` output
       (`null` when absent).
 4. **Orchestrator.** `round_scratch.py tail-check --round-dir R`, which exits 2 with
-   `tail-failed` when the envelope is missing or invalid. A **terminal-null** `finalizer_stop` with
+   `tail-failed` when the envelope is missing or invalid. Its ok payload carries the round's
+   `coverage` line; the orchestrator's posted round summary carries that line verbatim
+   (`strata-finders.md` §Large diffs). A **terminal-null** `finalizer_stop` with
    `source: question` (the review stop) goes to §Review stop and never starts the next round.
    On `rerun-review` it runs the round again
    (step 1 makes `r<N>.1`). A `round-cap` stop is first piped through
