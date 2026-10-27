@@ -23,7 +23,7 @@ Comprehensive review of a completed implementation against both design documents
 ### 0. Preflight
 Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "implementation-audit"`. This verifies the branch and refreshes the lock so the final audit artifact is written by the rightful owner. Honor `--force-takeover` if passed.
 
-### 0b. Repo-map preamble (optional)
+### 0b. Repo-map preamble (required when aider is on PATH)
 Per `skills/_shared/repo-map-preamble.md`. If `aider` is on PATH, generate a structural map of the codebase before walking design vs. implementation. Use it to focus interface-fidelity checks in Step 3 on files PageRank surfaces as load-bearing.
 
 ### 1. Load all design artifacts

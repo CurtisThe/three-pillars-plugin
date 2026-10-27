@@ -1,12 +1,14 @@
-# Repo Map Preamble (optional)
+# Repo Map Preamble
 
-Optional preamble for skills that benefit from up-front structural context about the codebase being designed for. Reduces token consumption ~15–42% by replacing exploratory Read/Grep/Glob turns with a pre-computed PageRank summary of file and symbol structure.
+Required preamble, whenever `aider` is on PATH, for skills that benefit from up-front structural context about the codebase being designed for. Reduces token consumption ~15–42% by replacing exploratory Read/Grep/Glob turns with a pre-computed PageRank summary of file and symbol structure.
 
 ## When to call this preamble
 
 **Call from**: design and audit skills that need awareness of the user's codebase as a whole — `tp-design`, `tp-design-detail`, `tp-design-audit`, `tp-implementation-audit`.
 
 **Do NOT call from**: implementation skills (`tp-phase-implement`, `tp-task-cycle`), planning skills whose primary input is `design.md` not the codebase (`tp-plan`, `tp-spike-plan`), or skills that touch the codebase trivially or not at all (`tp-setup`, `tp-design-release`, commit/lock-management).
+
+**Required, in every mode.** Run it in interactive and `--auto` runs alike; it is never skipped as "optional". A skip is allowed only when aider is absent or the map comes back empty, and every skip prints one line, `repo-map: skipped (<reason>)` (in `--auto`, also logged to `decisions.md`). A silent skip is a bug.
 
 Position the call **after the lock preflight** and **before** any "read project docs" / "explore codebase" steps, so the map informs both.
 
@@ -20,14 +22,18 @@ if ! command -v aider >/dev/null 2>&1; then
 fi
 ```
 
-If aider is absent, set `REPO_MAP=""` and continue the skill normally. Do **not** prompt the user. If exploration during the skill turns out to be expensive (many Reads/Greps), mention it once at the end: *"(Tip: `pipx install aider-chat` would let me skip a lot of file-reading next time.)"*
+If aider is absent, set `REPO_MAP=""`, print `repo-map: skipped (no aider)`, and continue the skill normally. Do **not** prompt the user. If exploration during the skill turns out to be expensive (many Reads/Greps), mention it once at the end: *"(Tip: `pipx install aider-chat` would let me skip a lot of file-reading next time.)"*
 
 ### Step 2 — Generate the map (if aider available)
 
 ```bash
-REPO_MAP=$(BROWSER=true aider --show-repo-map --model gpt-4o --yes --no-check-update --no-show-release-notes 2>/dev/null \
+EXCL="$(git rev-parse --git-common-dir)/info/exclude"
+grep -qxF '.aider*' "$EXCL" 2>/dev/null || echo '.aider*' >> "$EXCL"
+REPO_MAP=$(BROWSER=true aider --show-repo-map --model gpt-4o --yes --no-gitignore --no-check-update --no-show-release-notes 2>/dev/null \
   | sed -n '/^Here are summaries/,$p')
 ```
+
+**Why `--no-gitignore` and `info/exclude`:** without `--no-gitignore`, aider appends `.aider*` to the repo's `.gitignore`, an edit to a consumer repo nobody asked for. With it, aider's chat history and tags cache (`.aider.chat.history.md`, `.aider.tags.cache.v4/`) would show as untracked files. The `info/exclude` line hides them locally: it is never committed and is shared by every worktree of the repo.
 
 The `sed -n '/^Here are summaries/,$p'` strips aider's startup chatter (gitignore mutations, model warnings, optional network errors) and keeps only the map proper. The first kept line is aider's instruction header, which is useful context for the model.
 
@@ -68,7 +74,7 @@ If `$REPO_MAP` is non-empty and over ~500 bytes, treat it as additional internal
 - When making architectural recommendations, ground them in the symbols visible in the map (class names, function signatures)
 - When the design or audit needs to name concrete file paths or interfaces, prefer ones the map confirms exist
 
-If the map is empty or below ~500 bytes (small repo, parse error, fallback case), proceed without it — do not retry, do not block.
+If the map is empty or below ~500 bytes (small repo, parse error, fallback case), print `repo-map: skipped (empty map)` and proceed without it — do not retry, do not block.
 
 ### Step 4 — Don't leak the map into artifacts
 
@@ -76,7 +82,7 @@ The map is **internal context**, not user-visible documentation. Never paste it 
 
 ## Properties
 
-- **Optional**: zero overhead when aider is absent
+- **Skip-safe**: zero overhead when aider is absent, and the skip is always logged
 - **Self-caching**: aider's mtime-keyed tag cache; no skill-side invalidation
 - **Idempotent**: safe to call from any qualifying skill; no global state mutation beyond the cache directory
 - **Per-worktree**: each worktree has its own cache, no cross-contamination

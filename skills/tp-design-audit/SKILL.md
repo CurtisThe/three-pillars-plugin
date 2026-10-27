@@ -21,7 +21,7 @@ Thorough multi-angle review of a detailed design against the actual codebase. Ca
 ### 0. Preflight
 Run the collaboration preflight per `skills/_shared/collaboration.md` with `phase: "design-audit"`. The audit may update `detailed-design.md` and `plan.md` in Step 8 — the lock ensures those edits come from the rightful owner. Honor `--force-takeover` if passed.
 
-### 0b. Repo-map preamble (optional)
+### 0b. Repo-map preamble (required when aider is on PATH)
 Per `skills/_shared/repo-map-preamble.md`. If `aider` is on PATH, generate a structural map of the codebase before audit. Use it to focus the parallel exploration agents in Step 2 — verifying interfaces against files PageRank confirms exist is faster than launching agents blind.
 
 ### 1. Load design artifacts

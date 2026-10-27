@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-10-27
+
+The repo map runs whenever aider is present, and the Windows workstation setup tunes WSL for parallel design runs.
+
+### Changed
+
+- **The aider repo map is required when aider is present** — `/tp-design`, `/tp-design-detail`, `/tp-design-audit` and `/tp-implementation-audit` run it in every mode, `--auto` included, and log every skip. It no longer edits a repo's `.gitignore` or leaves untracked aider files. (#413)
+- **Windows workstation setup (pro)** — Stage 0 now updates WSL and writes `%UserProfile%\.wslconfig` once, sized at 75% of RAM with at least 4 GB left for Windows, with idle memory handed back and a shrinking Linux disk file. An existing file is never changed. The doctor adds WSL memory, systemd and cgroup memory-cap checks, and the plan check covers organization (Team or Enterprise) seats.
+
 ## [2.8.1] - 2026-10-26
 
 Review finders that hit their time cap no longer drop coverage silently, seat-scoped interactive questions, and release fixes.
